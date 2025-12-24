@@ -1,17 +1,39 @@
 import React from 'react';
-import chalk from 'chalk';
 import test from 'ava';
 import {render} from 'ink-testing-library';
-import App from './source/app.js';
+import OutputArea from './dist/components/OutputArea.js';
+import StatusBar from './dist/components/StatusBar.js';
 
-test('greet unknown user', t => {
-	const {lastFrame} = render(<App name={undefined} />);
-
-	t.is(lastFrame(), `Hello, ${chalk.green('Stranger')}`);
+test('OutputArea shows welcome message when empty', t => {
+	const {lastFrame} = render(<OutputArea items={[]} />);
+	const frame = lastFrame();
+	t.true(frame?.includes('Welcome to VibeRAG'));
 });
 
-test('greet user with a name', t => {
-	const {lastFrame} = render(<App name="Jane" />);
+test('OutputArea shows user messages', t => {
+	const items = [{id: '1', type: 'user' as const, content: 'Hello world'}];
+	const {lastFrame} = render(<OutputArea items={items} />);
+	const frame = lastFrame();
+	t.true(frame?.includes('Hello world'));
+});
 
-	t.is(lastFrame(), `Hello, ${chalk.green('Jane')}`);
+test('OutputArea shows system messages', t => {
+	const items = [{id: '1', type: 'system' as const, content: 'Echo: test'}];
+	const {lastFrame} = render(<OutputArea items={items} />);
+	const frame = lastFrame();
+	t.true(frame?.includes('Echo: test'));
+});
+
+test('StatusBar shows message when provided', t => {
+	const {lastFrame} = render(
+		<StatusBar message="Press Ctrl+C again to quit" />,
+	);
+	const frame = lastFrame();
+	t.true(frame?.includes('Press Ctrl+C again to quit'));
+});
+
+test('StatusBar renders nothing when no message', t => {
+	const {lastFrame} = render(<StatusBar message="" />);
+	const frame = lastFrame();
+	t.is(frame, '');
 });
