@@ -7,6 +7,7 @@ import WelcomeBanner from './components/WelcomeBanner.js';
 import {useCtrlC} from './hooks/useCtrlC.js';
 import {useCommands} from './hooks/useCommands.js';
 import {useCommandHistory} from './hooks/useCommandHistory.js';
+import {setupVSCodeTerminal} from './commands/terminalSetup.js';
 import type {OutputItem} from './types.js';
 
 const require = createRequire(import.meta.url);
@@ -14,7 +15,7 @@ const require = createRequire(import.meta.url);
 const {version} = require('../package.json') as {version: string};
 
 // Available slash commands for autocomplete
-const COMMANDS = ['/help', '/clear', '/quit', '/exit', '/q'];
+const COMMANDS = ['/help', '/clear', '/terminal-setup', '/quit', '/exit', '/q'];
 
 // Module-level counter for unique IDs
 let nextId = 0;
@@ -56,17 +57,27 @@ export default function App() {
 			addOutput(
 				'system',
 				`Available commands:
-  /help  - Show this help message
-  /clear - Clear the screen
-  /quit  - Exit the application
+  /help           - Show this help message
+  /clear          - Clear the screen
+  /terminal-setup - Configure VS Code for Shift+Enter
+  /quit           - Exit the application
 
-Tips:
-  - Press Enter to submit
-  - Press Shift+Enter for a new line
+Multi-line input (any of these work):
+  \\ + Enter      - Works everywhere
+  Shift+Enter     - Works after /terminal-setup or in Kitty
+  Option+Enter    - Works in most terminals
+  Ctrl+J          - Works everywhere
+
+Other tips:
   - Press Ctrl+C to clear input, or twice to quit
   - Press Escape to clear input
   - Up/Down arrows for command history`,
 			);
+		},
+		onTerminalSetup: () => {
+			setupVSCodeTerminal()
+				.then(result => addOutput('system', result))
+				.catch(err => addOutput('system', `Error: ${err.message}`));
 		},
 		onUnknown: command => {
 			addOutput(

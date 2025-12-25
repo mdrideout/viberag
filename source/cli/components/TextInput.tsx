@@ -31,6 +31,7 @@ export default function TextInput({
 		insertChar,
 		insertNewline,
 		deleteChar,
+		deleteCharBefore,
 		moveCursor,
 		clear,
 		setText,
@@ -65,6 +66,18 @@ export default function TextInput({
 			return;
 		}
 
+		// Ctrl+J - universal newline (raw LF character, ASCII 10)
+		// In terminals, Ctrl+J sends '\n' directly, not 'j' with ctrl modifier
+		// Only catch this if key.return is NOT set (to avoid interfering with Enter key)
+		if (
+			(key.ctrl && input === 'j') ||
+			((input === '\n' || input === '\x0a') && !key.return)
+		) {
+			insertNewline();
+			setSelectedSuggestionIndex(0);
+			return;
+		}
+
 		// Tab - accept suggestion
 		if (key.tab && suggestionsVisible) {
 			const selected = suggestions[selectedSuggestionIndex];
@@ -75,8 +88,20 @@ export default function TextInput({
 			return;
 		}
 
-		// Submit on Enter (without shift)
-		if (key.return && !key.shift) {
+		// Submit on Enter (without shift) - but check for backslash first
+		if (key.return && !key.shift && !key.meta) {
+			// Method 1: Backslash + Enter (universal newline)
+			const currentLine = state.lines[state.cursorLine] ?? '';
+			const charBeforeCursor = currentLine[state.cursorCol - 1];
+
+			if (charBeforeCursor === '\\') {
+				// Remove backslash and insert newline
+				deleteCharBefore();
+				insertNewline();
+				setSelectedSuggestionIndex(0);
+				return;
+			}
+
 			let text = getText();
 
 			// If suggestions visible, complete AND submit in one action
@@ -96,9 +121,17 @@ export default function TextInput({
 			return;
 		}
 
-		// Shift+Enter for newline
+		// Method 2: Shift+Enter for newline (Kitty terminals)
 		if (key.return && key.shift) {
 			insertNewline();
+			setSelectedSuggestionIndex(0);
+			return;
+		}
+
+		// Method 4: Alt/Option+Enter for newline (most terminals)
+		if (key.return && key.meta) {
+			insertNewline();
+			setSelectedSuggestionIndex(0);
 			return;
 		}
 
@@ -173,8 +206,8 @@ export default function TextInput({
 			return;
 		}
 
-		// Regular character input (ignore control sequences)
-		if (input && !key.ctrl && !key.meta) {
+		// Regular character input (ignore control sequences and newlines)
+		if (input && !key.ctrl && !key.meta && input !== '\n' && input !== '\r') {
 			insertChar(input);
 			setSelectedSuggestionIndex(0);
 		}

@@ -4,10 +4,16 @@ import {useApp} from 'ink';
 type CommandHandlers = {
 	onClear: () => void;
 	onHelp: () => void;
+	onTerminalSetup: () => void;
 	onUnknown: (command: string) => void;
 };
 
-export function useCommands({onClear, onHelp, onUnknown}: CommandHandlers) {
+export function useCommands({
+	onClear,
+	onHelp,
+	onTerminalSetup,
+	onUnknown,
+}: CommandHandlers) {
 	const {exit} = useApp();
 
 	const isCommand = useCallback((text: string): boolean => {
@@ -25,6 +31,9 @@ export function useCommands({onClear, onHelp, onUnknown}: CommandHandlers) {
 				case '/clear':
 					onClear();
 					break;
+				case '/terminal-setup':
+					onTerminalSetup();
+					break;
 				case '/quit':
 				case '/exit':
 				case '/q':
@@ -35,7 +44,7 @@ export function useCommands({onClear, onHelp, onUnknown}: CommandHandlers) {
 					break;
 			}
 		},
-		[exit, onClear, onHelp, onUnknown],
+		[exit, onClear, onHelp, onTerminalSetup, onUnknown],
 	);
 
 	return {isCommand, executeCommand};

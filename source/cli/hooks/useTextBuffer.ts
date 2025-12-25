@@ -70,6 +70,23 @@ export function useTextBuffer() {
 		});
 	}, []);
 
+	// Delete single character before cursor (for backslash+enter handling)
+	const deleteCharBefore = useCallback(() => {
+		setState(prev => {
+			if (prev.cursorCol === 0) return prev; // Nothing before cursor on this line
+
+			const newLines = [...prev.lines];
+			const line = newLines[prev.cursorLine] ?? '';
+			newLines[prev.cursorLine] =
+				line.slice(0, prev.cursorCol - 1) + line.slice(prev.cursorCol);
+			return {
+				...prev,
+				lines: newLines,
+				cursorCol: prev.cursorCol - 1,
+			};
+		});
+	}, []);
+
 	const moveCursor = useCallback(
 		(direction: 'left' | 'right' | 'up' | 'down') => {
 			setState(prev => {
@@ -155,6 +172,7 @@ export function useTextBuffer() {
 		insertChar,
 		insertNewline,
 		deleteChar,
+		deleteCharBefore,
 		moveCursor,
 		clear,
 		setText,
