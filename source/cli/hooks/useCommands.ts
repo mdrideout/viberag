@@ -5,6 +5,7 @@ type CommandHandlers = {
 	onClear: () => void;
 	onHelp: () => void;
 	onTerminalSetup: () => void;
+	onNewlineHelp: () => void;
 	onUnknown: (command: string) => void;
 };
 
@@ -12,6 +13,7 @@ export function useCommands({
 	onClear,
 	onHelp,
 	onTerminalSetup,
+	onNewlineHelp,
 	onUnknown,
 }: CommandHandlers) {
 	const {exit} = useApp();
@@ -34,6 +36,9 @@ export function useCommands({
 				case '/terminal-setup':
 					onTerminalSetup();
 					break;
+				case '/newline-help':
+					onNewlineHelp();
+					break;
 				case '/quit':
 				case '/exit':
 				case '/q':
@@ -44,7 +49,7 @@ export function useCommands({
 					break;
 			}
 		},
-		[exit, onClear, onHelp, onTerminalSetup, onUnknown],
+		[exit, onClear, onHelp, onTerminalSetup, onNewlineHelp, onUnknown],
 	);
 
 	return {isCommand, executeCommand};

@@ -15,7 +15,15 @@ const require = createRequire(import.meta.url);
 const {version} = require('../package.json') as {version: string};
 
 // Available slash commands for autocomplete
-const COMMANDS = ['/help', '/clear', '/terminal-setup', '/quit', '/exit', '/q'];
+const COMMANDS = [
+	'/help',
+	'/clear',
+	'/terminal-setup',
+	'/newline-help',
+	'/quit',
+	'/exit',
+	'/q',
+];
 
 // Module-level counter for unique IDs
 let nextId = 0;
@@ -78,6 +86,21 @@ Other tips:
 			setupVSCodeTerminal()
 				.then(result => addOutput('system', result))
 				.catch(err => addOutput('system', `Error: ${err.message}`));
+		},
+		onNewlineHelp: () => {
+			addOutput(
+				'system',
+				`Multi-line Input Methods:
+
+| Method         | Works In                              |
+|----------------|---------------------------------------|
+| \\ then Enter   | All terminals                         |
+| Ctrl+J         | All terminals                         |
+| Option+Enter   | Most terminals                        |
+| Shift+Enter    | Requires /terminal-setup              |
+
+Note: Run /terminal-setup to configure your terminal for Shift+Enter support.`,
+			);
 		},
 		onUnknown: command => {
 			addOutput(

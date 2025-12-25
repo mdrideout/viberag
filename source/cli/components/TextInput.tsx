@@ -1,4 +1,4 @@
-import React, {useState, useMemo} from 'react';
+import React, {useState, useMemo, useRef} from 'react';
 import {Box, Text, useInput} from 'ink';
 import {useTextBuffer} from '../hooks/useTextBuffer.js';
 import CommandSuggestions from './CommandSuggestions.js';
@@ -41,6 +41,10 @@ export default function TextInput({
 
 	const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(0);
 
+	// Track ESC key timing for ESC+Enter newline detection
+	// (used by /terminal-setup which sends \u001b\r for Shift+Enter)
+	const escPressedTimeRef = useRef<number>(0);
+
 	// Filter commands based on current input
 	const currentText = getText();
 	const suggestions = useMemo(
@@ -66,13 +70,35 @@ export default function TextInput({
 			return;
 		}
 
-		// Ctrl+J - universal newline (raw LF character, ASCII 10)
-		// In terminals, Ctrl+J sends '\n' directly, not 'j' with ctrl modifier
-		// Only catch this if key.return is NOT set (to avoid interfering with Enter key)
+		// ESC+LF/CR detection for Shift+Enter (via /terminal-setup)
+		// VS Code sends ESC (0x1B) + LF (0x0A) or ESC + CR (0x0D)
+		// Ink's parseKeypress doesn't recognize this 2-byte sequence, so:
+		// - keypress.name stays empty → key.return = false
+		// - ESC is stripped → input = '\n' or '\r'
+		// Detection: input is newline char BUT key.return is false (unrecognized sequence)
 		if (
-			(key.ctrl && input === 'j') ||
-			((input === '\n' || input === '\x0a') && !key.return)
+			(input === '\n' || input === '\r') &&
+			!key.return &&
+			!key.ctrl &&
+			!key.shift
 		) {
+			insertNewline();
+			setSelectedSuggestionIndex(0);
+			escPressedTimeRef.current = 0;
+			return;
+		}
+
+		// Also handle when escape/meta flag is set (fallback for terminals that do parse it)
+		if ((key.escape || key.meta) && (input === '\n' || input === '\r')) {
+			insertNewline();
+			setSelectedSuggestionIndex(0);
+			escPressedTimeRef.current = 0;
+			return;
+		}
+
+		// Ctrl+J - explicit handling for terminals that report it as ctrl+j
+		// (Most terminals send raw LF which is caught by the ESC+LF detection above)
+		if (key.ctrl && input === 'j') {
 			insertNewline();
 			setSelectedSuggestionIndex(0);
 			return;
@@ -88,8 +114,16 @@ export default function TextInput({
 			return;
 		}
 
-		// Submit on Enter (without shift) - but check for backslash first
+		// Submit on Enter (without shift) - but check for ESC+Enter and backslash first
 		if (key.return && !key.shift && !key.meta) {
+			// Timing-based ESC+Enter detection (for terminals that send separately)
+			if (Date.now() - escPressedTimeRef.current < 150) {
+				insertNewline();
+				setSelectedSuggestionIndex(0);
+				escPressedTimeRef.current = 0;
+				return;
+			}
+
 			// Method 1: Backslash + Enter (universal newline)
 			const currentLine = state.lines[state.cursorLine] ?? '';
 			const charBeforeCursor = currentLine[state.cursorCol - 1];
@@ -199,15 +233,29 @@ export default function TextInput({
 			return;
 		}
 
-		// Escape - clear input or hide suggestions
-		if (key.escape) {
-			clear();
-			setSelectedSuggestionIndex(0);
+		// Plain ESC key - clear input after a delay
+		// (ESC+LF for Shift+Enter is already handled above)
+		if (key.escape && !input) {
+			escPressedTimeRef.current = Date.now();
+			setTimeout(() => {
+				if (escPressedTimeRef.current !== 0) {
+					clear();
+					setSelectedSuggestionIndex(0);
+					escPressedTimeRef.current = 0;
+				}
+			}, 150);
 			return;
 		}
 
 		// Regular character input (ignore control sequences and newlines)
-		if (input && !key.ctrl && !key.meta && input !== '\n' && input !== '\r') {
+		if (
+			input &&
+			!key.ctrl &&
+			!key.meta &&
+			!key.escape &&
+			input !== '\n' &&
+			input !== '\r'
+		) {
 			insertChar(input);
 			setSelectedSuggestionIndex(0);
 		}
