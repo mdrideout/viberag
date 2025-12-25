@@ -1,25 +1,39 @@
 import React, {useState} from 'react';
-import {Box, useStdout} from 'ink';
+import {createRequire} from 'node:module';
+import {Box, Static, Text, useStdout} from 'ink';
 import TextInput from './components/TextInput.js';
 import StatusBar from './components/StatusBar.js';
-import OutputArea from './components/OutputArea.js';
+import WelcomeBanner from './components/WelcomeBanner.js';
 import {useCtrlC} from './hooks/useCtrlC.js';
 import {useCommands} from './hooks/useCommands.js';
+import {useCommandHistory} from './hooks/useCommandHistory.js';
 import type {OutputItem} from './types.js';
 
+const require = createRequire(import.meta.url);
+// Path is relative from dist/ after compilation
+const {version} = require('../package.json') as {version: string};
+
+// Available slash commands for autocomplete
+const COMMANDS = ['/help', '/clear', '/quit', '/exit', '/q'];
+
+// Module-level counter for unique IDs
+let nextId = 0;
+
 export default function App() {
-	const {stdout} = useStdout();
 	const [outputItems, setOutputItems] = useState<OutputItem[]>([]);
 	const [statusMessage, setStatusMessage] = useState<string>('');
+	const {stdout} = useStdout();
 
-	// Get terminal dimensions
-	const terminalHeight = stdout?.rows ?? 24;
+	// Command history
+	const {addToHistory, navigateUp, navigateDown, resetIndex} =
+		useCommandHistory();
 
 	const addOutput = (type: 'user' | 'system', content: string) => {
+		const id = String(nextId++);
 		setOutputItems(prev => [
 			...prev,
 			{
-				id: Date.now().toString(),
+				id,
 				type,
 				content,
 			},
@@ -34,7 +48,10 @@ export default function App() {
 
 	// Slash command handling
 	const {isCommand, executeCommand} = useCommands({
-		onClear: () => setOutputItems([]),
+		onClear: () => {
+			// Clear screen (\x1B[2J), clear scrollback buffer (\x1B[3J), move cursor home (\x1B[H)
+			stdout.write('\x1B[2J\x1B[3J\x1B[H');
+		},
 		onHelp: () => {
 			addOutput(
 				'system',
@@ -47,7 +64,8 @@ Tips:
   - Press Enter to submit
   - Press Shift+Enter for a new line
   - Press Ctrl+C to clear input, or twice to quit
-  - Press Escape to clear input`,
+  - Press Escape to clear input
+  - Up/Down arrows for command history`,
 			);
 		},
 		onUnknown: command => {
@@ -61,6 +79,9 @@ Tips:
 	const handleSubmit = (text: string) => {
 		if (!text.trim()) return;
 
+		// Add to history
+		addToHistory(text);
+
 		if (isCommand(text)) {
 			executeCommand(text);
 		} else {
@@ -70,16 +91,48 @@ Tips:
 		}
 	};
 
-	return (
-		<Box flexDirection="column" height={terminalHeight}>
-			{/* Output area takes remaining space */}
-			<OutputArea items={outputItems} />
+	// Prepend welcome banner as first static item
+	const staticItems = [
+		{id: 'welcome', type: 'welcome' as const, content: ''},
+		...outputItems,
+	];
 
-			{/* Status bar - fixed height */}
+	return (
+		<Box flexDirection="column">
+			{/* Static renders messages once, they scroll up via terminal scrollback */}
+			<Static items={staticItems}>
+				{item => {
+					if (item.type === 'welcome') {
+						return (
+							<Box key={item.id} marginBottom={1}>
+								<WelcomeBanner version={version} cwd={process.cwd()} />
+							</Box>
+						);
+					}
+					return (
+						<Box key={item.id} paddingX={1} marginBottom={1}>
+							{item.type === 'user' ? (
+								<Text color="cyan">&gt; {item.content}</Text>
+							) : (
+								<Text>{item.content}</Text>
+							)}
+						</Box>
+					);
+				}}
+			</Static>
+
+			{/* Dynamic content stays at current cursor position */}
 			<StatusBar message={statusMessage} />
 
-			{/* Input area - auto-grows */}
-			<TextInput onSubmit={handleSubmit} onCtrlC={handleCtrlC} />
+			{/* Input area */}
+			<TextInput
+				onSubmit={handleSubmit}
+				onCtrlC={handleCtrlC}
+				commands={COMMANDS}
+				navigateHistoryUp={navigateUp}
+				navigateHistoryDown={navigateDown}
+				resetHistoryIndex={resetIndex}
+			/>
 		</Box>
 	);
 }

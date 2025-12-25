@@ -132,6 +132,16 @@ export function useTextBuffer() {
 		setState({lines: [''], cursorLine: 0, cursorCol: 0});
 	}, []);
 
+	const setText = useCallback((text: string) => {
+		const lines = text.split('\n');
+		const lastLine = lines[lines.length - 1] ?? '';
+		setState({
+			lines,
+			cursorLine: lines.length - 1,
+			cursorCol: lastLine.length,
+		});
+	}, []);
+
 	const getText = useCallback(() => {
 		return state.lines.join('\n');
 	}, [state.lines]);
@@ -147,6 +157,7 @@ export function useTextBuffer() {
 		deleteChar,
 		moveCursor,
 		clear,
+		setText,
 		getText,
 		isEmpty,
 	};

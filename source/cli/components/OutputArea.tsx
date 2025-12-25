@@ -7,16 +7,6 @@ type Props = {
 };
 
 export default function OutputArea({items}: Props) {
-	if (items.length === 0) {
-		return (
-			<Box flexDirection="column" flexGrow={1} paddingX={1}>
-				<Text dimColor>
-					Welcome to VibeRAG. Type /help for available commands.
-				</Text>
-			</Box>
-		);
-	}
-
 	return (
 		<Box flexDirection="column" flexGrow={1} paddingX={1} overflowY="hidden">
 			{items.map(item => (

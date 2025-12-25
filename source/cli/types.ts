@@ -1,6 +1,6 @@
 export type OutputItem = {
 	id: string;
-	type: 'user' | 'system';
+	type: 'user' | 'system' | 'welcome';
 	content: string;
 };
 
