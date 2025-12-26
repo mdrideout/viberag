@@ -4,6 +4,7 @@
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import chalk from 'chalk';
 import {
 	Indexer,
 	SearchEngine,
@@ -148,28 +149,65 @@ export async function runSearch(
 }
 
 /**
- * Format search results for display.
+ * Color mapping for chunk types.
+ */
+const TYPE_COLORS: Record<string, (s: string) => string> = {
+	function: chalk.cyan,
+	class: chalk.magenta,
+	method: chalk.blue,
+	module: chalk.dim,
+};
+
+/**
+ * Get score color based on value.
+ */
+function getScoreColor(score: number): (s: string) => string {
+	if (score > 0.8) return chalk.green;
+	if (score > 0.5) return chalk.yellow;
+	return chalk.red;
+}
+
+/**
+ * Format search results for display with colors.
  */
 export function formatSearchResults(results: SearchResults): string {
 	if (results.results.length === 0) {
-		return `No results found for "${results.query}" (${results.elapsedMs}ms)`;
+		return chalk.dim(
+			`No results found for "${results.query}" (${results.elapsedMs}ms)`,
+		);
 	}
 
 	const lines = [
-		`Found ${results.results.length} results for "${results.query}" (${results.elapsedMs}ms):`,
+		chalk.bold(`Found ${results.results.length} results for `) +
+			chalk.cyan(`"${results.query}"`) +
+			chalk.dim(` (${results.elapsedMs}ms):`),
 		'',
 	];
 
 	for (const result of results.results) {
-		const location = `${result.filepath}:${result.startLine}-${result.endLine}`;
-		const name = result.name ? ` ${result.name}` : '';
-		lines.push(`[${result.type}]${name}`);
-		lines.push(`  ${location}`);
-		lines.push(`  Score: ${result.score.toFixed(4)}`);
+		const typeColor = TYPE_COLORS[result.type] ?? chalk.white;
+		const scoreColor = getScoreColor(result.score);
 
-		// Show snippet (first 100 chars)
+		// Type badge and name
+		lines.push(
+			typeColor(`[${result.type}]`) +
+				(result.name ? ` ${chalk.white(result.name)}` : ''),
+		);
+
+		// File path and line numbers
+		lines.push(
+			`  ${chalk.green(result.filepath)}` +
+				chalk.dim(`:${result.startLine}-${result.endLine}`),
+		);
+
+		// Score
+		lines.push(`  Score: ${scoreColor(result.score.toFixed(4))}`);
+
+		// Snippet (first 100 chars, dimmed)
 		const snippet = result.text.slice(0, 100).replace(/\n/g, ' ');
-		lines.push(`  ${snippet}${result.text.length > 100 ? '...' : ''}`);
+		lines.push(
+			chalk.dim(`  ${snippet}${result.text.length > 100 ? '...' : ''}`),
+		);
 		lines.push('');
 	}
 

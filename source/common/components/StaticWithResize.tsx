@@ -48,7 +48,9 @@ export function StaticWithResize<T extends {id: string}>({
 		resizeTimerRef.current = setTimeout(() => {
 			if (stdout && items.length > 0) {
 				// Clear terminal
-				stdout.write(ANSI.CLEAR_SCREEN + ANSI.CLEAR_SCROLLBACK + ANSI.CURSOR_HOME);
+				stdout.write(
+					ANSI.CLEAR_SCREEN + ANSI.CLEAR_SCROLLBACK + ANSI.CURSOR_HOME,
+				);
 				// Force Static to remount by changing key - this re-renders all items
 				setGeneration(g => g + 1);
 			}

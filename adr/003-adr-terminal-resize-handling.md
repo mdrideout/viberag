@@ -15,10 +15,12 @@ Ink's `<Static>` component renders items once and commits them to the terminal b
 ### How Other CLIs Handle This
 
 **Claude Code** bundles a modified Ink with `ink2` mode that:
+
 - Tracks `fullStaticOutput` containing all rendered ANSI output
 - Clears terminal and rewrites `fullStaticOutput` when overflow detected
 
 **Gemini CLI** uses a forked Ink (`@jrichman/ink`):
+
 - Same pattern: tracks `fullStaticOutput`
 - On resize/overflow: `clearTerminal + fullStaticOutput + currentOutput`
 
@@ -55,11 +57,13 @@ Use React's key-based remounting to force `<Static>` to re-render all items on r
 ### Implementation
 
 **`StaticWithResize` component** (`source/common/components/StaticWithResize.tsx`):
+
 - Drop-in replacement for Ink's `<Static>`
 - On resize: clears terminal with ANSI sequences, increments generation key
 - Key change forces React to unmount/remount `<Static>`, re-rendering all items
 
 **`useTerminalResize` hook** (`source/common/hooks/useTerminalResize.ts`):
+
 - Subscribes to `process.stdout.on('resize')`
 - Debounces rapid resize events (100ms)
 - Provides current and previous dimensions
@@ -71,11 +75,12 @@ Instead of capturing and replaying terminal output (Claude Code/Gemini approach)
 ```tsx
 // Generation key forces remount on resize
 <Static key={generation} items={items}>
-  {(item) => <FormattedComponent {...item} />}
+	{item => <FormattedComponent {...item} />}
 </Static>
 ```
 
 When `generation` changes:
+
 1. React unmounts the old `<Static>` instance
 2. New instance mounts with fresh internal state
 3. Ink re-renders all items with proper formatting

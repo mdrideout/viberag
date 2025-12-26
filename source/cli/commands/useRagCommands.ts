@@ -9,17 +9,17 @@ import {
 	runIndex,
 	formatIndexStats,
 	runSearch,
-	formatSearchResults,
 	getStatus,
 	runInit,
 	loadIndexStats,
 	type IndexDisplayStats,
 } from './handlers.js';
 import {setupVSCodeTerminal} from '../../common/commands/terminalSetup.js';
-import type {AppStatus} from '../../common/types.js';
+import type {AppStatus, SearchResultsData} from '../../common/types.js';
 
 type RagCommandContext = {
 	addOutput: (type: 'user' | 'system', content: string) => void;
+	addSearchResults: (data: SearchResultsData) => void;
 	setAppStatus: (status: AppStatus) => void;
 	setIndexStats: (stats: IndexDisplayStats | null) => void;
 	setIsInitialized: (val: boolean) => void;
@@ -29,6 +29,7 @@ type RagCommandContext = {
 
 export function useRagCommands({
 	addOutput,
+	addSearchResults,
 	setAppStatus,
 	setIndexStats,
 	setIsInitialized,
@@ -132,7 +133,21 @@ Tips:
 
 			runSearch(projectRoot, query)
 				.then(results => {
-					addOutput('system', formatSearchResults(results));
+					// Use the component-based display with syntax highlighting
+					addSearchResults({
+						query: results.query,
+						elapsedMs: results.elapsedMs,
+						results: results.results.map(r => ({
+							type: r.type,
+							name: r.name,
+							filepath: r.filepath,
+							filename: r.filename,
+							startLine: r.startLine,
+							endLine: r.endLine,
+							score: r.score,
+							text: r.text,
+						})),
+					});
 					setAppStatus({state: 'ready'});
 				})
 				.catch(err => {
@@ -140,7 +155,7 @@ Tips:
 					setAppStatus({state: 'ready'});
 				});
 		},
-		[projectRoot, addOutput, setAppStatus],
+		[projectRoot, addOutput, addSearchResults, setAppStatus],
 	);
 
 	const handleStatus = useCallback(() => {

@@ -17,8 +17,10 @@ import type {
 
 // CLI-specific components and commands
 import WelcomeBanner from './components/WelcomeBanner.js';
+import SearchResultsDisplay from './components/SearchResultsDisplay.js';
 import {useRagCommands} from './commands/useRagCommands.js';
 import {checkInitialized, loadIndexStats} from './commands/handlers.js';
+import type {SearchResultsData} from '../common/types.js';
 
 const require = createRequire(import.meta.url);
 // Path is relative from dist/ after compilation
@@ -46,7 +48,9 @@ export default function App() {
 	const [outputItems, setOutputItems] = useState<OutputItem[]>([]);
 	const [appStatus, setAppStatus] = useState<AppStatus>({state: 'ready'});
 	// undefined = not loaded yet, null = loaded but no manifest, {...} = loaded with stats
-	const [indexStats, setIndexStats] = useState<IndexDisplayStats | null | undefined>(undefined);
+	const [indexStats, setIndexStats] = useState<
+		IndexDisplayStats | null | undefined
+	>(undefined);
 	const [isInitialized, setIsInitialized] = useState<boolean | undefined>(
 		undefined,
 	);
@@ -80,6 +84,18 @@ export default function App() {
 		]);
 	};
 
+	const addSearchResults = (data: SearchResultsData) => {
+		const id = String(nextId++);
+		setOutputItems(prev => [
+			...prev,
+			{
+				id,
+				type: 'search-results' as const,
+				data,
+			},
+		]);
+	};
+
 	// Handle Ctrl+C with status message callback
 	const {handleCtrlC} = useCtrlC({
 		onFirstPress: () =>
@@ -90,6 +106,7 @@ export default function App() {
 	// Command handling (all logic consolidated in useRagCommands)
 	const {isCommand, executeCommand} = useRagCommands({
 		addOutput,
+		addSearchResults,
 		setAppStatus,
 		setIndexStats,
 		setIsInitialized,
@@ -138,6 +155,13 @@ export default function App() {
 									isInitialized={isInitialized}
 									indexStats={indexStats}
 								/>
+							</Box>
+						);
+					}
+					if (item.type === 'search-results') {
+						return (
+							<Box key={item.id} paddingX={1} marginBottom={1}>
+								<SearchResultsDisplay data={item.data} />
 							</Box>
 						);
 					}

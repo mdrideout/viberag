@@ -46,7 +46,8 @@ export function useTerminalResize(
 		};
 	}, [stdout]);
 
-	const [dimensions, setDimensions] = useState<TerminalDimensions>(getDimensions);
+	const [dimensions, setDimensions] =
+		useState<TerminalDimensions>(getDimensions);
 	const [previousDimensions, setPreviousDimensions] =
 		useState<TerminalDimensions | null>(null);
 

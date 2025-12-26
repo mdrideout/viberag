@@ -1,8 +1,34 @@
-export type OutputItem = {
-	id: string;
-	type: 'user' | 'system' | 'welcome';
-	content: string;
+/**
+ * A single search result item for display.
+ */
+export type SearchResultItem = {
+	type: string;
+	name: string;
+	filepath: string;
+	filename: string;
+	startLine: number;
+	endLine: number;
+	score: number;
+	text: string;
 };
+
+/**
+ * Search results data for display.
+ */
+export type SearchResultsData = {
+	query: string;
+	elapsedMs: number;
+	results: SearchResultItem[];
+};
+
+/**
+ * Output items for the CLI display.
+ */
+export type OutputItem =
+	| {id: string; type: 'user'; content: string}
+	| {id: string; type: 'system'; content: string}
+	| {id: string; type: 'welcome'; content: string}
+	| {id: string; type: 'search-results'; data: SearchResultsData};
 
 /**
  * Terminal dimensions for resize handling.
