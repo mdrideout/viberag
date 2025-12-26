@@ -1,4 +1,4 @@
-import React, {useState} from 'react';
+import React, {useState, useEffect} from 'react';
 import {createRequire} from 'node:module';
 import {Box, Static, Text, useStdout} from 'ink';
 import TextInput from './components/TextInput.js';
@@ -15,6 +15,8 @@ import {
 	runSearch,
 	formatSearchResults,
 	getStatus,
+	runInit,
+	checkInitialized,
 } from './commands/rag.js';
 import type {OutputItem} from './types.js';
 
@@ -27,6 +29,7 @@ const COMMANDS = [
 	'/help',
 	'/clear',
 	'/terminal-setup',
+	'/init',
 	'/index',
 	'/reindex',
 	'/search',
@@ -42,10 +45,19 @@ let nextId = 0;
 export default function App() {
 	const [outputItems, setOutputItems] = useState<OutputItem[]>([]);
 	const [statusMessage, setStatusMessage] = useState<string>('');
+	const [isInitialized, setIsInitialized] = useState<boolean | undefined>(undefined);
 	const {stdout} = useStdout();
 
 	// Enable Kitty keyboard protocol for Shift+Enter support in iTerm2/Kitty/WezTerm
 	useKittyKeyboard();
+
+	// Get project root (current working directory)
+	const projectRoot = process.cwd();
+
+	// Check initialization status on mount
+	useEffect(() => {
+		checkInitialized(projectRoot).then(setIsInitialized);
+	}, [projectRoot]);
 
 	// Command history
 	const {addToHistory, navigateUp, navigateDown, resetIndex} =
@@ -69,9 +81,6 @@ export default function App() {
 		onStatusClear: () => setStatusMessage(''),
 	});
 
-	// Get project root (current working directory)
-	const projectRoot = process.cwd();
-
 	// Slash command handling
 	const {isCommand, executeCommand} = useCommands({
 		onClear: () => {
@@ -85,6 +94,8 @@ export default function App() {
   /help           - Show this help
   /clear          - Clear the screen
   /terminal-setup - Configure terminal for Shift+Enter
+  /init           - Initialize Viberag in this directory
+  /init --force   - Reinitialize (reset config)
   /index          - Index the codebase
   /reindex        - Force full reindex
   /search <query> - Search the codebase
@@ -108,6 +119,22 @@ Tips:
 			setupVSCodeTerminal()
 				.then(result => addOutput('system', result))
 				.catch(err => addOutput('system', `Error: ${err.message}`));
+		},
+		onInit: (force: boolean) => {
+			const action = force ? 'Reinitializing' : 'Initializing';
+			addOutput('system', `${action} Viberag...`);
+			setStatusMessage(`${action}...`);
+
+			runInit(projectRoot, force)
+				.then(result => {
+					addOutput('system', result);
+					setStatusMessage('');
+					setIsInitialized(true);
+				})
+				.catch(err => {
+					addOutput('system', `Init failed: ${err.message}`);
+					setStatusMessage('');
+				});
 		},
 		onIndex: (force: boolean) => {
 			const action = force ? 'Reindexing' : 'Indexing';
@@ -180,7 +207,7 @@ Tips:
 					if (item.type === 'welcome') {
 						return (
 							<Box key={item.id} marginBottom={1}>
-								<WelcomeBanner version={version} cwd={process.cwd()} />
+								<WelcomeBanner version={version} cwd={process.cwd()} isInitialized={isInitialized} />
 							</Box>
 						);
 					}

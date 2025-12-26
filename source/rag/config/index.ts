@@ -1,9 +1,9 @@
 import fs from 'node:fs/promises';
-import {getConfigPath, getLcrDir} from '../constants.js';
+import {getConfigPath, getViberagDir} from '../constants.js';
 
 export type EmbeddingProviderType = 'local' | 'openai' | 'gemini';
 
-export interface LCRConfig {
+export interface ViberagConfig {
 	version: number;
 	embeddingProvider: EmbeddingProviderType;
 	embeddingModel: string;
@@ -14,7 +14,7 @@ export interface LCRConfig {
 	watchDebounceMs: number;
 }
 
-export const DEFAULT_CONFIG: LCRConfig = {
+export const DEFAULT_CONFIG: ViberagConfig = {
 	version: 1,
 	embeddingProvider: 'local',
 	embeddingModel: 'BAAI/bge-base-en-v1.5',
@@ -26,7 +26,7 @@ export const DEFAULT_CONFIG: LCRConfig = {
 		'__pycache__',
 		'venv',
 		'.venv',
-		'.lance-code-rag',
+		'.viberag',
 		'dist',
 		'build',
 		'.next',
@@ -40,12 +40,12 @@ export const DEFAULT_CONFIG: LCRConfig = {
  * Load config from disk, merging with defaults.
  * Returns DEFAULT_CONFIG if no config file exists.
  */
-export async function loadConfig(projectRoot: string): Promise<LCRConfig> {
+export async function loadConfig(projectRoot: string): Promise<ViberagConfig> {
 	const configPath = getConfigPath(projectRoot);
 
 	try {
 		const content = await fs.readFile(configPath, 'utf-8');
-		const loaded = JSON.parse(content) as Partial<LCRConfig>;
+		const loaded = JSON.parse(content) as Partial<ViberagConfig>;
 		return {...DEFAULT_CONFIG, ...loaded};
 	} catch {
 		return {...DEFAULT_CONFIG};
@@ -54,14 +54,14 @@ export async function loadConfig(projectRoot: string): Promise<LCRConfig> {
 
 /**
  * Save config to disk.
- * Creates the .lance-code-rag directory if it doesn't exist.
+ * Creates the .viberag directory if it doesn't exist.
  */
 export async function saveConfig(
 	projectRoot: string,
-	config: LCRConfig,
+	config: ViberagConfig,
 ): Promise<void> {
-	const lcrDir = getLcrDir(projectRoot);
-	await fs.mkdir(lcrDir, {recursive: true});
+	const viberagDir = getViberagDir(projectRoot);
+	await fs.mkdir(viberagDir, {recursive: true});
 
 	const configPath = getConfigPath(projectRoot);
 	await fs.writeFile(configPath, JSON.stringify(config, null, '\t') + '\n');

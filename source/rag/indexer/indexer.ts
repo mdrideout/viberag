@@ -15,7 +15,7 @@
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import {loadConfig, type LCRConfig} from '../config/index.js';
+import {loadConfig, type ViberagConfig} from '../config/index.js';
 import {LocalEmbeddingProvider, type EmbeddingProvider} from '../embeddings/index.js';
 import type {Logger} from '../logger/index.js';
 import {
@@ -46,7 +46,7 @@ export interface IndexOptions {
  */
 export class Indexer {
 	private readonly projectRoot: string;
-	private config: LCRConfig | null = null;
+	private config: ViberagConfig | null = null;
 	private storage: Storage | null = null;
 	private chunker: Chunker | null = null;
 	private embeddings: EmbeddingProvider | null = null;

@@ -2,14 +2,64 @@
  * RAG commands for the CLI.
  */
 
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import {
 	Indexer,
 	SearchEngine,
 	loadManifest,
 	manifestExists,
+	configExists,
+	saveConfig,
+	DEFAULT_CONFIG,
+	getViberagDir,
 	type IndexStats,
 	type SearchResults,
 } from '../../rag/index.js';
+
+/**
+ * Check if project is initialized.
+ */
+export async function checkInitialized(projectRoot: string): Promise<boolean> {
+	return configExists(projectRoot);
+}
+
+/**
+ * Initialize a project for Viberag.
+ * Creates .viberag/ directory with config.json.
+ */
+export async function runInit(
+	projectRoot: string,
+	force: boolean = false,
+): Promise<string> {
+	const viberagDir = getViberagDir(projectRoot);
+	const isExisting = await configExists(projectRoot);
+
+	if (isExisting && !force) {
+		return 'Already initialized. Use /init --force to reinitialize.';
+	}
+
+	// Create .viberag directory
+	await fs.mkdir(viberagDir, {recursive: true});
+
+	// Save default config
+	await saveConfig(projectRoot, DEFAULT_CONFIG);
+
+	// Add .viberag/ to .gitignore if not present
+	const gitignorePath = path.join(projectRoot, '.gitignore');
+	try {
+		const content = await fs.readFile(gitignorePath, 'utf-8');
+		if (!content.includes('.viberag')) {
+			await fs.appendFile(gitignorePath, '\n# Viberag index\n.viberag/\n');
+		}
+	} catch {
+		// .gitignore doesn't exist, create it
+		await fs.writeFile(gitignorePath, '# Viberag index\n.viberag/\n');
+	}
+
+	const action = isExisting ? 'Reinitialized' : 'Initialized';
+	return `${action} Viberag in ${viberagDir}\nRun /index to build the code index.`;
+}
 
 /**
  * Run the indexer and return stats.

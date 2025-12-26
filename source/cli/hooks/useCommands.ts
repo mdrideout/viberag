@@ -5,6 +5,7 @@ type CommandHandlers = {
 	onClear: () => void;
 	onHelp: () => void;
 	onTerminalSetup: () => void;
+	onInit: (force: boolean) => void;
 	onIndex: (force: boolean) => void;
 	onSearch: (query: string) => void;
 	onStatus: () => void;
@@ -15,6 +16,7 @@ export function useCommands({
 	onClear,
 	onHelp,
 	onTerminalSetup,
+	onInit,
 	onIndex,
 	onSearch,
 	onStatus,
@@ -52,6 +54,12 @@ export function useCommands({
 				case '/terminal-setup':
 					onTerminalSetup();
 					break;
+				case '/init':
+					onInit(false);
+					break;
+				case '/init --force':
+					onInit(true);
+					break;
 				case '/index':
 					onIndex(false);
 					break;
@@ -71,7 +79,7 @@ export function useCommands({
 					break;
 			}
 		},
-		[exit, onClear, onHelp, onTerminalSetup, onIndex, onSearch, onStatus, onUnknown],
+		[exit, onClear, onHelp, onTerminalSetup, onInit, onIndex, onSearch, onStatus, onUnknown],
 	);
 
 	return {isCommand, executeCommand};

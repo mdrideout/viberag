@@ -1,5 +1,5 @@
 import fs from 'node:fs/promises';
-import {getManifestPath, getLcrDir} from '../constants.js';
+import {getManifestPath, getViberagDir} from '../constants.js';
 
 export interface ManifestStats {
 	totalFiles: number;
@@ -48,14 +48,14 @@ export async function loadManifest(projectRoot: string): Promise<Manifest> {
 
 /**
  * Save manifest to disk.
- * Creates the .lance-code-rag directory if it doesn't exist.
+ * Creates the .viberag directory if it doesn't exist.
  */
 export async function saveManifest(
 	projectRoot: string,
 	manifest: Manifest,
 ): Promise<void> {
-	const lcrDir = getLcrDir(projectRoot);
-	await fs.mkdir(lcrDir, {recursive: true});
+	const viberagDir = getViberagDir(projectRoot);
+	await fs.mkdir(viberagDir, {recursive: true});
 
 	const manifestPath = getManifestPath(projectRoot);
 	const updated: Manifest = {

@@ -6,8 +6,8 @@
 
 // Constants
 export {
-	LCR_DIR,
-	getLcrDir,
+	VIBERAG_DIR,
+	getViberagDir,
 	getConfigPath,
 	getManifestPath,
 	getLanceDbPath,
@@ -32,7 +32,7 @@ export {
 	saveConfig,
 	configExists,
 	DEFAULT_CONFIG,
-	type LCRConfig,
+	type ViberagConfig,
 	type EmbeddingProviderType,
 } from './config/index.js';
 

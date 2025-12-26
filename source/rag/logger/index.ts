@@ -49,7 +49,7 @@ function formatEntry(
 
 /**
  * Create a logger that writes to daily log files.
- * Log files are created in the .lance-code-rag/logs/ directory.
+ * Log files are created in the .viberag/logs/ directory.
  */
 export function createLogger(projectRoot: string): Logger {
 	const logsDir = getLogsDir(projectRoot);
