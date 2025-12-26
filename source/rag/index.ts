@@ -103,3 +103,15 @@ export {
 	LocalEmbeddingProvider,
 	type EmbeddingProvider,
 } from './embeddings/index.js';
+
+// Search
+export {
+	SearchEngine,
+	vectorSearch,
+	ftsSearch,
+	ensureFtsIndex,
+	hybridRerank,
+	type SearchOptions,
+	type SearchResult,
+	type SearchResults,
+} from './search/index.js';
