@@ -3,6 +3,7 @@
  */
 
 export {Chunker} from './chunker.js';
+export {Indexer, type IndexOptions} from './indexer.js';
 
 export {
 	createEmptyIndexStats,

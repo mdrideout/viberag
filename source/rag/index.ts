@@ -86,11 +86,13 @@ export {
 	type BuildStats,
 } from './merkle/index.js';
 
-// Indexer (Chunking)
+// Indexer (Chunking & Orchestration)
 export {
 	Chunker,
+	Indexer,
 	createEmptyIndexStats,
 	type Chunk,
+	type IndexOptions,
 	type IndexStats,
 	type ProgressCallback,
 	type SupportedLanguage,
