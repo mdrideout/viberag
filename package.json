@@ -5,7 +5,7 @@
 	"author": {
 		"name": "Matthew Rideout"
 	},
-	"bin": "dist/index.js",
+	"bin": "dist/cli/index.js",
 	"type": "module",
 	"engines": {
 		"node": ">=16"
