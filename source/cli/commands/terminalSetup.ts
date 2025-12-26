@@ -101,17 +101,18 @@ export async function setupTerminal(): Promise<string> {
 		case 'iterm':
 			return `iTerm2 detected.
 
-Shift+Enter should work if "Report modifiers using CSI u" is enabled.
+To enable Shift+Enter for newlines:
 
-To enable:
-1. Open iTerm2 → Preferences → Profiles → Keys
-2. Check "Report modifiers using CSI u"
-3. Restart iTerm2
+1. Open iTerm2 → Settings (⌘,) → Profiles
+2. Select your profile → Keys tab → General sub-tab
+3. Under "Report modifiers using CSI u", select "Yes"
+4. Restart iTerm2
+
+Once enabled, Shift+Enter and Alt+Enter will insert newlines.
 
 Alternative methods that work now:
 - \\ + Enter (backslash then Enter)
-- Ctrl+J
-- Option+Enter`;
+- Ctrl+J`;
 
 		case 'kitty':
 			return `Kitty detected - Shift+Enter should work natively.

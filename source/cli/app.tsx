@@ -7,6 +7,7 @@ import WelcomeBanner from './components/WelcomeBanner.js';
 import {useCtrlC} from './hooks/useCtrlC.js';
 import {useCommands} from './hooks/useCommands.js';
 import {useCommandHistory} from './hooks/useCommandHistory.js';
+import {useKittyKeyboard} from './hooks/useKittyKeyboard.js';
 import {setupVSCodeTerminal} from './commands/terminalSetup.js';
 import type {OutputItem} from './types.js';
 
@@ -15,15 +16,7 @@ const require = createRequire(import.meta.url);
 const {version} = require('../package.json') as {version: string};
 
 // Available slash commands for autocomplete
-const COMMANDS = [
-	'/help',
-	'/clear',
-	'/terminal-setup',
-	'/newline-help',
-	'/quit',
-	'/exit',
-	'/q',
-];
+const COMMANDS = ['/help', '/clear', '/terminal-setup', '/quit', '/exit', '/q'];
 
 // Module-level counter for unique IDs
 let nextId = 0;
@@ -32,6 +25,9 @@ export default function App() {
 	const [outputItems, setOutputItems] = useState<OutputItem[]>([]);
 	const [statusMessage, setStatusMessage] = useState<string>('');
 	const {stdout} = useStdout();
+
+	// Enable Kitty keyboard protocol for Shift+Enter support in iTerm2/Kitty/WezTerm
+	useKittyKeyboard();
 
 	// Command history
 	const {addToHistory, navigateUp, navigateDown, resetIndex} =
@@ -64,43 +60,29 @@ export default function App() {
 		onHelp: () => {
 			addOutput(
 				'system',
-				`Available commands:
-  /help           - Show this help message
+				`Commands:
+  /help           - Show this help
   /clear          - Clear the screen
-  /terminal-setup - Configure VS Code for Shift+Enter
-  /quit           - Exit the application
+  /terminal-setup - Configure terminal for Shift+Enter
+  /quit           - Exit
 
-Multi-line input (any of these work):
-  \\ + Enter      - Works everywhere
-  Shift+Enter     - Works after /terminal-setup or in Kitty
-  Option+Enter    - Works in most terminals
-  Ctrl+J          - Works everywhere
+Multi-line input:
+  Shift+Enter     - iTerm2, Kitty, WezTerm (automatic)
+  Shift+Enter     - VS Code (requires /terminal-setup)
+  Option+Enter    - Most terminals
+  Ctrl+J          - All terminals
+  \\ then Enter    - All terminals
 
-Other tips:
-  - Press Ctrl+C to clear input, or twice to quit
-  - Press Escape to clear input
-  - Up/Down arrows for command history`,
+Tips:
+  Ctrl+C          - Clear input (twice to quit)
+  Escape          - Clear input
+  Up/Down         - Command history`,
 			);
 		},
 		onTerminalSetup: () => {
 			setupVSCodeTerminal()
 				.then(result => addOutput('system', result))
 				.catch(err => addOutput('system', `Error: ${err.message}`));
-		},
-		onNewlineHelp: () => {
-			addOutput(
-				'system',
-				`Multi-line Input Methods:
-
-| Method         | Works In                              |
-|----------------|---------------------------------------|
-| \\ then Enter   | All terminals                         |
-| Ctrl+J         | All terminals                         |
-| Option+Enter   | Most terminals                        |
-| Shift+Enter    | Requires /terminal-setup              |
-
-Note: Run /terminal-setup to configure your terminal for Shift+Enter support.`,
-			);
 		},
 		onUnknown: command => {
 			addOutput(

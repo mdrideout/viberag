@@ -70,8 +70,20 @@ export default function TextInput({
 			return;
 		}
 
-		// ESC+LF/CR detection for Shift+Enter (via /terminal-setup)
-		// VS Code sends ESC (0x1B) + LF (0x0A) or ESC + CR (0x0D)
+		// === CSI u detection for iTerm2/Kitty with enhanced keyboard mode ===
+		// When "Report modifiers using CSI u" is enabled:
+		//   Shift+Enter sends: \x1b[13;2u (keycode=13/Enter, modifier=2/Shift)
+		//   Alt+Enter sends: \x1b[13;3u (modifier=3/Alt)
+		// Ink strips the ESC prefix, leaving: [13;2u or [13;3u
+		if (input === '[13;2u' || input === '[13;3u') {
+			insertNewline();
+			setSelectedSuggestionIndex(0);
+			escPressedTimeRef.current = 0;
+			return;
+		}
+
+		// === ESC+LF/CR detection for VS Code (via /terminal-setup) ===
+		// VS Code keybinding sends ESC (0x1B) + LF (0x0A) or ESC + CR (0x0D)
 		// Ink's parseKeypress doesn't recognize this 2-byte sequence, so:
 		// - keypress.name stays empty → key.return = false
 		// - ESC is stripped → input = '\n' or '\r'
