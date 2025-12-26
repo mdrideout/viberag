@@ -63,3 +63,24 @@ export {
 	type CachedEmbeddingRow,
 	type ChunkType,
 } from './storage/index.js';
+
+// Merkle Tree
+export {
+	MerkleTree,
+	compareTrees,
+	createEmptyDiff,
+	computeFileHash,
+	computeStringHash,
+	computeDirectoryHash,
+	isBinaryFile,
+	shouldExclude,
+	hasValidExtension,
+	serializeNode,
+	deserializeNode,
+	createFileNode,
+	createDirectoryNode,
+	type MerkleNode,
+	type NodeType,
+	type SerializedNode,
+	type TreeDiff,
+} from './merkle/index.js';
