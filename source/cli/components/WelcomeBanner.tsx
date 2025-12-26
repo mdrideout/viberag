@@ -21,9 +21,12 @@ export default function WelcomeBanner({version, cwd, isInitialized}: Props) {
 			<Box flexDirection="column" marginTop={1}>
 				<Box>
 					<Text dimColor>v{version}</Text>
-					<Text> </Text>
-					{isInitialized === true && <Text color="green">✓ Ready</Text>}
-					{isInitialized === false && <Text color="yellow">Run /init to set up</Text>}
+					{isInitialized === true && (
+						<>
+							<Text> </Text>
+							<Text color="green">✓ Ready</Text>
+						</>
+					)}
 				</Box>
 				<Text dimColor>{cwd}</Text>
 			</Box>
@@ -32,6 +35,13 @@ export default function WelcomeBanner({version, cwd, isInitialized}: Props) {
 			<Box marginTop={1}>
 				<Text dimColor>Type /help for available commands</Text>
 			</Box>
+
+			{/* Init prompt - shown last if not initialized */}
+			{isInitialized === false && (
+				<Box marginTop={1}>
+					<Text color="yellow">Run /init to set up</Text>
+				</Box>
+			)}
 		</Box>
 	);
 }

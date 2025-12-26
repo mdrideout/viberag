@@ -129,7 +129,7 @@ export class Storage {
 		const countBefore = await this.chunksTable!.countRows();
 
 		// Build IN clause with escaped strings
-		const escaped = filepaths.map((fp) => `'${escapeString(fp)}'`).join(', ');
+		const escaped = filepaths.map(fp => `'${escapeString(fp)}'`).join(', ');
 		await this.chunksTable!.delete(`filepath IN (${escaped})`);
 
 		const countAfter = await this.chunksTable!.countRows();
@@ -146,7 +146,7 @@ export class Storage {
 			.where(`filepath = '${escapeString(filepath)}'`)
 			.toArray();
 
-		return results.map((row) => rowToChunk(row as unknown as CodeChunkRow));
+		return results.map(row => rowToChunk(row as unknown as CodeChunkRow));
 	}
 
 	/**
@@ -184,14 +184,12 @@ export class Storage {
 	 * Get cached embeddings for a list of content hashes.
 	 * @returns Map from content hash to vector
 	 */
-	async getCachedEmbeddings(
-		hashes: string[],
-	): Promise<Map<string, number[]>> {
+	async getCachedEmbeddings(hashes: string[]): Promise<Map<string, number[]>> {
 		this.ensureConnected();
 		if (hashes.length === 0) return new Map();
 
 		// Build IN clause
-		const escaped = hashes.map((h) => `'${escapeString(h)}'`).join(', ');
+		const escaped = hashes.map(h => `'${escapeString(h)}'`).join(', ');
 		const results = await this.cacheTable!.query()
 			.where(`content_hash IN (${escaped})`)
 			.toArray();
@@ -212,7 +210,10 @@ export class Storage {
 		this.ensureConnected();
 		if (entries.length === 0) return;
 
-		const rows = entries.map(embeddingToRow) as unknown as Record<string, unknown>[];
+		const rows = entries.map(embeddingToRow) as unknown as Record<
+			string,
+			unknown
+		>[];
 
 		// Use merge insert for upsert behavior
 		await this.cacheTable!.mergeInsert('content_hash')

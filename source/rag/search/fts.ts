@@ -16,7 +16,7 @@ import type {SearchResult} from './types.js';
 export async function ensureFtsIndex(table: Table): Promise<void> {
 	const indices = await table.listIndices();
 	const hasFtsIndex = indices.some(
-		(idx) => idx.columns.includes('text') && idx.indexType === 'FTS',
+		idx => idx.columns.includes('text') && idx.indexType === 'FTS',
 	);
 
 	if (!hasFtsIndex) {
@@ -42,10 +42,7 @@ export async function ftsSearch(
 	// Ensure FTS index exists
 	await ensureFtsIndex(table);
 
-	const results = await table
-		.search(query, 'fts')
-		.limit(limit)
-		.toArray();
+	const results = await table.search(query, 'fts').limit(limit).toArray();
 
 	return results.map((row, index) => {
 		const chunk = row as CodeChunkRow & {_score?: number};

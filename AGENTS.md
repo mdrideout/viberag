@@ -4,36 +4,43 @@ VibeRAG: React Ink CLI for local codebase RAG.
 
 ## Architecture: Vertical Slicing
 
-Features own their entire vertical slice. Delete a folder, delete the feature.
+Interfaces are self-contained features. Delete a folder, delete the feature.
 
 ```
 source/
-├── common/           # Shared infrastructure only
-│   ├── components/   # TextInput, StatusBar, etc.
+├── common/           # Generic React/Ink infrastructure
+│   ├── components/   # TextInput, StatusBar, CommandSuggestions
 │   ├── hooks/        # useCtrlC, useCommandHistory, etc.
-│   └── types.ts
+│   └── types.ts      # OutputItem, TextBufferState
 │
-├── rag/              # RAG feature (self-contained)
-│   ├── components/   # RAG-specific UI
-│   ├── commands/     # /index, /search, /init handlers
-│   ├── hooks/        # RAG-specific hooks
+├── rag/              # Headless RAG engine (NO UI)
 │   ├── indexer/      # Chunking, orchestration
 │   ├── search/       # Vector, FTS, hybrid
 │   ├── storage/      # LanceDB wrapper
-│   └── index.ts      # Feature exports
+│   ├── embeddings/   # Local embedding provider
+│   ├── merkle/       # Change detection
+│   └── index.ts      # Public API
 │
-└── app.tsx           # Shell that composes features
+├── cli/              # CLI interface (self-contained)
+│   ├── app.tsx       # Main app component
+│   ├── components/   # WelcomeBanner
+│   ├── commands/     # handlers, useRagCommands
+│   └── index.tsx     # Entry point
+│
+└── mcp/              # Future: MCP server (uses rag/, no UI)
 ```
 
-**Principle**: Features don't reach into each other. Common infrastructure is truly shared.
+**Dependency flow**: `common/ ← cli/ → rag/` and `mcp/ → rag/`
+
+**Principle**: Interfaces don't reach into each other. Delete cli/ → mcp/ still works.
 
 ## Critical: ESM Imports
 
 Always use `.js` extension:
 
 ```typescript
-import {SearchEngine} from './search/index.js';  // correct
-import {SearchEngine} from './search/index';     // breaks at runtime
+import {SearchEngine} from './search/index.js'; // correct
+import {SearchEngine} from './search/index'; // breaks at runtime
 ```
 
 ## Storage

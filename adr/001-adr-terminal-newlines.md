@@ -9,6 +9,7 @@ Accepted
 VibeRAG provides a terminal UI built with React Ink that accepts multi-line input. Users need a way to insert newlines without submitting the input. The solution must work across multiple terminals: iTerm2, VS Code, Kitty, WezTerm, and macOS Terminal.
 
 The challenge is that terminals handle Shift+Enter differently:
+
 - **iTerm2/Kitty/WezTerm**: Support the Kitty keyboard protocol when enabled
 - **VS Code Terminal**: Does not support Kitty protocol; requires custom keybinding
 - **macOS Terminal**: No Shift+Enter support
@@ -24,20 +25,21 @@ On app startup, we enable the Kitty keyboard protocol by sending `\x1b[>1u` to s
 **File**: `source/cli/hooks/useKittyKeyboard.ts`
 
 ```typescript
-const KITTY_ENABLE = '\x1b[>1u';   // Enable progressive enhancement mode 1
-const KITTY_DISABLE = '\x1b[<u';  // Pop/disable keyboard mode
+const KITTY_ENABLE = '\x1b[>1u'; // Enable progressive enhancement mode 1
+const KITTY_DISABLE = '\x1b[<u'; // Pop/disable keyboard mode
 
 export function useKittyKeyboard() {
-  const {stdout} = useStdout();
+	const {stdout} = useStdout();
 
-  useEffect(() => {
-    stdout.write(KITTY_ENABLE);
-    return () => stdout.write(KITTY_DISABLE);
-  }, [stdout]);
+	useEffect(() => {
+		stdout.write(KITTY_ENABLE);
+		return () => stdout.write(KITTY_DISABLE);
+	}, [stdout]);
 }
 ```
 
 When enabled, terminals send CSI u encoded sequences:
+
 - Shift+Enter → `\x1b[13;2u` (keycode=13, modifier=2/Shift)
 - Alt+Enter → `\x1b[13;3u` (modifier=3/Alt)
 
@@ -47,10 +49,10 @@ VS Code's terminal does not support the Kitty keyboard protocol. The `/terminal-
 
 ```json
 {
-  "key": "shift+enter",
-  "command": "workbench.action.terminal.sendSequence",
-  "args": { "text": "\u001b\n" },
-  "when": "terminalFocus"
+	"key": "shift+enter",
+	"command": "workbench.action.terminal.sendSequence",
+	"args": {"text": "\u001b\n"},
+	"when": "terminalFocus"
 }
 ```
 
@@ -62,32 +64,32 @@ This sends ESC+LF when Shift+Enter is pressed, which we detect separately.
 
 ```typescript
 useInput((input, key) => {
-  // CSI u detection (iTerm2/Kitty/WezTerm with Kitty protocol)
-  // Ink strips ESC prefix, leaving: [13;2u or [13;3u
-  if (input === '[13;2u' || input === '[13;3u') {
-    insertNewline();
-    return;
-  }
+	// CSI u detection (iTerm2/Kitty/WezTerm with Kitty protocol)
+	// Ink strips ESC prefix, leaving: [13;2u or [13;3u
+	if (input === '[13;2u' || input === '[13;3u') {
+		insertNewline();
+		return;
+	}
 
-  // ESC+LF/CR detection (VS Code via /terminal-setup)
-  // Ink doesn't recognize \x1b\n, so key.return = false and input = '\n'
-  if ((input === '\n' || input === '\r') && !key.return) {
-    insertNewline();
-    return;
-  }
+	// ESC+LF/CR detection (VS Code via /terminal-setup)
+	// Ink doesn't recognize \x1b\n, so key.return = false and input = '\n'
+	if ((input === '\n' || input === '\r') && !key.return) {
+		insertNewline();
+		return;
+	}
 
-  // Ctrl+J (universal fallback)
-  if (key.ctrl && input === 'j') {
-    insertNewline();
-    return;
-  }
+	// Ctrl+J (universal fallback)
+	if (key.ctrl && input === 'j') {
+		insertNewline();
+		return;
+	}
 
-  // Backslash + Enter (universal fallback)
-  if (key.return && charBeforeCursor === '\\') {
-    deleteBackslash();
-    insertNewline();
-    return;
-  }
+	// Backslash + Enter (universal fallback)
+	if (key.return && charBeforeCursor === '\\') {
+		deleteBackslash();
+		insertNewline();
+		return;
+	}
 });
 ```
 
@@ -185,21 +187,21 @@ useInput((input, key) => {
 
 ## Terminal Compatibility Matrix
 
-| Terminal | Shift+Enter Works | Method | User Action Required |
-|----------|------------------|--------|---------------------|
-| iTerm2 | Yes | Kitty protocol | None (automatic) |
-| Kitty | Yes | Kitty protocol | None (automatic) |
-| WezTerm | Yes | Kitty protocol | None (automatic) |
-| VS Code | Yes | ESC+LF keybinding | Run `/terminal-setup` once |
-| macOS Terminal | No | N/A | Use `\ + Enter` or Ctrl+J |
+| Terminal       | Shift+Enter Works | Method            | User Action Required       |
+| -------------- | ----------------- | ----------------- | -------------------------- |
+| iTerm2         | Yes               | Kitty protocol    | None (automatic)           |
+| Kitty          | Yes               | Kitty protocol    | None (automatic)           |
+| WezTerm        | Yes               | Kitty protocol    | None (automatic)           |
+| VS Code        | Yes               | ESC+LF keybinding | Run `/terminal-setup` once |
+| macOS Terminal | No                | N/A               | Use `\ + Enter` or Ctrl+J  |
 
 ### Universal Fallback Methods (all terminals)
 
-| Method | How It Works |
-|--------|-------------|
-| `\` + Enter | Backslash detected and removed, newline inserted |
-| Ctrl+J | Sends raw LF (0x0A), detected via `key.ctrl && input === 'j'` |
-| Option+Enter | Detected via `key.meta && key.return` |
+| Method       | How It Works                                                  |
+| ------------ | ------------------------------------------------------------- |
+| `\` + Enter  | Backslash detected and removed, newline inserted              |
+| Ctrl+J       | Sends raw LF (0x0A), detected via `key.ctrl && input === 'j'` |
+| Option+Enter | Detected via `key.meta && key.return`                         |
 
 ## Files Modified
 

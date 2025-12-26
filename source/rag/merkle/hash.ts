@@ -31,7 +31,7 @@ export function computeDirectoryHash(
 
 	// Build content string from name:hash pairs
 	const content = sortedNames
-		.map((name) => {
+		.map(name => {
 			const child = children.get(name)!;
 			return `${name}:${child.hash}`;
 		})

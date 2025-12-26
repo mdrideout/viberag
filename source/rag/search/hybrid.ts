@@ -60,7 +60,7 @@ export function hybridRerank(
 		.slice(0, limit)
 		.map(([id]) => id);
 
-	return sortedIds.map((id) => {
+	return sortedIds.map(id => {
 		const result = resultMap.get(id)!;
 		return {
 			...result,

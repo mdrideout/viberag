@@ -19,7 +19,13 @@ const KEYBINDING = {
 	when: 'terminalFocus',
 };
 
-type TerminalType = 'vscode' | 'iterm' | 'kitty' | 'wezterm' | 'apple_terminal' | 'unknown';
+type TerminalType =
+	| 'vscode'
+	| 'iterm'
+	| 'kitty'
+	| 'wezterm'
+	| 'apple_terminal'
+	| 'unknown';
 
 function detectTerminal(): TerminalType {
 	const termProgram = process.env['TERM_PROGRAM'];
@@ -38,9 +44,18 @@ function getKeybindingsPath(folder: string): string {
 	const home = homedir();
 	switch (platform()) {
 		case 'darwin':
-			return join(home, 'Library/Application Support', folder, 'User/keybindings.json');
+			return join(
+				home,
+				'Library/Application Support',
+				folder,
+				'User/keybindings.json',
+			);
 		case 'win32':
-			return join(process.env['APPDATA'] ?? home, folder, 'User/keybindings.json');
+			return join(
+				process.env['APPDATA'] ?? home,
+				folder,
+				'User/keybindings.json',
+			);
 		default:
 			return join(home, '.config', folder, 'User/keybindings.json');
 	}
@@ -88,7 +103,9 @@ async function setupVSCodeEditors(): Promise<string> {
 		return '';
 	}
 
-	return `Configured Shift+Enter for: ${configured.join(', ')}\n\nRestart your terminal to apply.`;
+	return `Configured Shift+Enter for: ${configured.join(
+		', ',
+	)}\n\nRestart your terminal to apply.`;
 }
 
 export async function setupTerminal(): Promise<string> {
@@ -146,7 +163,9 @@ Consider using iTerm2 or running in VS Code for Shift+Enter support.`;
 			if (vsResult) {
 				return vsResult;
 			}
-			return `Unknown terminal (TERM_PROGRAM=${process.env['TERM_PROGRAM'] ?? 'unset'}).
+			return `Unknown terminal (TERM_PROGRAM=${
+				process.env['TERM_PROGRAM'] ?? 'unset'
+			}).
 
 Try these methods:
 - \\ + Enter (backslash then Enter)

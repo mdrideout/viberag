@@ -16,7 +16,10 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {loadConfig, type ViberagConfig} from '../config/index.js';
-import {LocalEmbeddingProvider, type EmbeddingProvider} from '../embeddings/index.js';
+import {
+	LocalEmbeddingProvider,
+	type EmbeddingProvider,
+} from '../embeddings/index.js';
 import type {Logger} from '../logger/index.js';
 import {
 	loadManifest,
@@ -29,7 +32,11 @@ import {
 import {MerkleTree, type SerializedNode} from '../merkle/index.js';
 import {Storage, type CodeChunk} from '../storage/index.js';
 import {Chunker} from './chunker.js';
-import {createEmptyIndexStats, type IndexStats, type ProgressCallback} from './types.js';
+import {
+	createEmptyIndexStats,
+	type IndexStats,
+	type ProgressCallback,
+} from './types.js';
 
 /**
  * Options for the index operation.
@@ -95,7 +102,10 @@ export class Indexer {
 			);
 
 			stats.filesScanned = currentTree.buildStats.filesScanned;
-			this.log('info', `Scanned ${stats.filesScanned} files, indexed ${currentTree.fileCount}`);
+			this.log(
+				'info',
+				`Scanned ${stats.filesScanned} files, indexed ${currentTree.fileCount}`,
+			);
 
 			// 3. Compare trees to get diff
 			const diff = force
@@ -106,7 +116,10 @@ export class Indexer {
 			stats.filesModified = diff.modified.length;
 			stats.filesDeleted = diff.deleted.length;
 
-			this.log('info', `Changes: ${diff.new.length} new, ${diff.modified.length} modified, ${diff.deleted.length} deleted`);
+			this.log(
+				'info',
+				`Changes: ${diff.new.length} new, ${diff.modified.length} modified, ${diff.deleted.length} deleted`,
+			);
 
 			// Short-circuit if no changes
 			if (!diff.hasChanges && !force) {
@@ -123,7 +136,9 @@ export class Indexer {
 			// 5. Delete chunks for deleted files
 			if (diff.deleted.length > 0) {
 				this.log('info', `Deleting chunks for ${diff.deleted.length} files`);
-				stats.chunksDeleted = await storage.deleteChunksByFilepaths(diff.deleted);
+				stats.chunksDeleted = await storage.deleteChunksByFilepaths(
+					diff.deleted,
+				);
 			}
 
 			// 6. Process new and modified files
@@ -135,7 +150,9 @@ export class Indexer {
 
 				// First, delete existing chunks for modified files
 				if (diff.modified.length > 0 && !force) {
-					const deletedCount = await storage.deleteChunksByFilepaths(diff.modified);
+					const deletedCount = await storage.deleteChunksByFilepaths(
+						diff.modified,
+					);
 					stats.chunksDeleted += deletedCount;
 				}
 
@@ -158,7 +175,10 @@ export class Indexer {
 
 					const progress = Math.round(((i + batch.length) / totalFiles) * 100);
 					progressCallback?.(i + batch.length, totalFiles, 'Indexing files');
-					this.log('debug', `Progress: ${progress}% (${i + batch.length}/${totalFiles})`);
+					this.log(
+						'debug',
+						`Progress: ${progress}% (${i + batch.length}/${totalFiles})`,
+					);
 				}
 			}
 
@@ -171,7 +191,10 @@ export class Indexer {
 			});
 
 			await saveManifest(this.projectRoot, manifest);
-			this.log('info', `Index complete: ${stats.chunksAdded} chunks added, ${stats.chunksDeleted} deleted`);
+			this.log(
+				'info',
+				`Index complete: ${stats.chunksAdded} chunks added, ${stats.chunksDeleted} deleted`,
+			);
 
 			return stats;
 		} catch (error) {
@@ -198,7 +221,10 @@ export class Indexer {
 	/**
 	 * Recursively collect all file paths from a serialized Merkle tree node.
 	 */
-	private collectAllFilesFromSerialized(node: SerializedNode | null, files: string[]): void {
+	private collectAllFilesFromSerialized(
+		node: SerializedNode | null,
+		files: string[],
+	): void {
 		if (!node) return;
 		if (node.type === 'file') {
 			files.push(node.path);
@@ -225,17 +251,23 @@ export class Indexer {
 			try {
 				const absolutePath = path.join(this.projectRoot, filepath);
 				const content = await fs.readFile(absolutePath, 'utf-8');
-				const fileHash = (await import('../merkle/hash.js')).computeStringHash(content);
+				const fileHash = (await import('../merkle/hash.js')).computeStringHash(
+					content,
+				);
 
 				// Chunk the file
 				const chunks = await chunker.chunkFile(filepath, content);
 
 				// Check embedding cache for each chunk
 				const contentHashes = chunks.map(c => c.contentHash);
-				const cachedEmbeddings = await storage.getCachedEmbeddings(contentHashes);
+				const cachedEmbeddings = await storage.getCachedEmbeddings(
+					contentHashes,
+				);
 
 				// Compute embeddings for cache misses
-				const missingChunks = chunks.filter(c => !cachedEmbeddings.has(c.contentHash));
+				const missingChunks = chunks.filter(
+					c => !cachedEmbeddings.has(c.contentHash),
+				);
 
 				if (missingChunks.length > 0) {
 					const texts = missingChunks.map(c => c.text);
@@ -296,7 +328,10 @@ export class Indexer {
 		this.config = await loadConfig(this.projectRoot);
 
 		// Initialize storage
-		this.storage = new Storage(this.projectRoot, this.config.embeddingDimensions);
+		this.storage = new Storage(
+			this.projectRoot,
+			this.config.embeddingDimensions,
+		);
 		await this.storage.connect();
 
 		// Initialize chunker
@@ -313,7 +348,11 @@ export class Indexer {
 	/**
 	 * Log a message.
 	 */
-	private log(level: 'debug' | 'info' | 'warn' | 'error', message: string, error?: Error): void {
+	private log(
+		level: 'debug' | 'info' | 'warn' | 'error',
+		message: string,
+		error?: Error,
+	): void {
 		if (!this.logger) return;
 		if (level === 'error') {
 			this.logger.error('Indexer', message, error);

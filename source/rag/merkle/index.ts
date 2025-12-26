@@ -98,13 +98,13 @@ export class MerkleTree {
 			dot: true,
 			onlyFiles: true,
 			followSymbolicLinks: false, // Skip symlinks
-			ignore: excludePatterns.map((p) => `**/${p}/**`),
+			ignore: excludePatterns.map(p => `**/${p}/**`),
 		});
 
 		stats.filesScanned = files.length;
 
 		// Filter to valid extensions and non-excluded paths
-		const validFiles = files.filter((relativePath) => {
+		const validFiles = files.filter(relativePath => {
 			if (!hasValidExtension(relativePath, extensions)) {
 				return false;
 			}
@@ -236,9 +236,7 @@ export class MerkleTree {
 /**
  * Build a lookup map from path to node for quick access.
  */
-function buildNodeLookup(
-	root: MerkleNode | null,
-): Map<string, MerkleNode> {
+function buildNodeLookup(root: MerkleNode | null): Map<string, MerkleNode> {
 	const lookup = new Map<string, MerkleNode>();
 
 	if (!root) {

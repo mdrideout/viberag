@@ -125,9 +125,7 @@ export function compareTrees(
 	// Both trees exist - compare them
 	compareNodes(oldRoot, newRoot, diff);
 	diff.hasChanges =
-		diff.new.length > 0 ||
-		diff.modified.length > 0 ||
-		diff.deleted.length > 0;
+		diff.new.length > 0 || diff.modified.length > 0 || diff.deleted.length > 0;
 
 	return diff;
 }

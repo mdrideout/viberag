@@ -1,11 +1,4 @@
-import {
-	Field,
-	FixedSizeList,
-	Float32,
-	Int32,
-	Schema,
-	Utf8,
-} from 'apache-arrow';
+import {Field, FixedSizeList, Float32, Int32, Schema, Utf8} from 'apache-arrow';
 import {DEFAULT_EMBEDDING_DIMENSIONS} from '../constants.js';
 
 /**

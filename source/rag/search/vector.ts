@@ -19,12 +19,9 @@ export async function vectorSearch(
 	queryVector: number[],
 	limit: number,
 ): Promise<SearchResult[]> {
-	const results = await table
-		.search(queryVector)
-		.limit(limit)
-		.toArray();
+	const results = await table.search(queryVector).limit(limit).toArray();
 
-	return results.map((row) => {
+	return results.map(row => {
 		const chunk = row as CodeChunkRow & {_distance?: number};
 		// LanceDB returns _distance (lower is better for L2/cosine)
 		// Convert to similarity score (higher is better)
