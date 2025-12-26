@@ -55,7 +55,7 @@ Use context7 to perform RAG on libraries and documentation to ensure you are usi
 ## Package Management:
 
 - Install packages with `npm install [package]` - do not specify versions, get the latest every time.
-- Do not create git commits until I tell you to.
+- Never make git commits until I explicitly instruct you to do so.
 
 ## Testing:
 

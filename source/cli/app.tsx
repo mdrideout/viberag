@@ -193,9 +193,11 @@ Tips:
 		}
 	};
 
-	// Prepend welcome banner as first static item
+	// Prepend welcome banner as first static item (only after init status is known)
 	const staticItems = [
-		{id: 'welcome', type: 'welcome' as const, content: ''},
+		...(isInitialized !== undefined
+			? [{id: 'welcome', type: 'welcome' as const, content: ''}]
+			: []),
 		...outputItems,
 	];
 
