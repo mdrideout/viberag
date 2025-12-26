@@ -20,6 +20,7 @@ Review the following files to understand the project, progress, and what's next.
 
 - File and folder structure
 - @package.json
+  - Use context7 to check library docs to ensure the latest syntax and use.
 
 ## Important Library Documentation:
 
