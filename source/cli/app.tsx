@@ -1,10 +1,11 @@
 import React, {useState, useEffect} from 'react';
 import {createRequire} from 'node:module';
-import {Box, Static, Text, useStdout} from 'ink';
+import {Box, Text, useStdout} from 'ink';
 
 // Common infrastructure
 import TextInput from '../common/components/TextInput.js';
 import StatusBar from '../common/components/StatusBar.js';
+import StaticWithResize from '../common/components/StaticWithResize.js';
 import {useCtrlC} from '../common/hooks/useCtrlC.js';
 import {useCommandHistory} from '../common/hooks/useCommandHistory.js';
 import {useKittyKeyboard} from '../common/hooks/useKittyKeyboard.js';
@@ -122,8 +123,8 @@ export default function App() {
 
 	return (
 		<Box flexDirection="column">
-			{/* Static renders messages once, they scroll up via terminal scrollback */}
-			<Static items={staticItems}>
+			{/* StaticWithResize handles terminal resize by clearing and forcing re-render */}
+			<StaticWithResize items={staticItems}>
 				{item => {
 					if (item.type === 'welcome') {
 						return (
@@ -147,7 +148,7 @@ export default function App() {
 						</Box>
 					);
 				}}
-			</Static>
+			</StaticWithResize>
 
 			{/* Status bar with left (status) and right (stats) */}
 			<StatusBar status={appStatus} stats={indexStats} />

@@ -4,6 +4,14 @@ export type OutputItem = {
 	content: string;
 };
 
+/**
+ * Terminal dimensions for resize handling.
+ */
+export type TerminalDimensions = {
+	rows: number;
+	columns: number;
+};
+
 export type TextBufferState = {
 	lines: string[];
 	cursorLine: number;
