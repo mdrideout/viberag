@@ -85,3 +85,13 @@ export {
 	type TreeDiff,
 	type BuildStats,
 } from './merkle/index.js';
+
+// Indexer (Chunking)
+export {
+	Chunker,
+	createEmptyIndexStats,
+	type Chunk,
+	type IndexStats,
+	type ProgressCallback,
+	type SupportedLanguage,
+} from './indexer/index.js';
