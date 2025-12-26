@@ -221,6 +221,14 @@ export class Storage {
 			.execute(rows);
 	}
 
+	/**
+	 * Count total number of cached embeddings.
+	 */
+	async countCachedEmbeddings(): Promise<number> {
+		this.ensureConnected();
+		return this.cacheTable!.countRows();
+	}
+
 	// ============================================================
 	// Maintenance Operations
 	// ============================================================

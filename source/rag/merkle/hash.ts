@@ -139,9 +139,10 @@ export async function isBinaryFile(filepath: string): Promise<boolean> {
 /**
  * Check if a path should be excluded based on patterns.
  *
- * Patterns are matched against path segments:
- * - "node_modules" matches any path containing a "node_modules" segment
- * - ".git" matches any path containing a ".git" segment
+ * Supported pattern types:
+ * - "node_modules" - matches any path containing a "node_modules" segment
+ * - "*.pyc" - matches any file ending with .pyc
+ * - ".git" - matches any path containing a ".git" segment
  */
 export function shouldExclude(
 	relativePath: string,
@@ -149,9 +150,20 @@ export function shouldExclude(
 ): boolean {
 	// Split path into segments
 	const segments = relativePath.split('/');
+	const filename = segments[segments.length - 1] ?? '';
 
 	for (const pattern of excludePatterns) {
-		// Check if any segment matches the pattern
+		// Glob pattern: *.ext matches files with that extension
+		if (pattern.startsWith('*.')) {
+			const ext = pattern.slice(1); // ".pyc"
+			if (filename.endsWith(ext)) {
+				return true;
+			}
+
+			continue;
+		}
+
+		// Check if any segment matches the pattern exactly
 		if (segments.includes(pattern)) {
 			return true;
 		}

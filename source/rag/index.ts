@@ -83,4 +83,5 @@ export {
 	type NodeType,
 	type SerializedNode,
 	type TreeDiff,
+	type BuildStats,
 } from './merkle/index.js';

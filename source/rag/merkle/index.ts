@@ -23,6 +23,22 @@ export * from './hash.js';
 export * from './diff.js';
 
 /**
+ * Statistics from building a Merkle tree.
+ */
+export interface BuildStats {
+	/** Total files scanned (before filtering) */
+	filesScanned: number;
+	/** Files indexed (after filtering) */
+	filesIndexed: number;
+	/** Hash cache hits (mtime optimization) */
+	cacheHits: number;
+	/** Hash cache misses (computed hash) */
+	cacheMisses: number;
+	/** Files skipped (binary, symlink, errors) */
+	filesSkipped: number;
+}
+
+/**
  * A Merkle tree for efficient codebase change detection.
  *
  * The tree is content-addressed: if a file's content doesn't change,
@@ -34,10 +50,17 @@ export class MerkleTree {
 	readonly root: MerkleNode | null;
 	/** Total number of files in the tree */
 	readonly fileCount: number;
+	/** Build statistics (populated after build) */
+	readonly buildStats: BuildStats;
 
-	private constructor(root: MerkleNode | null, fileCount: number) {
+	private constructor(
+		root: MerkleNode | null,
+		fileCount: number,
+		buildStats: BuildStats,
+	) {
 		this.root = root;
 		this.fileCount = fileCount;
+		this.buildStats = buildStats;
 	}
 
 	/**
@@ -59,14 +82,26 @@ export class MerkleTree {
 			? buildNodeLookup(previousTree.root)
 			: new Map<string, MerkleNode>();
 
+		// Initialize build stats
+		const stats: BuildStats = {
+			filesScanned: 0,
+			filesIndexed: 0,
+			cacheHits: 0,
+			cacheMisses: 0,
+			filesSkipped: 0,
+		};
+
 		// Find all files matching our criteria
 		const pattern = '**/*';
 		const files = await fg(pattern, {
 			cwd: projectRoot,
 			dot: true,
 			onlyFiles: true,
+			followSymbolicLinks: false, // Skip symlinks
 			ignore: excludePatterns.map((p) => `**/${p}/**`),
 		});
+
+		stats.filesScanned = files.length;
 
 		// Filter to valid extensions and non-excluded paths
 		const validFiles = files.filter((relativePath) => {
@@ -83,22 +118,29 @@ export class MerkleTree {
 
 		// Build file nodes
 		const fileNodes = new Map<string, MerkleNode>();
-		let fileCount = 0;
 
 		for (const relativePath of validFiles) {
 			const absolutePath = path.join(projectRoot, relativePath);
 
 			try {
-				// Check if it's a binary file
-				const binary = await isBinaryFile(absolutePath);
-				if (binary) {
+				// Get file stats (use lstat to detect symlinks)
+				const fileStats = await fs.lstat(absolutePath);
+
+				// Skip symlinks
+				if (fileStats.isSymbolicLink()) {
+					stats.filesSkipped++;
 					continue;
 				}
 
-				// Get file stats
-				const stats = await fs.stat(absolutePath);
-				const size = stats.size;
-				const mtime = stats.mtimeMs;
+				// Check if it's a binary file
+				const binary = await isBinaryFile(absolutePath);
+				if (binary) {
+					stats.filesSkipped++;
+					continue;
+				}
+
+				const size = fileStats.size;
+				const mtime = fileStats.mtimeMs;
 
 				// Check if we can reuse hash from previous tree (mtime optimization)
 				let hash: string;
@@ -112,16 +154,19 @@ export class MerkleTree {
 				) {
 					// File unchanged - reuse cached hash
 					hash = prevNode.hash;
+					stats.cacheHits++;
 				} else {
 					// File is new or changed - compute hash
 					hash = await computeFileHash(absolutePath);
+					stats.cacheMisses++;
 				}
 
 				const node = createFileNode(relativePath, hash, size, mtime);
 				fileNodes.set(relativePath, node);
-				fileCount++;
+				stats.filesIndexed++;
 			} catch {
 				// Skip files we can't read
+				stats.filesSkipped++;
 				continue;
 			}
 		}
@@ -129,7 +174,7 @@ export class MerkleTree {
 		// Build directory structure
 		const root = buildDirectoryTree(fileNodes);
 
-		return new MerkleTree(root, fileCount);
+		return new MerkleTree(root, stats.filesIndexed, stats);
 	}
 
 	/**
@@ -157,20 +202,34 @@ export class MerkleTree {
 	 * Deserialize a tree from a plain object.
 	 */
 	static fromJSON(data: SerializedNode | null): MerkleTree {
+		const emptyStats: BuildStats = {
+			filesScanned: 0,
+			filesIndexed: 0,
+			cacheHits: 0,
+			cacheMisses: 0,
+			filesSkipped: 0,
+		};
+
 		if (!data) {
-			return new MerkleTree(null, 0);
+			return new MerkleTree(null, 0, emptyStats);
 		}
 
 		const root = deserializeNode(data);
 		const fileCount = countFiles(root);
-		return new MerkleTree(root, fileCount);
+		return new MerkleTree(root, fileCount, emptyStats);
 	}
 
 	/**
 	 * Create an empty tree.
 	 */
 	static empty(): MerkleTree {
-		return new MerkleTree(null, 0);
+		return new MerkleTree(null, 0, {
+			filesScanned: 0,
+			filesIndexed: 0,
+			cacheHits: 0,
+			cacheMisses: 0,
+			filesSkipped: 0,
+		});
 	}
 }
 
