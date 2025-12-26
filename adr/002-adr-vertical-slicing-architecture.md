@@ -69,15 +69,12 @@ The `rag/` module contains all business logic with no UI dependencies. Any inter
 import {Indexer, SearchEngine} from '../rag/index.js';
 ```
 
-#### 3. Barrel Exports
+#### 3. Direct Imports
 
-Each module exposes its public API through `index.ts`. Internal structure is hidden:
+Use direct imports to specific files rather than barrel re-exports. This improves build performance and avoids circular dependency risks:
 
 ```typescript
-// Clean import from public API
-import {TextInput, useCtrlC} from '../common/index.js';
-
-// Not this - reaching into internals
+import TextInput from '../common/components/TextInput.js';
 import {useCtrlC} from '../common/hooks/useCtrlC.js';
 ```
 
@@ -114,7 +111,6 @@ No changes to existing interfaces required.
 
 ### Negative
 
-- **More barrel files**: Each module needs `index.ts`
 - **Discipline required**: Developers must respect module boundaries
 
 ### Neutral

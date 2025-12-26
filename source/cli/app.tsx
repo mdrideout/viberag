@@ -3,17 +3,15 @@ import {createRequire} from 'node:module';
 import {Box, Static, Text, useStdout} from 'ink';
 
 // Common infrastructure
-import {
-	TextInput,
-	StatusBar,
-	useCtrlC,
-	useCommandHistory,
-	useKittyKeyboard,
-	type OutputItem,
-} from '../common/index.js';
+import TextInput from '../common/components/TextInput.js';
+import StatusBar from '../common/components/StatusBar.js';
+import {useCtrlC} from '../common/hooks/useCtrlC.js';
+import {useCommandHistory} from '../common/hooks/useCommandHistory.js';
+import {useKittyKeyboard} from '../common/hooks/useKittyKeyboard.js';
+import type {OutputItem} from '../common/types.js';
 
 // CLI-specific components and commands
-import {WelcomeBanner} from './components/index.js';
+import WelcomeBanner from './components/WelcomeBanner.js';
 import {useRagCommands} from './commands/useRagCommands.js';
 import {checkInitialized} from './commands/handlers.js';
 

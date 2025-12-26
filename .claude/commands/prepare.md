@@ -47,9 +47,14 @@ Use context7 to perform RAG on libraries and documentation to ensure you are usi
   - github: https://github.com/google-gemini/gemini-cli
   - context7: https://context7.com/google-gemini/gemini-cli
 
+## Architecture Overview
+
+This is a codebase that will scale with more features very rapidly. We architect and build code using good conventions for scale. We will not wait to refactor when we feel pain, we will use good conventions today.
+
+Review all files inside @adr/ to understand architectural decisions.
+
 ## Code Style
 
-- Vertical slice feature organization
 - Use Grug development principles, such as single responsibility principle, principle of least astonishment, YAGNI, and KISS. Naked functions over unnecessary classes and abstractions. However, align with the recommended patterns of the libraries and frameworks if any conflict with Grug.
 
 ## Package Management:
