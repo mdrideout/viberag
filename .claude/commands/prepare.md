@@ -55,7 +55,11 @@ Review all files inside @adr/ to understand architectural decisions.
 
 ## Code Style
 
-- Use Grug development principles, such as single responsibility principle, principle of least astonishment, YAGNI, and KISS. Naked functions over unnecessary classes and abstractions. However, align with the recommended patterns of the libraries and frameworks if any conflict with Grug.
+Use Grug development principles, such as single responsibility principle, principle of least astonishment, YAGNI (as it pertains to over-engineered abstractions and "systems"), and KISS.
+
+Examples: use naked functions over unnecessary classes and abstractions. 
+
+**However**, you align with the recommended patterns of the libraries and frameworks if any conflict with Grug.
 
 ## Package Management:
 
