@@ -169,7 +169,13 @@ export class Indexer {
 					);
 
 					if (batchChunks.length > 0) {
-						await storage.upsertChunks(batchChunks);
+						// Use addChunks after table reset to avoid schema mismatch,
+						// upsertChunks for normal incremental updates
+						if (force) {
+							await storage.addChunks(batchChunks);
+						} else {
+							await storage.upsertChunks(batchChunks);
+						}
 						stats.chunksAdded += batchChunks.length;
 					}
 

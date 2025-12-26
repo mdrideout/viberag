@@ -7,5 +7,11 @@ export default defineConfig({
 		environment: 'node',
 		globals: true,
 		passWithNoTests: true,
+		// E2E tests with real embeddings need longer timeouts
+		testTimeout: 60_000,
+		hookTimeout: 120_000,
+		// Run tests sequentially to avoid model initialization overhead
+		pool: 'forks',
+		maxWorkers: 1,
 	},
 });

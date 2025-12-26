@@ -1,4 +1,5 @@
 import * as lancedb from '@lancedb/lancedb';
+import {makeArrowTable} from '@lancedb/lancedb';
 import type {Connection, Table} from '@lancedb/lancedb';
 import {getLanceDbPath, TABLE_NAMES} from '../constants.js';
 import {createCodeChunksSchema, createEmbeddingCacheSchema} from './schema.js';
@@ -76,9 +77,10 @@ export class Storage {
 
 	/**
 	 * Ensure we're connected.
+	 * Note: chunksTable may be null after resetChunksTable().
 	 */
 	private ensureConnected(): void {
-		if (!this.db || !this.chunksTable || !this.cacheTable) {
+		if (!this.db || !this.cacheTable) {
 			throw new Error('Storage not connected. Call connect() first.');
 		}
 	}
@@ -102,6 +104,32 @@ export class Storage {
 			.whenMatchedUpdateAll()
 			.whenNotMatchedInsertAll()
 			.execute(rows);
+	}
+
+	/**
+	 * Add chunks to the database (no merge, just insert).
+	 * Use this after resetChunksTable() to avoid schema mismatch issues.
+	 * Creates the table from data if it doesn't exist.
+	 */
+	async addChunks(chunks: CodeChunk[]): Promise<void> {
+		this.ensureConnected();
+		if (chunks.length === 0) return;
+
+		const rows = chunks.map(chunkToRow) as unknown as Record<string, unknown>[];
+		const schema = createCodeChunksSchema(this.dimensions);
+
+		// Use makeArrowTable to properly convert data with schema
+		const arrowTable = makeArrowTable(rows, {schema});
+
+		// If table was reset (null), create from Arrow table
+		if (!this.chunksTable) {
+			this.chunksTable = await this.db!.createTable(
+				TABLE_NAMES.CODE_CHUNKS,
+				arrowTable,
+			);
+		} else {
+			await this.chunksTable.add(arrowTable);
+		}
 	}
 
 	/**
@@ -197,7 +225,11 @@ export class Storage {
 		const cache = new Map<string, number[]>();
 		for (const row of results) {
 			const typed = row as unknown as CachedEmbeddingRow;
-			cache.set(typed.content_hash, typed.vector);
+			// Ensure vector is a plain array (LanceDB may return typed arrays)
+			const vector = Array.isArray(typed.vector)
+				? typed.vector
+				: Array.from(typed.vector as unknown as ArrayLike<number>);
+			cache.set(typed.content_hash, vector);
 		}
 
 		return cache;
@@ -259,12 +291,9 @@ export class Storage {
 		// Drop existing table
 		await this.db!.dropTable(TABLE_NAMES.CODE_CHUNKS);
 
-		// Recreate with fresh schema
-		const schema = createCodeChunksSchema(this.dimensions);
-		this.chunksTable = await this.db!.createEmptyTable(
-			TABLE_NAMES.CODE_CHUNKS,
-			schema,
-		);
+		// Don't pre-create - let it be created from first data insert
+		// This avoids Arrow schema mismatch issues
+		this.chunksTable = null;
 	}
 
 	/**

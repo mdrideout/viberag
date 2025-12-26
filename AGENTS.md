@@ -43,6 +43,29 @@ import {SearchEngine} from './search/index.js'; // correct
 import {SearchEngine} from './search/index'; // breaks at runtime
 ```
 
+## Testing Philosophy
+
+**Test system behavior, not library correctness.**
+
+We don't test that tree-sitter parses Python or that LanceDB stores vectors. We test that:
+
+- Our Merkle tree correctly detects file changes
+- Our search returns expected files for known queries
+- Our incremental indexing only reprocesses what changed
+- Our manifest persistence enables recovery
+
+**Principles:**
+
+- Real dependencies, no mocks (real embeddings, real LanceDB)
+- E2E/integration tests over unit tests
+- Avoid pointless unit tests for simple functions
+- Create tests for critical contracts between components
+- Add regression tests when failures are encountered
+
+**Test fixtures:** `test-fixtures/codebase/` contains semantically distinct files (math.py, http_client.ts, utils.js) so we can verify search finds the right files.
+
+**Running tests:** `npm test` (~20s with real embeddings)
+
 ## Storage
 
 All data lives in `.viberag/` (gitignored).
