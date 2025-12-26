@@ -9,6 +9,13 @@ import {useCommands} from './hooks/useCommands.js';
 import {useCommandHistory} from './hooks/useCommandHistory.js';
 import {useKittyKeyboard} from './hooks/useKittyKeyboard.js';
 import {setupVSCodeTerminal} from './commands/terminalSetup.js';
+import {
+	runIndex,
+	formatIndexStats,
+	runSearch,
+	formatSearchResults,
+	getStatus,
+} from './commands/rag.js';
 import type {OutputItem} from './types.js';
 
 const require = createRequire(import.meta.url);
@@ -16,7 +23,18 @@ const require = createRequire(import.meta.url);
 const {version} = require('../package.json') as {version: string};
 
 // Available slash commands for autocomplete
-const COMMANDS = ['/help', '/clear', '/terminal-setup', '/quit', '/exit', '/q'];
+const COMMANDS = [
+	'/help',
+	'/clear',
+	'/terminal-setup',
+	'/index',
+	'/reindex',
+	'/search',
+	'/status',
+	'/quit',
+	'/exit',
+	'/q',
+];
 
 // Module-level counter for unique IDs
 let nextId = 0;
@@ -51,6 +69,9 @@ export default function App() {
 		onStatusClear: () => setStatusMessage(''),
 	});
 
+	// Get project root (current working directory)
+	const projectRoot = process.cwd();
+
 	// Slash command handling
 	const {isCommand, executeCommand} = useCommands({
 		onClear: () => {
@@ -64,6 +85,10 @@ export default function App() {
   /help           - Show this help
   /clear          - Clear the screen
   /terminal-setup - Configure terminal for Shift+Enter
+  /index          - Index the codebase
+  /reindex        - Force full reindex
+  /search <query> - Search the codebase
+  /status         - Show index status
   /quit           - Exit
 
 Multi-line input:
@@ -83,6 +108,40 @@ Tips:
 			setupVSCodeTerminal()
 				.then(result => addOutput('system', result))
 				.catch(err => addOutput('system', `Error: ${err.message}`));
+		},
+		onIndex: (force: boolean) => {
+			const action = force ? 'Reindexing' : 'Indexing';
+			addOutput('system', `${action} codebase...`);
+			setStatusMessage(`${action}...`);
+
+			runIndex(projectRoot, force, msg => setStatusMessage(msg))
+				.then(stats => {
+					addOutput('system', formatIndexStats(stats));
+					setStatusMessage('');
+				})
+				.catch(err => {
+					addOutput('system', `Index failed: ${err.message}`);
+					setStatusMessage('');
+				});
+		},
+		onSearch: (query: string) => {
+			addOutput('system', `Searching for "${query}"...`);
+			setStatusMessage('Searching...');
+
+			runSearch(projectRoot, query)
+				.then(results => {
+					addOutput('system', formatSearchResults(results));
+					setStatusMessage('');
+				})
+				.catch(err => {
+					addOutput('system', `Search failed: ${err.message}`);
+					setStatusMessage('');
+				});
+		},
+		onStatus: () => {
+			getStatus(projectRoot)
+				.then(status => addOutput('system', status))
+				.catch(err => addOutput('system', `Status failed: ${err.message}`));
 		},
 		onUnknown: command => {
 			addOutput(
