@@ -33,7 +33,7 @@ export {
 	configExists,
 	DEFAULT_CONFIG,
 	type LCRConfig,
-	type EmbeddingProvider,
+	type EmbeddingProviderType,
 } from './config/index.js';
 
 // Manifest
@@ -95,3 +95,9 @@ export {
 	type ProgressCallback,
 	type SupportedLanguage,
 } from './indexer/index.js';
+
+// Embeddings
+export {
+	LocalEmbeddingProvider,
+	type EmbeddingProvider,
+} from './embeddings/index.js';

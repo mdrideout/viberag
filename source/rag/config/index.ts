@@ -1,11 +1,11 @@
 import fs from 'node:fs/promises';
 import {getConfigPath, getLcrDir} from '../constants.js';
 
-export type EmbeddingProvider = 'local' | 'openai' | 'gemini';
+export type EmbeddingProviderType = 'local' | 'openai' | 'gemini';
 
 export interface LCRConfig {
 	version: number;
-	embeddingProvider: EmbeddingProvider;
+	embeddingProvider: EmbeddingProviderType;
 	embeddingModel: string;
 	embeddingDimensions: number;
 	extensions: string[];
