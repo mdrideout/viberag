@@ -64,9 +64,9 @@ export default function TextInput({
 			if (!isEmpty()) {
 				clear();
 				setSelectedSuggestionIndex(0);
-			} else {
-				onCtrlC();
 			}
+			// Always call onCtrlC so the quit timer starts even when clearing text
+			onCtrlC();
 			return;
 		}
 
