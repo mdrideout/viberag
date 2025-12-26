@@ -47,3 +47,19 @@ export {
 	type Manifest,
 	type ManifestStats,
 } from './manifest/index.js';
+
+// Storage
+export {
+	Storage,
+	createCodeChunksSchema,
+	createEmbeddingCacheSchema,
+	chunkToRow,
+	rowToChunk,
+	embeddingToRow,
+	rowToEmbedding,
+	type CodeChunk,
+	type CodeChunkRow,
+	type CachedEmbedding,
+	type CachedEmbeddingRow,
+	type ChunkType,
+} from './storage/index.js';
