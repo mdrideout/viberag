@@ -45,7 +45,8 @@ let nextId = 0;
 export default function App() {
 	const [outputItems, setOutputItems] = useState<OutputItem[]>([]);
 	const [appStatus, setAppStatus] = useState<AppStatus>({state: 'ready'});
-	const [indexStats, setIndexStats] = useState<IndexDisplayStats | null>(null);
+	// undefined = not loaded yet, null = loaded but no manifest, {...} = loaded with stats
+	const [indexStats, setIndexStats] = useState<IndexDisplayStats | null | undefined>(undefined);
 	const [isInitialized, setIsInitialized] = useState<boolean | undefined>(
 		undefined,
 	);
@@ -113,9 +114,11 @@ export default function App() {
 		}
 	};
 
-	// Prepend welcome banner as first static item (only after init status is known)
+	// Prepend welcome banner as first static item (only after BOTH init status AND stats are loaded)
+	// This prevents race condition where banner shows stale "Run /index" while stats are loading
+	const startupLoaded = isInitialized !== undefined && indexStats !== undefined;
 	const staticItems = [
-		...(isInitialized !== undefined
+		...(startupLoaded
 			? [{id: 'welcome', type: 'welcome' as const, content: ''}]
 			: []),
 		...outputItems,

@@ -4,7 +4,8 @@ import type {AppStatus, IndexDisplayStats} from '../types.js';
 
 type Props = {
 	status: AppStatus;
-	stats: IndexDisplayStats | null;
+	// undefined = not loaded yet, null = loaded but no manifest
+	stats: IndexDisplayStats | null | undefined;
 };
 
 /**
@@ -34,8 +35,11 @@ function formatStatus(status: AppStatus): {text: string; color: string} {
 /**
  * Format stats for display.
  */
-function formatStats(stats: IndexDisplayStats | null): string {
-	if (!stats) {
+function formatStats(stats: IndexDisplayStats | null | undefined): string {
+	if (stats === undefined) {
+		return 'Loading...';
+	}
+	if (stats === null) {
 		return 'Not indexed';
 	}
 	return `${stats.totalFiles} files · ${stats.totalChunks} chunks`;

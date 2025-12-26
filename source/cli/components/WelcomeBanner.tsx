@@ -8,7 +8,8 @@ type Props = {
 	version: string;
 	cwd: string;
 	isInitialized?: boolean;
-	indexStats: IndexDisplayStats | null;
+	// undefined = not loaded yet, null = loaded but no manifest
+	indexStats: IndexDisplayStats | null | undefined;
 };
 
 export default function WelcomeBanner({
@@ -17,7 +18,8 @@ export default function WelcomeBanner({
 	isInitialized,
 	indexStats,
 }: Props) {
-	const isIndexed = indexStats !== null && indexStats.totalChunks > 0;
+	// indexStats is only passed once fully loaded (undefined means still loading)
+	const isIndexed = indexStats != null && indexStats.totalChunks > 0;
 
 	return (
 		<Box flexDirection="column" paddingX={1}>
