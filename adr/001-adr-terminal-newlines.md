@@ -13,8 +13,6 @@ The challenge is that terminals handle Shift+Enter differently:
 - **VS Code Terminal**: Does not support Kitty protocol; requires custom keybinding
 - **macOS Terminal**: No Shift+Enter support
 
-We modeled our approach after lance_code_rag (Python/Textual), which proactively enables the Kitty keyboard protocol on startup.
-
 ## Decision
 
 We implement a two-pronged approach:
@@ -209,21 +207,6 @@ useInput((input, key) => {
 - `source/cli/app.tsx` - Calls useKittyKeyboard hook on mount
 - `source/cli/components/TextInput.tsx` - CSI u and ESC+LF detection
 - `source/cli/commands/terminalSetup.ts` - VS Code keybinding setup, terminal detection
-
-## Comparison with Other Implementations
-
-### lance_code_rag (Python/Textual)
-
-Textual enables the Kitty protocol similarly:
-```python
-self.write("\x1b[>1u")  # Enable Kitty keyboard protocol
-```
-
-Textual's parser natively understands CSI u, so `event.key` is already `"shift+enter"`. We detect the raw sequence `[13;2u` since Ink doesn't parse CSI u.
-
-### Claude Code (Bun)
-
-Uses a generator-based `emitKeys` function that processes characters one-by-one, maintaining `escaped` state. Different approach but same result.
 
 ## Consequences
 
