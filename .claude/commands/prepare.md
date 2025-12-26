@@ -10,6 +10,10 @@ It includes an interactive CLI powered by React Ink that makes it easy to setup,
 
 The MCP server is built with the [node implementation of FastMCP]...
 
+### Greenfield
+
+This is a greenfield project. Deprecations, migrations, backward compatibility are not required. We can completely reset all data at any time and re-initialize fresh. 
+
 ### Prepare to Work
 
 Review the following files to understand the project, progress, and what's next.

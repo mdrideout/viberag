@@ -8,12 +8,16 @@ import StatusBar from '../common/components/StatusBar.js';
 import {useCtrlC} from '../common/hooks/useCtrlC.js';
 import {useCommandHistory} from '../common/hooks/useCommandHistory.js';
 import {useKittyKeyboard} from '../common/hooks/useKittyKeyboard.js';
-import type {OutputItem} from '../common/types.js';
+import type {
+	OutputItem,
+	AppStatus,
+	IndexDisplayStats,
+} from '../common/types.js';
 
 // CLI-specific components and commands
 import WelcomeBanner from './components/WelcomeBanner.js';
 import {useRagCommands} from './commands/useRagCommands.js';
-import {checkInitialized} from './commands/handlers.js';
+import {checkInitialized, loadIndexStats} from './commands/handlers.js';
 
 const require = createRequire(import.meta.url);
 // Path is relative from dist/ after compilation
@@ -39,7 +43,8 @@ let nextId = 0;
 
 export default function App() {
 	const [outputItems, setOutputItems] = useState<OutputItem[]>([]);
-	const [statusMessage, setStatusMessage] = useState<string>('');
+	const [appStatus, setAppStatus] = useState<AppStatus>({state: 'ready'});
+	const [indexStats, setIndexStats] = useState<IndexDisplayStats | null>(null);
 	const [isInitialized, setIsInitialized] = useState<boolean | undefined>(
 		undefined,
 	);
@@ -51,9 +56,10 @@ export default function App() {
 	// Get project root (current working directory)
 	const projectRoot = process.cwd();
 
-	// Check initialization status on mount
+	// Check initialization status and load stats on mount
 	useEffect(() => {
 		checkInitialized(projectRoot).then(setIsInitialized);
+		loadIndexStats(projectRoot).then(setIndexStats);
 	}, [projectRoot]);
 
 	// Command history
@@ -74,14 +80,16 @@ export default function App() {
 
 	// Handle Ctrl+C with status message callback
 	const {handleCtrlC} = useCtrlC({
-		onFirstPress: () => setStatusMessage('Press Ctrl+C again to quit'),
-		onStatusClear: () => setStatusMessage(''),
+		onFirstPress: () =>
+			setAppStatus({state: 'warning', message: 'Press Ctrl+C again to quit'}),
+		onStatusClear: () => setAppStatus({state: 'ready'}),
 	});
 
 	// Command handling (all logic consolidated in useRagCommands)
 	const {isCommand, executeCommand} = useRagCommands({
 		addOutput,
-		setStatusMessage,
+		setAppStatus,
+		setIndexStats,
 		setIsInitialized,
 		projectRoot,
 		stdout,
@@ -93,10 +101,12 @@ export default function App() {
 		// Add to history
 		addToHistory(text);
 
+		// Always show user input
+		addOutput('user', text);
+
 		if (isCommand(text)) {
 			executeCommand(text);
 		} else {
-			addOutput('user', text);
 			// Placeholder for actual processing - just echo for now
 			addOutput('system', `Echo: ${text}`);
 		}
@@ -122,6 +132,7 @@ export default function App() {
 									version={version}
 									cwd={process.cwd()}
 									isInitialized={isInitialized}
+									indexStats={indexStats}
 								/>
 							</Box>
 						);
@@ -138,8 +149,8 @@ export default function App() {
 				}}
 			</Static>
 
-			{/* Dynamic content stays at current cursor position */}
-			<StatusBar message={statusMessage} />
+			{/* Status bar with left (status) and right (stats) */}
+			<StatusBar status={appStatus} stats={indexStats} />
 
 			{/* Input area */}
 			<TextInput

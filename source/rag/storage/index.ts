@@ -250,6 +250,24 @@ export class Storage {
 	}
 
 	/**
+	 * Drop and recreate the chunks table.
+	 * Use this for force reindex to avoid schema mismatch issues.
+	 */
+	async resetChunksTable(): Promise<void> {
+		this.ensureConnected();
+
+		// Drop existing table
+		await this.db!.dropTable(TABLE_NAMES.CODE_CHUNKS);
+
+		// Recreate with fresh schema
+		const schema = createCodeChunksSchema(this.dimensions);
+		this.chunksTable = await this.db!.createEmptyTable(
+			TABLE_NAMES.CODE_CHUNKS,
+			schema,
+		);
+	}
+
+	/**
 	 * Clear the embedding cache.
 	 */
 	async clearCache(): Promise<void> {

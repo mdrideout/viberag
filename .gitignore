@@ -2,3 +2,5 @@ node_modules
 dist
 # Viberag index
 .viberag/
+# Embedding model cache
+local_cache/

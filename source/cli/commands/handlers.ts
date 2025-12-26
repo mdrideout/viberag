@@ -18,6 +18,14 @@ import {
 } from '../../rag/index.js';
 
 /**
+ * Index display stats type (re-exported for convenience).
+ */
+export type IndexDisplayStats = {
+	totalFiles: number;
+	totalChunks: number;
+};
+
+/**
  * Check if project is initialized.
  */
 export async function checkInitialized(projectRoot: string): Promise<boolean> {
@@ -25,8 +33,25 @@ export async function checkInitialized(projectRoot: string): Promise<boolean> {
 }
 
 /**
+ * Load index stats for display in status bar.
+ */
+export async function loadIndexStats(
+	projectRoot: string,
+): Promise<IndexDisplayStats | null> {
+	if (!(await manifestExists(projectRoot))) {
+		return null;
+	}
+	const manifest = await loadManifest(projectRoot);
+	return {
+		totalFiles: manifest.stats.totalFiles,
+		totalChunks: manifest.stats.totalChunks,
+	};
+}
+
+/**
  * Initialize a project for Viberag.
  * Creates .viberag/ directory with config.json.
+ * With force=true, deletes everything and starts fresh.
  */
 export async function runInit(
 	projectRoot: string,
@@ -37,6 +62,11 @@ export async function runInit(
 
 	if (isExisting && !force) {
 		return 'Already initialized. Use /init --force to reinitialize.';
+	}
+
+	// If force, delete entire .viberag directory first
+	if (force && isExisting) {
+		await fs.rm(viberagDir, {recursive: true, force: true});
 	}
 
 	// Create .viberag directory
@@ -67,16 +97,14 @@ export async function runInit(
 export async function runIndex(
 	projectRoot: string,
 	force: boolean = false,
-	onProgress?: (message: string) => void,
+	onProgress?: (current: number, total: number, stage: string) => void,
 ): Promise<IndexStats> {
 	const indexer = new Indexer(projectRoot);
 
 	try {
 		const stats = await indexer.index({
 			force,
-			progressCallback: (current, total, stage) => {
-				onProgress?.(`${stage}: ${current}/${total}`);
-			},
+			progressCallback: onProgress,
 		});
 		return stats;
 	} finally {

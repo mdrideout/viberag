@@ -127,10 +127,10 @@ export class Indexer {
 				return stats;
 			}
 
-			// 4. Handle force reindex
+			// 4. Handle force reindex - drop and recreate table to avoid schema issues
 			if (force) {
-				this.log('info', 'Force reindex: clearing all chunks');
-				await storage.clearAll();
+				this.log('info', 'Force reindex: resetting chunks table');
+				await storage.resetChunksTable();
 			}
 
 			// 5. Delete chunks for deleted files

@@ -12,12 +12,16 @@ import {
 	formatSearchResults,
 	getStatus,
 	runInit,
+	loadIndexStats,
+	type IndexDisplayStats,
 } from './handlers.js';
 import {setupVSCodeTerminal} from '../../common/commands/terminalSetup.js';
+import type {AppStatus} from '../../common/types.js';
 
 type RagCommandContext = {
 	addOutput: (type: 'user' | 'system', content: string) => void;
-	setStatusMessage: (msg: string) => void;
+	setAppStatus: (status: AppStatus) => void;
+	setIndexStats: (stats: IndexDisplayStats | null) => void;
 	setIsInitialized: (val: boolean) => void;
 	projectRoot: string;
 	stdout: NodeJS.WriteStream;
@@ -25,7 +29,8 @@ type RagCommandContext = {
 
 export function useRagCommands({
 	addOutput,
-	setStatusMessage,
+	setAppStatus,
+	setIndexStats,
 	setIsInitialized,
 	projectRoot,
 	stdout,
@@ -77,57 +82,65 @@ Tips:
 		(force: boolean) => {
 			const action = force ? 'Reinitializing' : 'Initializing';
 			addOutput('system', `${action} Viberag...`);
-			setStatusMessage(`${action}...`);
+			setAppStatus({state: 'warning', message: `${action}...`});
 
 			runInit(projectRoot, force)
-				.then(result => {
+				.then(async result => {
 					addOutput('system', result);
-					setStatusMessage('');
+					// Reload stats (will be null after force init)
+					const newStats = await loadIndexStats(projectRoot);
+					setIndexStats(newStats);
+					setAppStatus({state: 'ready'});
 					setIsInitialized(true);
 				})
 				.catch(err => {
 					addOutput('system', `Init failed: ${err.message}`);
-					setStatusMessage('');
+					setAppStatus({state: 'ready'});
 				});
 		},
-		[projectRoot, addOutput, setStatusMessage, setIsInitialized],
+		[projectRoot, addOutput, setAppStatus, setIndexStats, setIsInitialized],
 	);
 
 	const handleIndex = useCallback(
 		(force: boolean) => {
 			const action = force ? 'Reindexing' : 'Indexing';
 			addOutput('system', `${action} codebase...`);
-			setStatusMessage(`${action}...`);
+			setAppStatus({state: 'indexing', current: 0, total: 0, stage: action});
 
-			runIndex(projectRoot, force, msg => setStatusMessage(msg))
-				.then(stats => {
+			runIndex(projectRoot, force, (current, total, stage) =>
+				setAppStatus({state: 'indexing', current, total, stage}),
+			)
+				.then(async stats => {
 					addOutput('system', formatIndexStats(stats));
-					setStatusMessage('');
+					// Reload stats after indexing
+					const newStats = await loadIndexStats(projectRoot);
+					setIndexStats(newStats);
+					setAppStatus({state: 'ready'});
 				})
 				.catch(err => {
 					addOutput('system', `Index failed: ${err.message}`);
-					setStatusMessage('');
+					setAppStatus({state: 'ready'});
 				});
 		},
-		[projectRoot, addOutput, setStatusMessage],
+		[projectRoot, addOutput, setAppStatus, setIndexStats],
 	);
 
 	const handleSearch = useCallback(
 		(query: string) => {
 			addOutput('system', `Searching for "${query}"...`);
-			setStatusMessage('Searching...');
+			setAppStatus({state: 'searching'});
 
 			runSearch(projectRoot, query)
 				.then(results => {
 					addOutput('system', formatSearchResults(results));
-					setStatusMessage('');
+					setAppStatus({state: 'ready'});
 				})
 				.catch(err => {
 					addOutput('system', `Search failed: ${err.message}`);
-					setStatusMessage('');
+					setAppStatus({state: 'ready'});
 				});
 		},
-		[projectRoot, addOutput, setStatusMessage],
+		[projectRoot, addOutput, setAppStatus],
 	);
 
 	const handleStatus = useCallback(() => {
