@@ -276,7 +276,8 @@ function buildDirectoryTree(
 
 		// Build path to each ancestor directory
 		for (let i = 1; i <= parts.length; i++) {
-			const dirPath = i === parts.length ? '' : parts.slice(0, i).join('/');
+			// Parent directory path (empty string for root)
+			const dirPath = parts.slice(0, i - 1).join('/');
 			const childName = parts[i - 1]!;
 			const childPath =
 				i === parts.length ? filePath : parts.slice(0, i).join('/');
@@ -285,12 +286,10 @@ function buildDirectoryTree(
 				dirChildren.set(dirPath, new Map());
 			}
 
-			// Only add the immediate child
-			if (i === 1 || parts.slice(0, i - 1).join('/') === dirPath) {
-				const childNode = allNodes.get(childPath);
-				if (childNode) {
-					dirChildren.get(dirPath)!.set(childName, childNode);
-				}
+			// Add the immediate child to its parent directory
+			const childNode = allNodes.get(childPath);
+			if (childNode) {
+				dirChildren.get(dirPath)!.set(childName, childNode);
 			}
 		}
 	}

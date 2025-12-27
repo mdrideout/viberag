@@ -1,7 +1,13 @@
 import fs from 'node:fs/promises';
 import {getConfigPath, getViberagDir} from '../constants.js';
 
-export type EmbeddingProviderType = 'local' | 'openai' | 'gemini';
+/**
+ * Embedding provider types.
+ * - local: jina-embeddings-v2-base-code (768d, 8K context, ~70% code accuracy)
+ * - gemini: gemini-embedding-001 (768d, 2K context, 74.66% accuracy, free tier)
+ * - mistral: codestral-embed-2505 (1024d, 8K context, 85% accuracy, best for code)
+ */
+export type EmbeddingProviderType = 'local' | 'gemini' | 'mistral';
 
 export interface ViberagConfig {
 	version: number;
@@ -17,7 +23,9 @@ export interface ViberagConfig {
 export const DEFAULT_CONFIG: ViberagConfig = {
 	version: 1,
 	embeddingProvider: 'local',
-	embeddingModel: 'BAAI/bge-base-en-v1.5',
+	// Jina v2 base code - optimized for code, 8K context, 30 languages
+	// Uses fp16 ONNX (~321MB download on first use)
+	embeddingModel: 'jinaai/jina-embeddings-v2-base-code',
 	embeddingDimensions: 768,
 	extensions: ['.py', '.js', '.ts', '.tsx', '.go', '.rs', '.java'],
 	excludePatterns: [

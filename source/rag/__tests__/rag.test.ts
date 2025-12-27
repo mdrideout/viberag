@@ -332,3 +332,110 @@ describe('Error handling', () => {
 		expect(stats.filesScanned).toBeGreaterThan(0);
 	}, 60_000);
 });
+
+describe('Subdirectory indexing', () => {
+	let ctx: TestContext;
+
+	beforeEach(async () => {
+		ctx = await copyFixtureToTemp('codebase');
+	});
+
+	afterEach(async () => {
+		await ctx.cleanup();
+	});
+
+	it('indexes files in nested subdirectories', async () => {
+		const indexer = new Indexer(ctx.projectRoot);
+		const stats = await indexer.index();
+		indexer.close();
+
+		// Should have indexed all nested files (5 original + 10 nested = 15)
+		// Note: empty.py may not produce chunks
+		expect(stats.filesScanned).toBeGreaterThanOrEqual(10);
+
+		// Should find deeply nested file via search
+		const search = new SearchEngine(ctx.projectRoot);
+		const results = await search.search('flatten deeply nested array');
+		expect(results.results.some(r => r.filepath.includes('deep/nested'))).toBe(
+			true,
+		);
+		search.close();
+	}, 60_000);
+
+	it('detects changes in deeply nested files', async () => {
+		// Initial index
+		const indexer = new Indexer(ctx.projectRoot);
+		await indexer.index();
+		indexer.close();
+
+		// Modify file 3 levels deep
+		await modifyFile(
+			ctx.projectRoot,
+			'src/components/forms/LoginForm.tsx',
+			'// modified login form\nexport function LoginForm() { return null; }',
+		);
+		await waitForFs();
+
+		// Reindex
+		const indexer2 = new Indexer(ctx.projectRoot);
+		const stats = await indexer2.index();
+		indexer2.close();
+
+		expect(stats.filesModified).toBe(1);
+	}, 60_000);
+
+	it('removes chunks when nested file deleted', async () => {
+		// Initial index
+		const indexer = new Indexer(ctx.projectRoot);
+		await indexer.index();
+		indexer.close();
+
+		// Verify file is searchable
+		const search1 = new SearchEngine(ctx.projectRoot);
+		let results = await search1.search('LoginForm authentication login');
+		expect(results.results.some(r => r.filepath.includes('LoginForm'))).toBe(
+			true,
+		);
+		search1.close();
+
+		// Delete nested file
+		await deleteFile(ctx.projectRoot, 'src/components/forms/LoginForm.tsx');
+		await waitForFs();
+
+		// Reindex
+		const indexer2 = new Indexer(ctx.projectRoot);
+		const stats = await indexer2.index();
+		indexer2.close();
+
+		expect(stats.filesDeleted).toBe(1);
+
+		// Should no longer be searchable
+		const search2 = new SearchEngine(ctx.projectRoot);
+		results = await search2.search('LoginForm authentication login');
+		expect(results.results.some(r => r.filepath.includes('LoginForm'))).toBe(
+			false,
+		);
+		search2.close();
+	}, 60_000);
+
+	it('indexes sibling files in same directory', async () => {
+		const indexer = new Indexer(ctx.projectRoot);
+		await indexer.index();
+		indexer.close();
+
+		const search = new SearchEngine(ctx.projectRoot);
+
+		// Should find both api.ts and auth.ts in services/
+		const apiResults = await search.search('API request fetch endpoint');
+		expect(
+			apiResults.results.some(r => r.filepath.includes('services/api.ts')),
+		).toBe(true);
+
+		const authResults = await search.search('authentication token login');
+		expect(
+			authResults.results.some(r => r.filepath.includes('services/auth.ts')),
+		).toBe(true);
+
+		search.close();
+	}, 60_000);
+});

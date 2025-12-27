@@ -139,8 +139,11 @@ export class SearchEngine {
 		this.storage = new Storage(this.projectRoot, config.embeddingDimensions);
 		await this.storage.connect();
 
-		// Initialize embeddings
-		this.embeddings = new LocalEmbeddingProvider();
+		// Initialize embeddings with config
+		this.embeddings = new LocalEmbeddingProvider(
+			config.embeddingModel,
+			config.embeddingDimensions,
+		);
 		await this.embeddings.initialize();
 
 		this.initialized = true;

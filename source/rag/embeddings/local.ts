@@ -1,46 +1,83 @@
 /**
- * Local embedding provider using fastembed (ONNX runtime).
+ * Local embedding provider using Transformers.js (ONNX runtime).
  *
- * Uses BGE-base-en-v1.5 model (768 dimensions) by default.
+ * Uses jina-embeddings-v2-base-code for code-optimized embeddings.
+ * - 768 dimensions, 8K token context
+ * - Trained on 150M+ code QA pairs from GitHub
+ * - Supports 30 programming languages
  */
 
-import {EmbeddingModel, FlagEmbedding} from 'fastembed';
+import {pipeline} from '@huggingface/transformers';
 import type {EmbeddingProvider} from './types.js';
 
-/** Default batch size for embedding multiple texts */
-const DEFAULT_BATCH_SIZE = 32;
-
 /**
- * Local embedding provider using fastembed.
- * Runs embeddings locally using ONNX runtime.
+ * Local embedding provider using Transformers.js.
+ * Runs embeddings locally using ONNX runtime with Jina code model.
  */
 export class LocalEmbeddingProvider implements EmbeddingProvider {
-	readonly dimensions = 768;
-
-	private model: FlagEmbedding | null = null;
+	readonly dimensions: number;
+	private modelName: string;
+	// Using any due to complex union types in transformers.js
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	private extractor: any = null;
 	private initialized = false;
+	private initPromise: Promise<void> | null = null;
+
+	/**
+	 * Create a local embedding provider.
+	 * @param modelName - The HuggingFace model name (default: jina-embeddings-v2-base-code)
+	 * @param dimensions - The embedding dimensions (768 for Jina v2)
+	 */
+	constructor(
+		modelName: string = 'jinaai/jina-embeddings-v2-base-code',
+		dimensions: number = 768,
+	) {
+		this.dimensions = dimensions;
+		this.modelName = modelName;
+	}
 
 	/**
 	 * Initialize the embedding model.
-	 * Downloads the model on first use (~90MB).
+	 * Downloads the fp16 ONNX model (~321MB) on first use.
+	 * Uses fp16 for best quality/size balance (~99% of fp32 accuracy).
 	 */
 	async initialize(): Promise<void> {
 		if (this.initialized) return;
 
-		this.model = await FlagEmbedding.init({
-			model: EmbeddingModel.BGEBaseENV15,
-			showDownloadProgress: true,
+		// Prevent concurrent initialization
+		if (this.initPromise) {
+			return this.initPromise;
+		}
+
+		this.initPromise = this._doInitialize();
+		await this.initPromise;
+	}
+
+	private async _doInitialize(): Promise<void> {
+		// Log download start for visibility
+		const startTime = Date.now();
+		console.error(
+			`[LocalEmbeddingProvider] Loading ${this.modelName} (fp16, ~321MB)...`,
+		);
+
+		// Create feature extraction pipeline with fp16 precision
+		// fp16 provides ~99% of fp32 accuracy with half the download size
+		this.extractor = await pipeline('feature-extraction', this.modelName, {
+			dtype: 'fp16',
 		});
+
+		const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+		console.error(`[LocalEmbeddingProvider] Model loaded in ${elapsed}s`);
 
 		this.initialized = true;
 	}
 
 	/**
 	 * Generate embeddings for multiple texts.
-	 * Uses batch processing for efficiency.
+	 * Processes texts sequentially with mean pooling.
 	 */
 	async embed(texts: string[]): Promise<number[][]> {
-		if (!this.initialized || !this.model) {
+		if (!this.initialized || !this.extractor) {
 			await this.initialize();
 		}
 
@@ -50,38 +87,38 @@ export class LocalEmbeddingProvider implements EmbeddingProvider {
 
 		const results: number[][] = [];
 
-		// fastembed returns an async generator of batches
-		for await (const batch of this.model!.embed(texts, DEFAULT_BATCH_SIZE)) {
-			// Each batch is an array of embeddings (one per text in that batch)
-			for (const embedding of batch) {
-				results.push(Array.from(embedding));
-			}
+		for (const text of texts) {
+			const embedding = await this.embedSingle(text);
+			results.push(embedding);
 		}
 
 		return results;
 	}
 
 	/**
-	 * Generate embedding for a single text.
-	 * Uses fastembed's queryEmbed which is optimized for single texts.
+	 * Generate embedding for a single text with mean pooling.
 	 */
 	async embedSingle(text: string): Promise<number[]> {
-		if (!this.initialized || !this.model) {
+		if (!this.initialized || !this.extractor) {
 			await this.initialize();
 		}
 
-		// Use queryEmbed for single query embedding
-		const embedding = await this.model!.queryEmbed(text);
-		return Array.from(embedding);
+		// Get token embeddings from the model with mean pooling and normalization
+		const output = await this.extractor(text, {
+			pooling: 'mean',
+			normalize: true,
+		});
+
+		// Extract the embedding data - output.data contains the Float32Array
+		const data = output.data ?? output.ort_tensor?.data ?? output;
+		return Array.from(data as Float32Array);
 	}
 
 	/**
 	 * Close the provider and free resources.
-	 * Note: fastembed doesn't have an explicit cleanup method,
-	 * but we clear our reference to allow garbage collection.
 	 */
 	close(): void {
-		this.model = null;
+		this.extractor = null;
 		this.initialized = false;
 	}
 }

@@ -344,8 +344,11 @@ export class Indexer {
 		this.chunker = new Chunker();
 		await this.chunker.initialize();
 
-		// Initialize embeddings
-		this.embeddings = new LocalEmbeddingProvider();
+		// Initialize embeddings with config
+		this.embeddings = new LocalEmbeddingProvider(
+			this.config.embeddingModel,
+			this.config.embeddingDimensions,
+		);
 		await this.embeddings.initialize();
 
 		this.log('info', 'Indexer initialized');

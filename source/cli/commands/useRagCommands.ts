@@ -10,7 +10,6 @@ import {
 	formatIndexStats,
 	runSearch,
 	getStatus,
-	runInit,
 	loadIndexStats,
 	type IndexDisplayStats,
 } from './handlers.js';
@@ -22,9 +21,10 @@ type RagCommandContext = {
 	addSearchResults: (data: SearchResultsData) => void;
 	setAppStatus: (status: AppStatus) => void;
 	setIndexStats: (stats: IndexDisplayStats | null) => void;
-	setIsInitialized: (val: boolean) => void;
 	projectRoot: string;
 	stdout: NodeJS.WriteStream;
+	startInitWizard: (isReinit: boolean) => void;
+	isInitialized: boolean;
 };
 
 export function useRagCommands({
@@ -32,9 +32,10 @@ export function useRagCommands({
 	addSearchResults,
 	setAppStatus,
 	setIndexStats,
-	setIsInitialized,
 	projectRoot,
 	stdout,
+	startInitWizard,
+	isInitialized,
 }: RagCommandContext) {
 	const {exit} = useApp();
 
@@ -46,8 +47,7 @@ export function useRagCommands({
   /help           - Show this help
   /clear          - Clear the screen
   /terminal-setup - Configure terminal for Shift+Enter
-  /init           - Initialize Viberag in this directory
-  /init --force   - Reinitialize (reset config)
+  /init           - Initialize Viberag (interactive wizard)
   /index          - Index the codebase
   /reindex        - Force full reindex
   /search <query> - Search the codebase
@@ -79,28 +79,10 @@ Tips:
 			.catch(err => addOutput('system', `Error: ${err.message}`));
 	}, [addOutput]);
 
-	const handleInit = useCallback(
-		(force: boolean) => {
-			const action = force ? 'Reinitializing' : 'Initializing';
-			addOutput('system', `${action} Viberag...`);
-			setAppStatus({state: 'warning', message: `${action}...`});
-
-			runInit(projectRoot, force)
-				.then(async result => {
-					addOutput('system', result);
-					// Reload stats (will be null after force init)
-					const newStats = await loadIndexStats(projectRoot);
-					setIndexStats(newStats);
-					setAppStatus({state: 'ready'});
-					setIsInitialized(true);
-				})
-				.catch(err => {
-					addOutput('system', `Init failed: ${err.message}`);
-					setAppStatus({state: 'ready'});
-				});
-		},
-		[projectRoot, addOutput, setAppStatus, setIndexStats, setIsInitialized],
-	);
+	// Trigger init wizard
+	const handleInit = useCallback(() => {
+		startInitWizard(isInitialized);
+	}, [startInitWizard, isInitialized]);
 
 	const handleIndex = useCallback(
 		(force: boolean) => {
@@ -207,10 +189,7 @@ Tips:
 					handleTerminalSetup();
 					break;
 				case '/init':
-					handleInit(false);
-					break;
-				case '/init --force':
-					handleInit(true);
+					handleInit();
 					break;
 				case '/index':
 					handleIndex(false);

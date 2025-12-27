@@ -60,3 +60,44 @@ export type IndexDisplayStats = {
 	totalFiles: number;
 	totalChunks: number;
 };
+
+/**
+ * Embedding provider types.
+ * - local: jina-embeddings-v2-base-code (768d, 8K context, ~70% accuracy)
+ * - gemini: gemini-embedding-001 (768d, 2K context, 74.66% accuracy)
+ * - mistral: codestral-embed-2505 (1024d, 8K context, 85% accuracy)
+ */
+export type EmbeddingProviderType = 'local' | 'gemini' | 'mistral';
+
+/**
+ * Configuration collected from the init wizard.
+ */
+export type InitWizardConfig = {
+	provider: EmbeddingProviderType;
+};
+
+/**
+ * Wizard mode state for the app.
+ */
+export type WizardMode =
+	| {active: false}
+	| {
+			active: true;
+			type: 'init';
+			step: number;
+			config: Partial<InitWizardConfig>;
+			isReinit: boolean;
+	  };
+
+/**
+ * Provider configuration with model specs.
+ */
+export type ProviderConfig = {
+	name: string;
+	model: string;
+	dimensions: number;
+	context: string;
+	performance: string;
+	pricing: string;
+	description: string;
+};

@@ -16,7 +16,9 @@ import {
 	getViberagDir,
 	type IndexStats,
 	type SearchResults,
+	type ViberagConfig,
 } from '../../rag/index.js';
+import type {InitWizardConfig} from '../../common/types.js';
 
 /**
  * Index display stats type (re-exported for convenience).
@@ -50,31 +52,59 @@ export async function loadIndexStats(
 }
 
 /**
+ * Provider to embedding model mapping.
+ * Each provider has a specific model with dimensions.
+ */
+const PROVIDER_MODEL_MAP = {
+	local: {
+		// Jina v2 base code - optimized for code, 8K context, fp16 ONNX (~321MB)
+		model: 'jinaai/jina-embeddings-v2-base-code',
+		dimensions: 768,
+	},
+	gemini: {
+		model: 'gemini-embedding-001',
+		dimensions: 768,
+	},
+	mistral: {
+		model: 'codestral-embed-2505',
+		dimensions: 1024,
+	},
+} as const;
+
+/**
  * Initialize a project for Viberag.
  * Creates .viberag/ directory with config.json.
- * With force=true, deletes everything and starts fresh.
+ * With isReinit=true, deletes everything and starts fresh.
  */
 export async function runInit(
 	projectRoot: string,
-	force: boolean = false,
+	isReinit: boolean = false,
+	wizardConfig?: InitWizardConfig,
 ): Promise<string> {
 	const viberagDir = getViberagDir(projectRoot);
 	const isExisting = await configExists(projectRoot);
 
-	if (isExisting && !force) {
-		return 'Already initialized. Use /init --force to reinitialize.';
-	}
-
-	// If force, delete entire .viberag directory first
-	if (force && isExisting) {
+	// If reinit, delete entire .viberag directory first
+	if (isReinit && isExisting) {
 		await fs.rm(viberagDir, {recursive: true, force: true});
 	}
 
 	// Create .viberag directory
 	await fs.mkdir(viberagDir, {recursive: true});
 
-	// Save default config
-	await saveConfig(projectRoot, DEFAULT_CONFIG);
+	// Build config from wizard choices
+	const provider = wizardConfig?.provider ?? 'local';
+	const {model, dimensions} = PROVIDER_MODEL_MAP[provider];
+
+	const config: ViberagConfig = {
+		...DEFAULT_CONFIG,
+		embeddingProvider: provider,
+		embeddingModel: model,
+		embeddingDimensions: dimensions,
+	};
+
+	// Save config
+	await saveConfig(projectRoot, config);
 
 	// Add .viberag/ to .gitignore if not present
 	const gitignorePath = path.join(projectRoot, '.gitignore');
@@ -89,7 +119,8 @@ export async function runInit(
 	}
 
 	const action = isExisting ? 'Reinitialized' : 'Initialized';
-	return `${action} Viberag in ${viberagDir}\nRun /index to build the code index.`;
+	const providerLabel = provider.charAt(0).toUpperCase() + provider.slice(1);
+	return `${action} Viberag in ${viberagDir}\nProvider: ${providerLabel}\nModel: ${model} (${dimensions}d)\nRun /index to build the code index.`;
 }
 
 /**
