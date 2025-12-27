@@ -19,35 +19,57 @@ We support three embedding providers, selectable during `/init`:
 
 ### Provider Comparison
 
-| Provider | Model                | Dimensions | Context | Accuracy | Cost     |
-| -------- | -------------------- | ---------- | ------- | -------- | -------- |
-| Local    | jina-v2-base-code    | 768        | 8K      | ~70%     | Free     |
-| Gemini   | gemini-embedding-001 | 768        | 2K      | 75%      | $0.15/1M |
-| Mistral  | codestral-embed-2505 | 1024       | 8K      | 85%      | $0.15/1M |
+| Provider | Model | Dimensions | Context | Cost |
+| -------- | ----- | ---------- | ------- | ---- |
+| Local | jina-embeddings-v2-base-code | 768 | 8K tokens | Free |
+| Gemini | gemini-embedding-001 | 768 | 2K tokens | Free tier / $0.15/1M |
+| Mistral | codestral-embed-2505 | 1024 | 8K tokens | $0.15/1M |
+
+**Recommended**: Mistral (codestral-embed) for best code retrieval quality.
 
 ### Local (Default)
 
-**Model**: `jinaai/jina-embeddings-v2-base-code` (fp16 quantized)
+**Model**: `jinaai/jina-embeddings-v2-base-code` with int8 (q8) quantization
 
-- **Why Jina**: Purpose-built for code, trained on GitHub data, understands 30+ programming languages
-- **Why fp16**: Reduces model size from ~600MB to ~321MB with minimal accuracy loss
-- **Trade-off**: Lower accuracy than cloud options, but zero latency and no API costs
+**Strengths**:
+- Purpose-built for code, trained on GitHub data
+- Supports 30+ programming languages
+- 8K token context handles large functions without truncation
+- Zero latency, works offline, no API costs
+- ~161MB model size with q8 quantization
+
+**Trade-offs**:
+- Lower retrieval quality than cloud options
+- First run requires model download
 
 ### Gemini
 
 **Model**: `gemini-embedding-001`
 
-- **Why Gemini**: Google's general-purpose embedding model with strong multilingual support
-- **Free tier**: 1,500 requests/min, suitable for most projects
-- **Trade-off**: 2K context limit means large files get chunked more aggressively
+**Strengths**:
+- Google's embedding model with strong general-purpose performance
+- Generous free tier (1,500 requests/min)
+- Fast inference via API
 
-### Mistral
+**Trade-offs**:
+- 2K token context limit - large functions get truncated or split more aggressively
+- Not specifically optimized for code
+- Requires API key
+
+### Mistral (Recommended)
 
 **Model**: `codestral-embed-2505`
 
-- **Why Mistral**: Highest accuracy for code (85% on code retrieval benchmarks)
-- **Why 1024 dims**: Higher dimensionality captures more semantic nuance
-- **Trade-off**: Requires API key, costs money for large codebases
+**Strengths**:
+- Specifically designed for code understanding
+- Built on Codestral, Mistral's code-focused model family
+- 1024 dimensions capture more semantic nuance than 768-dim models
+- 8K token context matches local model
+- Strong performance on code retrieval benchmarks
+
+**Trade-offs**:
+- Requires API key and costs money for large codebases
+- Higher dimensions mean slightly larger vector storage
 
 ## Implementation
 
@@ -65,17 +87,37 @@ All providers implement this interface, allowing seamless swapping based on user
 
 ### Local Model Loading
 
-The local provider uses `@xenova/transformers` for ONNX inference:
+The local provider uses `@huggingface/transformers` for ONNX inference:
 
 ```typescript
 const model = await pipeline(
 	'feature-extraction',
 	'jinaai/jina-embeddings-v2-base-code',
 	{
-		dtype: 'fp16',
+		dtype: 'q8', // int8 quantization for smaller size
 		device: 'auto', // Uses GPU if available
 	},
 );
+```
+
+### Configuration
+
+```typescript
+export const PROVIDER_CONFIGS = {
+	local: {
+		model: 'jinaai/jina-embeddings-v2-base-code',
+		dimensions: 768,
+		dtype: 'q8',
+	},
+	gemini: {
+		model: 'gemini-embedding-001',
+		dimensions: 768,
+	},
+	mistral: {
+		model: 'codestral-embed-2505',
+		dimensions: 1024,
+	},
+};
 ```
 
 ### Dimension Handling
@@ -94,7 +136,7 @@ This is acceptable for a local tool where reindexing is fast.
 
 - Good accuracy but no code-specific training
 - Requires API key for all use
-- Rejected: No offline option
+- Rejected: No offline option, not code-optimized
 
 ### CodeBERT
 
@@ -108,21 +150,27 @@ This is acceptable for a local tool where reindexing is fast.
 - Expensive ($0.20/1M tokens)
 - Rejected: Cost prohibitive for local tool
 
+### BGE Models (bge-small-en, bge-base-en)
+
+- Fast, small, good general embeddings
+- Not trained on code
+- Rejected: Jina's code-specific training provides better retrieval for code
+
 ## Consequences
 
 ### Positive
 
-- **Zero-cost option**: Local model works offline without API keys
-- **Flexibility**: Users choose their accuracy/cost trade-off
-- **Code-optimized**: All options understand programming concepts
+- **Zero-cost default**: Local model works offline without API keys
+- **Flexibility**: Users choose their quality/cost trade-off
+- **Code-optimized**: All options have strong code understanding (Jina trained on code, Mistral built for code)
+- **Large context**: 8K tokens (local/Mistral) handles most functions without splitting
 
 ### Negative
 
-- **321MB download**: Local model requires initial download
-- **Accuracy gap**: Local model ~15% lower accuracy than Mistral
-- **No hot-swapping**: Changing provider requires reindex
+- **~161MB download**: Local model requires initial download
+- **No hot-swapping**: Changing provider requires full reindex
 
 ### Neutral
 
-- Accuracy percentages are approximate (based on MTEB code retrieval benchmarks)
 - Local model uses ~500MB RAM during inference
+- Cloud providers add network latency but parallelize well
