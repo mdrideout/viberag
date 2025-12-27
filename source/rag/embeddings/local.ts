@@ -72,9 +72,15 @@ export class LocalEmbeddingProvider implements EmbeddingProvider {
 		this.initialized = true;
 	}
 
+	// Max characters per text to avoid O(n²) attention blowup
+	// ~2000 chars ≈ 500 tokens, keeps inference fast
+	private static readonly MAX_TEXT_LENGTH = 2000;
+	// Max texts per batch to limit memory usage
+	private static readonly MAX_BATCH_SIZE = 8;
+
 	/**
 	 * Generate embeddings for multiple texts.
-	 * Processes texts sequentially with mean pooling.
+	 * Uses batched inference with size limits for optimal performance.
 	 */
 	async embed(texts: string[]): Promise<number[][]> {
 		if (!this.initialized || !this.extractor) {
@@ -85,11 +91,44 @@ export class LocalEmbeddingProvider implements EmbeddingProvider {
 			return [];
 		}
 
+		// Truncate long texts to prevent slow inference
+		const truncated = texts.map(t =>
+			t.length > LocalEmbeddingProvider.MAX_TEXT_LENGTH
+				? t.slice(0, LocalEmbeddingProvider.MAX_TEXT_LENGTH)
+				: t,
+		);
+
+		// Process in smaller batches to limit memory and keep latency predictable
+		const results: number[][] = [];
+		const batchSize = LocalEmbeddingProvider.MAX_BATCH_SIZE;
+
+		for (let i = 0; i < truncated.length; i += batchSize) {
+			const batch = truncated.slice(i, i + batchSize);
+			const batchResults = await this.embedBatch(batch);
+			results.push(...batchResults);
+		}
+
+		return results;
+	}
+
+	/**
+	 * Embed a single batch of texts.
+	 */
+	private async embedBatch(texts: string[]): Promise<number[][]> {
+		const output = await this.extractor(texts, {
+			pooling: 'mean',
+			normalize: true,
+		});
+
+		// Output shape is [batch_size, dimensions]
+		const data = output.data ?? output.ort_tensor?.data ?? output;
+		const dims = this.dimensions;
 		const results: number[][] = [];
 
-		for (const text of texts) {
-			const embedding = await this.embedSingle(text);
-			results.push(embedding);
+		for (let i = 0; i < texts.length; i++) {
+			const start = i * dims;
+			const end = start + dims;
+			results.push(Array.from((data as Float32Array).slice(start, end)));
 		}
 
 		return results;

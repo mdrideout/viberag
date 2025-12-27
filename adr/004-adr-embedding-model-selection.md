@@ -19,11 +19,11 @@ We support three embedding providers, selectable during `/init`:
 
 ### Provider Comparison
 
-| Provider | Model | Dimensions | Context | Accuracy | Cost |
-|----------|-------|------------|---------|----------|------|
-| Local | jina-v2-base-code | 768 | 8K | ~70% | Free |
-| Gemini | gemini-embedding-001 | 768 | 2K | 75% | $0.15/1M |
-| Mistral | codestral-embed-2505 | 1024 | 8K | 85% | $0.15/1M |
+| Provider | Model                | Dimensions | Context | Accuracy | Cost     |
+| -------- | -------------------- | ---------- | ------- | -------- | -------- |
+| Local    | jina-v2-base-code    | 768        | 8K      | ~70%     | Free     |
+| Gemini   | gemini-embedding-001 | 768        | 2K      | 75%      | $0.15/1M |
+| Mistral  | codestral-embed-2505 | 1024       | 8K      | 85%      | $0.15/1M |
 
 ### Local (Default)
 
@@ -55,9 +55,9 @@ We support three embedding providers, selectable during `/init`:
 
 ```typescript
 interface EmbeddingProvider {
-  embed(texts: string[]): Promise<number[][]>;
-  dimensions: number;
-  close(): Promise<void>;
+	embed(texts: string[]): Promise<number[][]>;
+	dimensions: number;
+	close(): Promise<void>;
 }
 ```
 
@@ -68,10 +68,14 @@ All providers implement this interface, allowing seamless swapping based on user
 The local provider uses `@xenova/transformers` for ONNX inference:
 
 ```typescript
-const model = await pipeline('feature-extraction', 'jinaai/jina-embeddings-v2-base-code', {
-  dtype: 'fp16',
-  device: 'auto',  // Uses GPU if available
-});
+const model = await pipeline(
+	'feature-extraction',
+	'jinaai/jina-embeddings-v2-base-code',
+	{
+		dtype: 'fp16',
+		device: 'auto', // Uses GPU if available
+	},
+);
 ```
 
 ### Dimension Handling
