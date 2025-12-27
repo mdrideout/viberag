@@ -32,6 +32,7 @@ export {
 	saveConfig,
 	configExists,
 	DEFAULT_CONFIG,
+	PROVIDER_CONFIGS,
 	type ViberagConfig,
 	type EmbeddingProviderType,
 } from './config/index.js';

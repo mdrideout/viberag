@@ -26,6 +26,8 @@ import {
 	checkInitialized,
 	loadIndexStats,
 	runInit,
+	runIndex,
+	formatIndexStats,
 } from './commands/handlers.js';
 import type {SearchResultsData} from '../common/types.js';
 
@@ -138,10 +140,20 @@ export default function App() {
 					config,
 				);
 				addOutput('system', result);
-				// Reload stats (will be null after init)
+				setIsInitialized(true);
+
+				// Automatically start indexing after init
+				addOutput('system', 'Indexing codebase...');
+				setAppStatus({state: 'indexing', current: 0, total: 0, stage: 'Indexing'});
+
+				const stats = await runIndex(projectRoot, true, (current, total, stage) =>
+					setAppStatus({state: 'indexing', current, total, stage}),
+				);
+				addOutput('system', formatIndexStats(stats));
+
+				// Reload stats after indexing
 				const newStats = await loadIndexStats(projectRoot);
 				setIndexStats(newStats);
-				setIsInitialized(true);
 				setAppStatus({state: 'ready'});
 			} catch (err) {
 				addOutput(

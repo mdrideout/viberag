@@ -1,13 +1,8 @@
 import fs from 'node:fs/promises';
 import {getConfigPath, getViberagDir} from '../constants.js';
+import type {EmbeddingProviderType} from '../../common/types.js';
 
-/**
- * Embedding provider types.
- * - local: jina-embeddings-v2-base-code (768d, 8K context, ~70% code accuracy)
- * - gemini: gemini-embedding-001 (768d, 2K context, 74.66% accuracy, free tier)
- * - mistral: codestral-embed-2505 (1024d, 8K context, 85% accuracy, best for code)
- */
-export type EmbeddingProviderType = 'local' | 'gemini' | 'mistral';
+export type {EmbeddingProviderType};
 
 export interface ViberagConfig {
 	version: number;
@@ -20,13 +15,54 @@ export interface ViberagConfig {
 	watchDebounceMs: number;
 }
 
+/**
+ * Provider-specific embedding configurations.
+ */
+export const PROVIDER_CONFIGS: Record<
+	EmbeddingProviderType,
+	{model: string; dimensions: number; dtype?: string}
+> = {
+	local: {
+		model: 'jinaai/jina-embeddings-v2-base-code',
+		dimensions: 768,
+		dtype: 'q8',
+	},
+	'local-fast': {
+		// Alias for local, kept for backward compatibility
+		model: 'jinaai/jina-embeddings-v2-base-code',
+		dimensions: 768,
+		dtype: 'q8',
+	},
+	gemini: {
+		model: 'gemini-embedding-001',
+		dimensions: 768,
+	},
+	mistral: {
+		model: 'codestral-embed-2505',
+		dimensions: 1024,
+	},
+};
+
+/**
+ * Create config for a specific provider.
+ */
+export function createConfigForProvider(
+	provider: EmbeddingProviderType,
+): ViberagConfig {
+	const providerConfig = PROVIDER_CONFIGS[provider];
+	return {
+		...DEFAULT_CONFIG,
+		embeddingProvider: provider,
+		embeddingModel: providerConfig.model,
+		embeddingDimensions: providerConfig.dimensions,
+	};
+}
+
 export const DEFAULT_CONFIG: ViberagConfig = {
 	version: 1,
 	embeddingProvider: 'local',
-	// Jina v2 base code - optimized for code, 8K context, 30 languages
-	// Uses fp16 ONNX (~321MB download on first use)
-	embeddingModel: 'jinaai/jina-embeddings-v2-base-code',
-	embeddingDimensions: 768,
+	embeddingModel: PROVIDER_CONFIGS['local'].model,
+	embeddingDimensions: PROVIDER_CONFIGS['local'].dimensions,
 	extensions: ['.py', '.js', '.ts', '.tsx', '.go', '.rs', '.java'],
 	excludePatterns: [
 		'node_modules',

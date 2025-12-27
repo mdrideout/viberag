@@ -13,6 +13,7 @@ import {
 	configExists,
 	saveConfig,
 	DEFAULT_CONFIG,
+	PROVIDER_CONFIGS,
 	getViberagDir,
 	type IndexStats,
 	type SearchResults,
@@ -52,26 +53,6 @@ export async function loadIndexStats(
 }
 
 /**
- * Provider to embedding model mapping.
- * Each provider has a specific model with dimensions.
- */
-const PROVIDER_MODEL_MAP = {
-	local: {
-		// Jina v2 base code - optimized for code, 8K context, fp16 ONNX (~321MB)
-		model: 'jinaai/jina-embeddings-v2-base-code',
-		dimensions: 768,
-	},
-	gemini: {
-		model: 'gemini-embedding-001',
-		dimensions: 768,
-	},
-	mistral: {
-		model: 'codestral-embed-2505',
-		dimensions: 1024,
-	},
-} as const;
-
-/**
  * Initialize a project for Viberag.
  * Creates .viberag/ directory with config.json.
  * With isReinit=true, deletes everything and starts fresh.
@@ -94,7 +75,7 @@ export async function runInit(
 
 	// Build config from wizard choices
 	const provider = wizardConfig?.provider ?? 'local';
-	const {model, dimensions} = PROVIDER_MODEL_MAP[provider];
+	const {model, dimensions} = PROVIDER_CONFIGS[provider];
 
 	const config: ViberagConfig = {
 		...DEFAULT_CONFIG,

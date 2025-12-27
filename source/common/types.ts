@@ -63,11 +63,18 @@ export type IndexDisplayStats = {
 
 /**
  * Embedding provider types.
- * - local: jina-embeddings-v2-base-code (768d, 8K context, ~70% accuracy)
- * - gemini: gemini-embedding-001 (768d, 2K context, 74.66% accuracy)
- * - mistral: codestral-embed-2505 (1024d, 8K context, 85% accuracy)
+ * Local options (no API key required):
+ * - local: jina-embeddings-v2-base-code fp16 (768d, 8K context, best local quality)
+ * - local-fast: jina-embeddings-v2-base-code int8 (768d, 8K context, faster)
+ * Cloud options (API key required, fastest):
+ * - gemini: gemini-embedding-001 (768d, 2K context)
+ * - mistral: codestral-embed-2505 (1024d, 8K context, best accuracy)
  */
-export type EmbeddingProviderType = 'local' | 'gemini' | 'mistral';
+export type EmbeddingProviderType =
+	| 'local'
+	| 'local-fast'
+	| 'gemini'
+	| 'mistral';
 
 /**
  * Configuration collected from the init wizard.

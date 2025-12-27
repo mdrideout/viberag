@@ -31,14 +31,23 @@ type SelectItem<T> = {
 const PROVIDER_CONFIG = {
 	local: {
 		name: 'Local',
-		model: 'jina-v2-base-code',
-		modelFull: 'jinaai/jina-embeddings-v2-base-code (fp16)',
+		model: 'jina-v2-code',
+		modelFull: 'jinaai/jina-embeddings-v2-base-code (int8)',
 		dims: '768',
 		context: '8K',
-		accuracy: '~70%',
 		cost: 'Free',
-		note: '321MB download',
-		description: 'Runs locally, no API key needed',
+		note: '161MB download',
+		description: 'Local inference, no API key',
+	},
+	'local-fast': {
+		name: 'Local',
+		model: 'jina-v2-code',
+		modelFull: 'jinaai/jina-embeddings-v2-base-code (int8)',
+		dims: '768',
+		context: '8K',
+		cost: 'Free',
+		note: '161MB download',
+		description: 'Local inference, no API key',
 	},
 	gemini: {
 		name: 'Gemini',
@@ -46,10 +55,9 @@ const PROVIDER_CONFIG = {
 		modelFull: 'gemini-embedding-001',
 		dims: '768',
 		context: '2K',
-		accuracy: '75%',
 		cost: '$0.15/1M',
 		note: 'Free tier available',
-		description: 'Google Cloud, best general purpose',
+		description: 'Google Cloud, fast API',
 	},
 	mistral: {
 		name: 'Mistral',
@@ -57,49 +65,44 @@ const PROVIDER_CONFIG = {
 		modelFull: 'codestral-embed-2505',
 		dims: '1024',
 		context: '8K',
-		accuracy: '85%',
 		cost: '$0.15/1M',
 		note: 'Best for code',
-		description: 'Mistral AI, highest code accuracy',
+		description: 'Code-optimized, fastest indexing',
 	},
 } as const;
 
 // Simple provider options for selection
 const PROVIDER_ITEMS: SelectItem<EmbeddingProviderType>[] = [
-	{
-		label: 'Local   - Free, runs locally (321MB download), no API key',
-		value: 'local',
-	},
-	{label: 'Gemini  - Google Cloud, free tier available', value: 'gemini'},
-	{label: 'Mistral - Best accuracy for code (85%)', value: 'mistral'},
+	{label: 'Local   - jina-embeddings-v2-base-code, free, no API key', value: 'local'},
+	{label: 'Gemini  - gemini-embedding-001, free tier available', value: 'gemini'},
+	{label: 'Mistral - codestral-embed, code-optimized (Recommended)', value: 'mistral'},
 ];
 
 /**
- * Comparison table data for ink-table.
+ * Comparison table data.
+ * First index is slower (model download). Incremental indexes are fast.
+ * Cloud providers (Gemini/Mistral) have fastest indexing.
  */
 const COMPARISON_DATA = [
 	{
 		Provider: 'Local',
-		Model: 'jina-v2-base-code',
+		Model: 'jina-v2-code',
 		Dims: '768',
 		Context: '8K',
-		Accuracy: '~70%',
 		Cost: 'Free',
 	},
 	{
 		Provider: 'Gemini',
-		Model: 'gemini-embedding',
+		Model: 'gemini-embed',
 		Dims: '768',
 		Context: '2K',
-		Accuracy: '75%',
 		Cost: '$0.15/1M',
 	},
 	{
-		Provider: 'Mistral',
-		Model: 'codestral-embed',
+		Provider: 'Mistral*',
+		Model: 'codestral',
 		Dims: '1024',
 		Context: '8K',
-		Accuracy: '85%',
 		Cost: '$0.15/1M',
 	},
 ];
@@ -159,10 +162,9 @@ function SimpleTable({
 function ComparisonTable(): React.ReactElement {
 	const columns: TableColumn[] = [
 		{key: 'Provider', width: 10},
-		{key: 'Model', width: 18},
+		{key: 'Model', width: 14},
 		{key: 'Dims', width: 6},
 		{key: 'Context', width: 9},
-		{key: 'Accuracy', width: 10},
 		{key: 'Cost', width: 10},
 	];
 
@@ -190,8 +192,8 @@ export function InitWizard({
 	onCancel,
 }: Props): React.ReactElement {
 	// Handle Escape to cancel
-	useInput((_, key) => {
-		if (key.escape) {
+	useInput((input, key) => {
+		if (key.escape || (key.ctrl && input === 'c')) {
 			onCancel();
 		}
 	});
@@ -213,7 +215,7 @@ export function InitWizard({
 					Viberag is already initialized
 				</Text>
 				<Text dimColor>
-					This will reset your configuration and require reindexing.
+					This will reset your configuration and reindex the codebase.
 				</Text>
 				<Box marginTop={1}>
 					<SelectInput
@@ -276,7 +278,7 @@ export function InitWizard({
 					</Text>
 					<Text>
 						<Text dimColor>Specs: </Text>
-						{info.dims}d, {info.context} context, {info.accuracy} accuracy
+						{info.dims}d, {info.context} context
 					</Text>
 					<Text>
 						<Text dimColor>Cost: </Text>

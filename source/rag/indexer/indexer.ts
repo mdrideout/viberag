@@ -20,6 +20,7 @@ import {
 	LocalEmbeddingProvider,
 	type EmbeddingProvider,
 } from '../embeddings/index.js';
+import {PROVIDER_CONFIGS} from '../config/index.js';
 import type {Logger} from '../logger/index.js';
 import {
 	loadManifest,
@@ -344,14 +345,38 @@ export class Indexer {
 		this.chunker = new Chunker();
 		await this.chunker.initialize();
 
-		// Initialize embeddings with config
-		this.embeddings = new LocalEmbeddingProvider(
-			this.config.embeddingModel,
-			this.config.embeddingDimensions,
-		);
+		// Initialize embeddings based on provider type
+		this.embeddings = this.createEmbeddingProvider(this.config);
 		await this.embeddings.initialize();
 
 		this.log('info', 'Indexer initialized');
+	}
+
+	/**
+	 * Create the appropriate embedding provider based on config.
+	 */
+	private createEmbeddingProvider(config: ViberagConfig): EmbeddingProvider {
+		switch (config.embeddingProvider) {
+			case 'local':
+			case 'local-fast': {
+				const providerConfig = PROVIDER_CONFIGS[config.embeddingProvider];
+				return new LocalEmbeddingProvider(
+					config.embeddingModel,
+					config.embeddingDimensions,
+					providerConfig.dtype as 'fp16' | 'q8',
+				);
+			}
+			case 'gemini':
+			case 'mistral':
+				// Cloud providers not yet implemented
+				throw new Error(
+					`Cloud provider "${config.embeddingProvider}" not yet implemented`,
+				);
+			default:
+				throw new Error(
+					`Unknown embedding provider: ${config.embeddingProvider}`,
+				);
+		}
 	}
 
 	/**
