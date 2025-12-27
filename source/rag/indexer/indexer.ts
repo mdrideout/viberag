@@ -262,8 +262,12 @@ export class Indexer {
 					content,
 				);
 
-				// Chunk the file
-				const chunks = await chunker.chunkFile(filepath, content);
+				// Chunk the file (with size limits from config)
+				const chunks = await chunker.chunkFile(
+					filepath,
+					content,
+					this.config!.chunkMaxSize,
+				);
 
 				// Check embedding cache for each chunk
 				const contentHashes = chunks.map(c => c.contentHash);
@@ -277,7 +281,10 @@ export class Indexer {
 				);
 
 				if (missingChunks.length > 0) {
-					const texts = missingChunks.map(c => c.text);
+					// Embed contextHeader + text for semantic relevance
+					const texts = missingChunks.map(c =>
+						c.contextHeader ? `${c.contextHeader}\n${c.text}` : c.text,
+					);
 					const newEmbeddings = await embeddings.embed(texts);
 					stats.embeddingsComputed += missingChunks.length;
 

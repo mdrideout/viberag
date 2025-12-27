@@ -9,6 +9,8 @@ export type ChunkType = 'function' | 'class' | 'method' | 'module';
 export interface Chunk {
 	/** The source code text */
 	text: string;
+	/** Context header for embedding (e.g., "// File: path.ts, Class: Foo") */
+	contextHeader: string;
 	/** Type of chunk */
 	type: ChunkType;
 	/** Symbol name (empty for module chunks) */
@@ -17,7 +19,7 @@ export interface Chunk {
 	startLine: number;
 	/** End line number (1-indexed) */
 	endLine: number;
-	/** SHA256 hash of the text content */
+	/** SHA256 hash of contextHeader + text */
 	contentHash: string;
 }
 
