@@ -18,9 +18,9 @@ This is a greenfield project. Deprecations, migrations, backward compatibility a
 
 Review the following files to understand the project, progress, and what's next.
 
-- File and folder structure
-- @package.json
-  - Use context7 to check library docs to ensure the latest syntax and use.
+- Analyze the folder structure and file names
+- @package.json - analyze packages in use
+  - When working, use context7 to check library docs to ensure the latest syntax and use.
 
 ## Important Library Documentation:
 
