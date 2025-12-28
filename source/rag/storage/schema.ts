@@ -1,10 +1,29 @@
-import {Field, FixedSizeList, Float32, Int32, Schema, Utf8} from 'apache-arrow';
+import {
+	Field,
+	FixedSizeList,
+	Float32,
+	Int32,
+	Schema,
+	Utf8,
+	Bool,
+} from 'apache-arrow';
 import {DEFAULT_EMBEDDING_DIMENSIONS} from '../constants.js';
+
+/**
+ * Current schema version. Increment when schema changes require reindex.
+ */
+export const SCHEMA_VERSION = 2;
 
 /**
  * Arrow schema for the code_chunks table.
  *
  * Stores indexed code chunks with their embeddings.
+ *
+ * Schema v2 adds:
+ * - signature: Function/method signature line
+ * - docstring: Extracted documentation
+ * - is_exported: Whether symbol is exported
+ * - decorator_names: Comma-separated decorator names
  */
 export function createCodeChunksSchema(
 	dimensions: number = DEFAULT_EMBEDDING_DIMENSIONS,
@@ -26,6 +45,11 @@ export function createCodeChunksSchema(
 		new Field('start_line', new Int32(), false),
 		new Field('end_line', new Int32(), false),
 		new Field('file_hash', new Utf8(), false),
+		// New in schema v2: deterministic AST-derived metadata
+		new Field('signature', new Utf8(), true), // Function/class signature line (nullable)
+		new Field('docstring', new Utf8(), true), // Extracted documentation (nullable)
+		new Field('is_exported', new Bool(), false), // Has export modifier
+		new Field('decorator_names', new Utf8(), true), // Comma-separated decorators (nullable)
 	]);
 }
 

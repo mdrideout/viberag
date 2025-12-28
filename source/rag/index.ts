@@ -47,6 +47,8 @@ export {
 	createEmptyManifest,
 	updateManifestStats,
 	updateManifestTree,
+	isSchemaVersionCurrent,
+	getSchemaVersionInfo,
 	type Manifest,
 	type ManifestStats,
 } from './manifest/index.js';
@@ -54,6 +56,7 @@ export {
 // Storage
 export {
 	Storage,
+	SCHEMA_VERSION,
 	createCodeChunksSchema,
 	createEmbeddingCacheSchema,
 	chunkToRow,
@@ -114,6 +117,8 @@ export {
 	ftsSearch,
 	ensureFtsIndex,
 	hybridRerank,
+	type SearchFilters,
+	type SearchMode,
 	type SearchOptions,
 	type SearchResult,
 	type SearchResults,

@@ -97,13 +97,13 @@ method_definition → first line of method
 
 ### Implementation Tasks
 
-- [ ] Extend `createCodeChunksSchema()` with new fields
-- [ ] Add `extractSignature()` to Chunker
-- [ ] Add `extractDocstring()` to Chunker
-- [ ] Add `extractIsExported()` to Chunker
-- [ ] Add `extractDecoratorNames()` to Chunker
-- [ ] Update `Indexer.processFileBatch()` to populate new fields
-- [ ] Increment schema version, require reindex on upgrade
+- [x] Extend `createCodeChunksSchema()` with new fields
+- [x] Add `extractSignature()` to Chunker
+- [x] Add `extractDocstring()` to Chunker
+- [x] Add `extractIsExported()` to Chunker
+- [x] Add `extractDecoratorNames()` to Chunker
+- [x] Update `Indexer.processFileBatch()` to populate new fields
+- [x] Increment schema version, require reindex on upgrade
 
 ---
 
@@ -216,16 +216,16 @@ interface ViberagSearchResponse {
 
 ### Implementation Tasks
 
-- [ ] Add `mode` parameter to `SearchEngine.search()`
-- [ ] Implement `searchSemantic()` — vector-only path
-- [ ] Implement `searchExact()` — BM25-only path
-- [ ] Implement `searchDefinition()` — metadata filter path
-- [ ] Implement `searchSimilar()` — embed code_snippet, vector search
-- [ ] Add `exhaustive` mode with full scan
-- [ ] Implement filter builder for LanceDB WHERE clauses
-- [ ] Add path pattern matching (prefix, contains, glob)
-- [ ] Update MCP tool schema and description
-- [ ] Deprecate `bm25_weight` parameter (replaced by `mode`)
+- [x] Add `mode` parameter to `SearchEngine.search()`
+- [x] Implement `searchSemantic()` — vector-only path
+- [x] Implement `searchExact()` — BM25-only path
+- [x] Implement `searchDefinition()` — metadata filter path
+- [x] Implement `searchSimilar()` — embed code_snippet, vector search
+- [x] Add `exhaustive` mode with full scan
+- [x] Implement filter builder for LanceDB WHERE clauses
+- [x] Add path pattern matching (prefix, contains, glob)
+- [x] Update MCP tool schema and description
+- [x] Deprecate `bm25_weight` parameter (replaced by `mode`)
 
 ---
 
@@ -470,10 +470,10 @@ Document:
 
 ### Implementation Tasks
 
-- [ ] Write ADR-005-indexing-strategy.md
-- [ ] Include examples of safe vs risky metadata
-- [ ] Document the filter design rationale
-- [ ] Add decision record for removed features (event/API detection)
+- [x] Write ADR-005-indexing-strategy.md
+- [x] Include examples of safe vs risky metadata
+- [x] Document the filter design rationale
+- [x] Add decision record for removed features (event/API detection)
 
 ---
 

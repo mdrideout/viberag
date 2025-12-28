@@ -323,6 +323,11 @@ export class Indexer {
 						startLine: chunk.startLine,
 						endLine: chunk.endLine,
 						fileHash,
+						// New metadata fields from schema v2
+						signature: chunk.signature,
+						docstring: chunk.docstring,
+						isExported: chunk.isExported,
+						decoratorNames: chunk.decoratorNames,
 					});
 				}
 			} catch (error) {

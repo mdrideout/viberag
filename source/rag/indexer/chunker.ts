@@ -56,6 +56,15 @@ const METHOD_NODE_TYPES: Record<SupportedLanguage, string[]> = {
 	tsx: ['method_definition'],
 };
 
+/**
+ * Node types that indicate export in JS/TS.
+ */
+const EXPORT_WRAPPER_TYPES = [
+	'export_statement',
+	'export_specifier',
+	'lexical_declaration', // May have export modifier
+];
+
 // Note: Statement container types kept for future AST-based splitting
 // const STATEMENT_CONTAINER_TYPES: Record<SupportedLanguage, string[]> = {
 // 	python: ['block'],
@@ -316,6 +325,12 @@ export class Chunker {
 		// Hash includes context header for unique embedding per context
 		const fullText = contextHeader ? `${contextHeader}\n${text}` : text;
 
+		// Extract new metadata fields
+		const signature = this.extractSignature(node, lines, lang);
+		const docstring = this.extractDocstring(node, lang);
+		const isExported = this.extractIsExported(node, lang);
+		const decoratorNames = this.extractDecoratorNames(node, lang);
+
 		return {
 			text,
 			contextHeader,
@@ -324,7 +339,258 @@ export class Chunker {
 			startLine,
 			endLine,
 			contentHash: computeStringHash(fullText),
+			signature,
+			docstring,
+			isExported,
+			decoratorNames,
 		};
+	}
+
+	/**
+	 * Extract the signature line (first line of function/class declaration).
+	 */
+	private extractSignature(
+		node: Node,
+		lines: string[],
+		lang: SupportedLanguage,
+	): string | null {
+		const startLine = node.startPosition.row;
+
+		// For Python, signature may span multiple lines with parentheses
+		// For JS/TS, signature is typically the first line up to the opening brace
+		if (lang === 'python') {
+			// Find the colon that ends the signature
+			let signatureEnd = startLine;
+			for (let i = startLine; i < lines.length && i < startLine + 10; i++) {
+				const line = lines[i];
+				if (line?.includes(':')) {
+					signatureEnd = i;
+					break;
+				}
+			}
+			return lines
+				.slice(startLine, signatureEnd + 1)
+				.join('\n')
+				.trim();
+		} else {
+			// JS/TS: First line up to opening brace
+			const firstLine = lines[startLine];
+			if (!firstLine) return null;
+
+			// Remove opening brace and body
+			const braceIndex = firstLine.indexOf('{');
+			if (braceIndex !== -1) {
+				return firstLine.slice(0, braceIndex).trim();
+			}
+
+			// Arrow function might not have brace on same line
+			const arrowIndex = firstLine.indexOf('=>');
+			if (arrowIndex !== -1) {
+				return firstLine.slice(0, arrowIndex + 2).trim();
+			}
+
+			return firstLine.trim();
+		}
+	}
+
+	/**
+	 * Extract docstring from a function/class node.
+	 */
+	private extractDocstring(node: Node, lang: SupportedLanguage): string | null {
+		if (lang === 'python') {
+			// Python: Look for expression_statement with string as first statement in body
+			const body = node.childForFieldName('body');
+			if (!body) return null;
+
+			const firstStatement = body.children[0];
+			if (firstStatement?.type === 'expression_statement') {
+				const stringNode = firstStatement.children[0];
+				if (stringNode?.type === 'string') {
+					// Remove quotes and clean up
+					let text = stringNode.text;
+					// Remove triple quotes
+					if (text.startsWith('"""') || text.startsWith("'''")) {
+						text = text.slice(3, -3);
+					} else if (text.startsWith('"') || text.startsWith("'")) {
+						text = text.slice(1, -1);
+					}
+					return text.trim() || null;
+				}
+			}
+		} else {
+			// JS/TS: Look for JSDoc comment immediately before the node
+			// Check previous sibling or parent's previous sibling
+			let checkNode: Node | null = node;
+
+			// Walk up through potential wrappers (export_statement, etc.)
+			while (checkNode) {
+				const prev = checkNode.previousSibling;
+				if (prev?.type === 'comment') {
+					const text = prev.text;
+					// Check if it's a JSDoc comment
+					if (text.startsWith('/**')) {
+						// Clean up the JSDoc
+						return text
+							.replace(/^\/\*\*/, '')
+							.replace(/\*\/$/, '')
+							.replace(/^\s*\* ?/gm, '')
+							.trim() || null;
+					}
+				}
+				// Try parent
+				checkNode = checkNode.parent;
+				if (
+					checkNode &&
+					!EXPORT_WRAPPER_TYPES.includes(checkNode.type) &&
+					checkNode.type !== 'variable_declarator' &&
+					checkNode.type !== 'variable_declaration'
+				) {
+					break;
+				}
+			}
+		}
+
+		return null;
+	}
+
+	/**
+	 * Check if a node is exported.
+	 */
+	private extractIsExported(node: Node, lang: SupportedLanguage): boolean {
+		if (lang === 'python') {
+			// Python: Would need to check __all__, but that's complex
+			// For now, assume public if name doesn't start with underscore
+			const name = this.extractName(node, lang);
+			return !name.startsWith('_');
+		}
+
+		// JS/TS: Check for export keyword in node or parent
+		let checkNode: Node | null = node;
+
+		while (checkNode) {
+			// Check if this node has export modifier
+			if (checkNode.type === 'export_statement') {
+				return true;
+			}
+
+			// Check for 'export' child (for class/function declarations)
+			for (const child of checkNode.children) {
+				if (child.type === 'export' || child.text === 'export') {
+					return true;
+				}
+			}
+
+			// Walk up through wrappers
+			const parent: Node | null = checkNode.parent;
+			if (
+				parent &&
+				(parent.type === 'export_statement' ||
+					parent.type === 'variable_declaration' ||
+					parent.type === 'lexical_declaration')
+			) {
+				checkNode = parent;
+			} else {
+				break;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Extract decorator names from a node.
+	 */
+	private extractDecoratorNames(
+		node: Node,
+		lang: SupportedLanguage,
+	): string | null {
+		const decorators: string[] = [];
+
+		if (lang === 'python') {
+			// Python: Look for decorator nodes as previous siblings
+			let sibling = node.previousSibling;
+			while (sibling) {
+				if (sibling.type === 'decorator') {
+					// Extract the decorator name (first identifier after @)
+					const nameNode = sibling.children.find(
+						c => c.type === 'identifier' || c.type === 'call',
+					);
+					if (nameNode) {
+						// For calls like @app.route(), get the function name
+						if (nameNode.type === 'call') {
+							const funcNode = nameNode.childForFieldName('function');
+							if (funcNode) {
+								decorators.unshift(funcNode.text);
+							}
+						} else {
+							decorators.unshift(nameNode.text);
+						}
+					}
+				} else if (sibling.type !== 'comment') {
+					// Stop if we hit something other than decorator or comment
+					break;
+				}
+				sibling = sibling.previousSibling;
+			}
+		} else {
+			// JS/TS: Look for decorator nodes
+			let checkNode: Node | null = node;
+
+			// Walk up to find decorators
+			while (checkNode) {
+				for (const child of checkNode.children) {
+					if (child.type === 'decorator') {
+						// Extract decorator name from call_expression or identifier
+						const expr = child.children.find(
+							c => c.type === 'call_expression' || c.type === 'identifier',
+						);
+						if (expr) {
+							if (expr.type === 'call_expression') {
+								const func = expr.childForFieldName('function');
+								if (func) {
+									decorators.push(func.text);
+								}
+							} else {
+								decorators.push(expr.text);
+							}
+						}
+					}
+				}
+
+				// Also check previous siblings at this level
+				let sibling = checkNode.previousSibling;
+				while (sibling) {
+					if (sibling.type === 'decorator') {
+						const expr = sibling.children.find(
+							c => c.type === 'call_expression' || c.type === 'identifier',
+						);
+						if (expr) {
+							if (expr.type === 'call_expression') {
+								const func = expr.childForFieldName('function');
+								if (func) {
+									decorators.unshift(func.text);
+								}
+							} else {
+								decorators.unshift(expr.text);
+							}
+						}
+					} else if (sibling.type !== 'comment') {
+						break;
+					}
+					sibling = sibling.previousSibling;
+				}
+
+				// Move up through wrappers
+				const parent: Node | null = checkNode.parent;
+				if (parent && EXPORT_WRAPPER_TYPES.includes(parent.type)) {
+					checkNode = parent;
+				} else {
+					break;
+				}
+			}
+		}
+
+		return decorators.length > 0 ? decorators.join(',') : null;
 	}
 
 	/**
@@ -399,6 +665,11 @@ export class Chunker {
 			startLine: 1,
 			endLine: lines.length,
 			contentHash: computeStringHash(fullText),
+			// Module chunks don't have these metadata fields
+			signature: null,
+			docstring: null,
+			isExported: true, // Entire module is implicitly "exported"
+			decoratorNames: null,
 		};
 	}
 
@@ -536,6 +807,12 @@ export class Chunker {
 			startLine,
 			endLine,
 			contentHash: computeStringHash(fullText),
+			// Inherit metadata from original chunk
+			// Only first part gets the signature; continuations get null
+			signature: isContinuation ? null : original.signature,
+			docstring: isContinuation ? null : original.docstring,
+			isExported: original.isExported,
+			decoratorNames: isContinuation ? null : original.decoratorNames,
 		};
 	}
 

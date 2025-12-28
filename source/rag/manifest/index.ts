@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import {getManifestPath, getViberagDir} from '../constants.js';
+import {SCHEMA_VERSION} from '../storage/schema.js';
 
 export interface ManifestStats {
 	totalFiles: number;
@@ -8,6 +9,7 @@ export interface ManifestStats {
 
 export interface Manifest {
 	version: number;
+	schemaVersion: number; // Database schema version for migration detection
 	createdAt: string; // ISO timestamp
 	updatedAt: string; // ISO timestamp
 	tree: object | null; // Serialized MerkleTree
@@ -15,12 +17,13 @@ export interface Manifest {
 }
 
 /**
- * Create an empty manifest.
+ * Create an empty manifest with current schema version.
  */
 export function createEmptyManifest(): Manifest {
 	const now = new Date().toISOString();
 	return {
 		version: 1,
+		schemaVersion: SCHEMA_VERSION,
 		createdAt: now,
 		updatedAt: now,
 		tree: null,
@@ -28,6 +31,28 @@ export function createEmptyManifest(): Manifest {
 			totalFiles: 0,
 			totalChunks: 0,
 		},
+	};
+}
+
+/**
+ * Check if manifest schema version is current.
+ */
+export function isSchemaVersionCurrent(manifest: Manifest): boolean {
+	return manifest.schemaVersion === SCHEMA_VERSION;
+}
+
+/**
+ * Get schema version mismatch info for display.
+ */
+export function getSchemaVersionInfo(manifest: Manifest): {
+	current: number;
+	required: number;
+	needsReindex: boolean;
+} {
+	return {
+		current: manifest.schemaVersion ?? 1, // Default to 1 for old manifests
+		required: SCHEMA_VERSION,
+		needsReindex: (manifest.schemaVersion ?? 1) < SCHEMA_VERSION,
 	};
 }
 

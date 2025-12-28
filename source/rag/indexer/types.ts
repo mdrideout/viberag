@@ -21,6 +21,15 @@ export interface Chunk {
 	endLine: number;
 	/** SHA256 hash of contextHeader + text */
 	contentHash: string;
+	// New in schema v2: deterministic AST-derived metadata
+	/** Function/method signature line (null for module chunks) */
+	signature: string | null;
+	/** Extracted documentation (JSDoc, docstring, etc.) */
+	docstring: string | null;
+	/** Whether symbol has export modifier */
+	isExported: boolean;
+	/** Comma-separated decorator/annotation names (null if none) */
+	decoratorNames: string | null;
 }
 
 /**

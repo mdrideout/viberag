@@ -256,9 +256,9 @@ describe('Config Merging', () => {
 		};
 
 		expect(Object.keys(config.mcpServers)).toHaveLength(3);
-		expect(config.mcpServers.github).toBeDefined();
-		expect(config.mcpServers.filesystem).toBeDefined();
-		expect(config.mcpServers.viberag).toBeDefined();
+		expect(config.mcpServers['github']).toBeDefined();
+		expect(config.mcpServers['filesystem']).toBeDefined();
+		expect(config.mcpServers['viberag']).toBeDefined();
 	});
 
 	it('merges into VS Code config with servers key', async () => {
@@ -275,8 +275,8 @@ describe('Config Merging', () => {
 			servers: Record<string, unknown>;
 		};
 
-		expect(config.servers.existing).toBeDefined();
-		expect(config.servers.viberag).toBeDefined();
+		expect(config.servers['existing']).toBeDefined();
+		expect(config.servers['viberag']).toBeDefined();
 	});
 
 	it('mergeConfig function works correctly', () => {
@@ -293,9 +293,9 @@ describe('Config Merging', () => {
 			someOtherKey: string;
 		};
 
-		expect(merged.mcpServers.other).toBeDefined();
-		expect(merged.mcpServers.viberag).toBeDefined();
-		expect(merged.someOtherKey).toBe('value');
+		expect(merged.mcpServers['other']).toBeDefined();
+		expect(merged.mcpServers['viberag']).toBeDefined();
+		expect(merged['someOtherKey']).toBe('value');
 	});
 
 	it('mergeConfig handles empty servers object', () => {
@@ -305,7 +305,7 @@ describe('Config Merging', () => {
 			mcpServers: Record<string, unknown>;
 		};
 
-		expect(merged.mcpServers.viberag).toBeDefined();
+		expect(merged.mcpServers['viberag']).toBeDefined();
 	});
 
 	it('mergeConfig creates servers object if missing', () => {
@@ -315,7 +315,7 @@ describe('Config Merging', () => {
 			mcpServers: Record<string, unknown>;
 		};
 
-		expect(merged.mcpServers.viberag).toBeDefined();
+		expect(merged.mcpServers['viberag']).toBeDefined();
 	});
 });
 
@@ -419,7 +419,7 @@ describe('Edge Cases', () => {
 		const config = (await readTestConfig(ctx.dir, '.mcp.json')) as {
 			mcpServers: Record<string, unknown>;
 		};
-		expect(config.mcpServers.viberag).toBeDefined();
+		expect(config.mcpServers['viberag']).toBeDefined();
 	});
 
 	it('handles malformed JSON gracefully', async () => {

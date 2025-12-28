@@ -10,7 +10,7 @@ export type ChunkType = 'function' | 'class' | 'method' | 'module';
 export interface CodeChunk {
 	/** Unique ID: "{filepath}:{startLine}" */
 	id: string;
-	/** Embedding vector (768 dimensions for BGE-base-en-v1.5) */
+	/** Embedding vector (768 dimensions for Jina code embeddings) */
 	vector: number[];
 	/** Source code content */
 	text: string;
@@ -32,6 +32,15 @@ export interface CodeChunk {
 	endLine: number;
 	/** SHA256 hash of the entire source file */
 	fileHash: string;
+	// New in schema v2: deterministic AST-derived metadata
+	/** Function/method signature line (null for module/class without params) */
+	signature: string | null;
+	/** Extracted documentation (JSDoc, docstring, etc.) */
+	docstring: string | null;
+	/** Whether symbol has export modifier (JS/TS) or is in __all__ (Python) */
+	isExported: boolean;
+	/** Comma-separated decorator/annotation names (null if none) */
+	decoratorNames: string | null;
 }
 
 /**
@@ -51,6 +60,11 @@ export interface CodeChunkRow {
 	start_line: number;
 	end_line: number;
 	file_hash: string;
+	// New in schema v2
+	signature: string | null;
+	docstring: string | null;
+	is_exported: boolean;
+	decorator_names: string | null;
 }
 
 /**
@@ -92,6 +106,11 @@ export function chunkToRow(chunk: CodeChunk): CodeChunkRow {
 		start_line: chunk.startLine,
 		end_line: chunk.endLine,
 		file_hash: chunk.fileHash,
+		// New in schema v2
+		signature: chunk.signature,
+		docstring: chunk.docstring,
+		is_exported: chunk.isExported,
+		decorator_names: chunk.decoratorNames,
 	};
 }
 
@@ -112,6 +131,11 @@ export function rowToChunk(row: CodeChunkRow): CodeChunk {
 		startLine: row.start_line,
 		endLine: row.end_line,
 		fileHash: row.file_hash,
+		// New in schema v2
+		signature: row.signature,
+		docstring: row.docstring,
+		isExported: row.is_exported,
+		decoratorNames: row.decorator_names,
 	};
 }
 
