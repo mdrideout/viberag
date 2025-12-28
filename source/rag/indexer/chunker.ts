@@ -216,7 +216,14 @@ export class Chunker {
 		// Check for class
 		if (CLASS_NODE_TYPES[lang].includes(nodeType)) {
 			const className = this.extractName(node, lang);
-			const chunk = this.nodeToChunk(node, lines, 'class', lang, filepath, null);
+			const chunk = this.nodeToChunk(
+				node,
+				lines,
+				'class',
+				lang,
+				filepath,
+				null,
+			);
 			if (chunk) {
 				chunks.push(chunk);
 			}
@@ -252,7 +259,14 @@ export class Chunker {
 
 		if (!parentClassName && functionTypes.includes(nodeType)) {
 			// This is a top-level function
-			const chunk = this.nodeToChunk(node, lines, 'function', lang, filepath, null);
+			const chunk = this.nodeToChunk(
+				node,
+				lines,
+				'function',
+				lang,
+				filepath,
+				null,
+			);
 			if (chunk) {
 				chunks.push(chunk);
 			}

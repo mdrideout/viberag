@@ -8,10 +8,7 @@
 import React, {useState, useCallback, useEffect} from 'react';
 import {Box, Text, useInput} from 'ink';
 import SelectInput from 'ink-select-input';
-import {
-	EDITORS,
-	type EditorId,
-} from '../data/mcp-editors.js';
+import {EDITORS, type EditorId} from '../data/mcp-editors.js';
 import {
 	writeMcpConfig,
 	getManualInstructions,
@@ -42,7 +39,10 @@ type Props = {
 	projectRoot: string;
 	/** Whether this is shown after /init (shows prompt step) */
 	showPrompt: boolean;
-	onStepChange: (step: McpSetupStep, data?: Partial<McpSetupWizardConfig>) => void;
+	onStepChange: (
+		step: McpSetupStep,
+		data?: Partial<McpSetupWizardConfig>,
+	) => void;
 	onComplete: (config: McpSetupWizardConfig) => void;
 	onCancel: () => void;
 	/** For outputting instructions to console */
@@ -135,7 +135,9 @@ function MultiSelect({
 							{isHighlighted ? '> ' : '  '}
 							{checkbox} {item.label}
 							<Text dimColor> ({item.description})</Text>
-							{isDisabled ? <Text color="yellow"> (already configured)</Text> : null}
+							{isDisabled ? (
+								<Text color="yellow"> (already configured)</Text>
+							) : null}
 						</Text>
 					</Box>
 				);
@@ -162,11 +164,15 @@ export function McpSetupWizard({
 		new Set(config.selectedEditors ?? []),
 	);
 	const [highlightIndex, setHighlightIndex] = useState(0);
-	const [configuredEditors, setConfiguredEditors] = useState<Set<EditorId>>(new Set());
+	const [configuredEditors, setConfiguredEditors] = useState<Set<EditorId>>(
+		new Set(),
+	);
 
 	// Per-editor configuration state
 	const [currentEditorIndex, setCurrentEditorIndex] = useState(0);
-	const [results, setResults] = useState<McpSetupResult[]>(config.results ?? []);
+	const [results, setResults] = useState<McpSetupResult[]>(
+		config.results ?? [],
+	);
 	const [isProcessing, setIsProcessing] = useState(false);
 
 	// Check which editors are already configured
@@ -261,7 +267,15 @@ export function McpSetupWizard({
 			}
 			setIsProcessing(false);
 		},
-		[currentEditor, projectRoot, results, currentEditorIndex, selectedEditorIds.length, onStepChange, addOutput],
+		[
+			currentEditor,
+			projectRoot,
+			results,
+			currentEditorIndex,
+			selectedEditorIds.length,
+			onStepChange,
+			addOutput,
+		],
 	);
 
 	// Build editor items for multi-select
@@ -325,7 +339,8 @@ export function McpSetupWizard({
 				</Box>
 				<Box marginTop={1}>
 					<Text dimColor>
-						{selected.size} selected | ↑/↓ move, Space toggle, Enter confirm, Esc cancel
+						{selected.size} selected | ↑/↓ move, Space toggle, Enter confirm,
+						Esc cancel
 					</Text>
 				</Box>
 			</Box>
@@ -336,7 +351,12 @@ export function McpSetupWizard({
 	if (step === 'configure' && currentEditor) {
 		if (isProcessing) {
 			return (
-				<Box flexDirection="column" borderStyle="round" paddingX={2} paddingY={1}>
+				<Box
+					flexDirection="column"
+					borderStyle="round"
+					paddingX={2}
+					paddingY={1}
+				>
 					<Text bold>{currentEditor.name} MCP Setup</Text>
 					<Box marginTop={1}>
 						<Text color="yellow">Processing...</Text>
@@ -349,15 +369,15 @@ export function McpSetupWizard({
 			currentEditor.scope === 'ui'
 				? UI_ACTION_ITEMS
 				: currentEditor.scope === 'global'
-					? GLOBAL_ACTION_ITEMS
-					: PROJECT_ACTION_ITEMS;
+				? GLOBAL_ACTION_ITEMS
+				: PROJECT_ACTION_ITEMS;
 
 		const configPathDisplay =
 			currentEditor.scope === 'project'
 				? currentEditor.configPath
 				: currentEditor.scope === 'global'
-					? `${currentEditor.configPath}`
-					: 'IDE Settings';
+				? `${currentEditor.configPath}`
+				: 'IDE Settings';
 
 		return (
 			<Box flexDirection="column" borderStyle="round" paddingX={2} paddingY={1}>
@@ -397,8 +417,12 @@ export function McpSetupWizard({
 
 	// Step: Summary
 	if (step === 'summary') {
-		const successResults = results.filter(r => r.success && r.method !== 'instructions-shown');
-		const instructionResults = results.filter(r => r.success && r.method === 'instructions-shown');
+		const successResults = results.filter(
+			r => r.success && r.method !== 'instructions-shown',
+		);
+		const instructionResults = results.filter(
+			r => r.success && r.method === 'instructions-shown',
+		);
 		const skippedResults = results.filter(r => !r.success);
 
 		return (
@@ -417,8 +441,8 @@ export function McpSetupWizard({
 									{r.method === 'file-created'
 										? `Created ${r.configPath}`
 										: r.method === 'file-merged'
-											? `Updated ${r.configPath}`
-											: 'CLI command'}
+										? `Updated ${r.configPath}`
+										: 'CLI command'}
 								</Text>
 							</Text>
 						);
@@ -450,7 +474,9 @@ export function McpSetupWizard({
 					</Box>
 				)}
 				<Box marginTop={1}>
-					<Text dimColor>Run /mcp-setup anytime to configure more editors.</Text>
+					<Text dimColor>
+						Run /mcp-setup anytime to configure more editors.
+					</Text>
 				</Box>
 				<Box marginTop={1}>
 					<SelectInput

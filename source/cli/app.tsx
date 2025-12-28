@@ -173,10 +173,18 @@ export default function App() {
 
 				// Automatically start indexing after init
 				addOutput('system', 'Indexing codebase...');
-				setAppStatus({state: 'indexing', current: 0, total: 0, stage: 'Indexing'});
+				setAppStatus({
+					state: 'indexing',
+					current: 0,
+					total: 0,
+					stage: 'Indexing',
+				});
 
-				const stats = await runIndex(projectRoot, true, (current, total, stage) =>
-					setAppStatus({state: 'indexing', current, total, stage}),
+				const stats = await runIndex(
+					projectRoot,
+					true,
+					(current, total, stage) =>
+						setAppStatus({state: 'indexing', current, total, stage}),
 				);
 				addOutput('system', formatIndexStats(stats));
 

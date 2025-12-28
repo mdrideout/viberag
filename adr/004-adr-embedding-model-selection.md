@@ -19,11 +19,11 @@ We support three embedding providers, selectable during `/init`:
 
 ### Provider Comparison
 
-| Provider | Model | Dimensions | Context | Cost |
-| -------- | ----- | ---------- | ------- | ---- |
-| Local | jina-embeddings-v2-base-code | 768 | 8K tokens | Free |
-| Gemini | gemini-embedding-001 | 768 | 2K tokens | Free tier / $0.15/1M |
-| Mistral | codestral-embed-2505 | 1024 | 8K tokens | $0.15/1M |
+| Provider | Model                        | Dimensions | Context   | Cost                 |
+| -------- | ---------------------------- | ---------- | --------- | -------------------- |
+| Local    | jina-embeddings-v2-base-code | 768        | 8K tokens | Free                 |
+| Gemini   | gemini-embedding-001         | 768        | 2K tokens | Free tier / $0.15/1M |
+| Mistral  | codestral-embed-2505         | 1024       | 8K tokens | $0.15/1M             |
 
 **Recommended**: Mistral (codestral-embed) for best code retrieval quality.
 
@@ -32,6 +32,7 @@ We support three embedding providers, selectable during `/init`:
 **Model**: `jinaai/jina-embeddings-v2-base-code` with int8 (q8) quantization
 
 **Strengths**:
+
 - Purpose-built for code, trained on GitHub data
 - Supports 30+ programming languages
 - 8K token context handles large functions without truncation
@@ -39,6 +40,7 @@ We support three embedding providers, selectable during `/init`:
 - ~161MB model size with q8 quantization
 
 **Trade-offs**:
+
 - Lower retrieval quality than cloud options
 - First run requires model download
 
@@ -47,11 +49,13 @@ We support three embedding providers, selectable during `/init`:
 **Model**: `gemini-embedding-001`
 
 **Strengths**:
+
 - Google's embedding model with strong general-purpose performance
 - Generous free tier (1,500 requests/min)
 - Fast inference via API
 
 **Trade-offs**:
+
 - 2K token context limit - large functions get truncated or split more aggressively
 - Not specifically optimized for code
 - Requires API key
@@ -61,6 +65,7 @@ We support three embedding providers, selectable during `/init`:
 **Model**: `codestral-embed-2505`
 
 **Strengths**:
+
 - Specifically designed for code understanding
 - Built on Codestral, Mistral's code-focused model family
 - 1024 dimensions capture more semantic nuance than 768-dim models
@@ -68,6 +73,7 @@ We support three embedding providers, selectable during `/init`:
 - Strong performance on code retrieval benchmarks
 
 **Trade-offs**:
+
 - Requires API key and costs money for large codebases
 - Higher dimensions mean slightly larger vector storage
 

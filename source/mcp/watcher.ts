@@ -122,7 +122,7 @@ export class FileWatcher {
 				? {
 						stabilityThreshold: 300,
 						pollInterval: 100,
-					}
+				  }
 				: false,
 			depth: 20, // Reasonable depth limit
 		});
@@ -149,10 +149,7 @@ export class FileWatcher {
 		});
 
 		this.watcher.on('ready', () => {
-			this.log(
-				'info',
-				`Watcher ready, watching ${this.filesWatched} files`,
-			);
+			this.log('info', `Watcher ready, watching ${this.filesWatched} files`);
 		});
 	}
 
@@ -213,10 +210,7 @@ export class FileWatcher {
 	/**
 	 * Handle a file change event.
 	 */
-	private handleChange(
-		event: 'add' | 'change' | 'unlink',
-		path: string,
-	): void {
+	private handleChange(event: 'add' | 'change' | 'unlink', path: string): void {
 		if (!this.config) return;
 
 		// Skip if file doesn't match our extensions (shouldn't happen due to glob, but double-check)

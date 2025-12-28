@@ -174,7 +174,9 @@ export function createMcpServer(projectRoot: string): McpServerWithWatcher {
 				.boolean()
 				.optional()
 				.default(false)
-				.describe('Force full reindex, ignoring change detection (default: false)'),
+				.describe(
+					'Force full reindex, ignoring change detection (default: false)',
+				),
 		}),
 		execute: async args => {
 			await ensureInitialized(projectRoot);

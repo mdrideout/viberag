@@ -66,7 +66,8 @@ export const EDITORS: EditorConfig[] = [
 		docsUrl: 'https://code.claude.com/docs/en/mcp',
 		jsonKey: 'mcpServers',
 		description: 'auto-setup',
-		restartInstructions: 'Restart Claude Code or run: claude mcp restart viberag',
+		restartInstructions:
+			'Restart Claude Code or run: claude mcp restart viberag',
 		verificationSteps: [
 			'Run: claude mcp list',
 			'Verify "viberag" appears in the server list',
@@ -80,10 +81,12 @@ export const EDITORS: EditorConfig[] = [
 		scope: 'project',
 		canAutoCreate: true,
 		cliCommand: null,
-		docsUrl: 'https://code.visualstudio.com/docs/copilot/customization/mcp-servers',
+		docsUrl:
+			'https://code.visualstudio.com/docs/copilot/customization/mcp-servers',
 		jsonKey: 'servers', // VS Code uses 'servers', not 'mcpServers'
 		description: 'auto-setup',
-		restartInstructions: 'Reload VS Code window (Cmd/Ctrl+Shift+P → "Reload Window")',
+		restartInstructions:
+			'Reload VS Code window (Cmd/Ctrl+Shift+P → "Reload Window")',
 		verificationSteps: [
 			'Open Command Palette → "MCP: List Servers"',
 			'Verify "viberag" appears in the list',
@@ -134,7 +137,8 @@ export const EDITORS: EditorConfig[] = [
 		docsUrl: 'https://docs.windsurf.com/windsurf/cascade/mcp',
 		jsonKey: 'mcpServers',
 		description: 'global config',
-		restartInstructions: 'Click refresh button in Windsurf MCP settings, then restart IDE',
+		restartInstructions:
+			'Click refresh button in Windsurf MCP settings, then restart IDE',
 		verificationSteps: [
 			'Open Windsurf Settings → Cascade → MCP',
 			'Verify "viberag" appears in the server list',
@@ -276,7 +280,10 @@ export function getConfigPath(
 export function getZedSettingsPath(): string {
 	const platform = process.platform;
 	if (platform === 'darwin') {
-		return path.join(os.homedir(), 'Library/Application Support/Zed/settings.json');
+		return path.join(
+			os.homedir(),
+			'Library/Application Support/Zed/settings.json',
+		);
 	} else if (platform === 'linux') {
 		return path.join(os.homedir(), '.config/zed/settings.json');
 	} else {

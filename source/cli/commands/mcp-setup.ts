@@ -75,7 +75,9 @@ export async function configExists(configPath: string): Promise<boolean> {
 /**
  * Read existing config file as JSON.
  */
-export async function readJsonConfig(configPath: string): Promise<object | null> {
+export async function readJsonConfig(
+	configPath: string,
+): Promise<object | null> {
 	try {
 		const content = await fs.readFile(configPath, 'utf-8');
 		return JSON.parse(content) as object;
@@ -87,10 +89,7 @@ export async function readJsonConfig(configPath: string): Promise<object | null>
 /**
  * Merge viberag config into existing config.
  */
-export function mergeConfig(
-	existing: object,
-	editor: EditorConfig,
-): object {
+export function mergeConfig(existing: object, editor: EditorConfig): object {
 	const viberagConfig = generateViberagConfig();
 	const jsonKey = editor.jsonKey;
 
@@ -109,7 +108,10 @@ export function mergeConfig(
 /**
  * Check if viberag is already configured in a config file.
  */
-export function hasViberagConfig(config: object, editor: EditorConfig): boolean {
+export function hasViberagConfig(
+	config: object,
+	editor: EditorConfig,
+): boolean {
 	const servers = (config as Record<string, unknown>)[editor.jsonKey];
 	if (!servers || typeof servers !== 'object') {
 		return false;
@@ -223,21 +225,32 @@ export function getManualInstructions(
 		lines.push(`  ${editor.cliCommand}`);
 		lines.push('');
 	} else if (editor.configFormat === 'json') {
-		const configPath = editor.scope === 'project'
-			? editor.configPath
-			: getConfigPath(editor, projectRoot) ?? editor.configPath;
+		const configPath =
+			editor.scope === 'project'
+				? editor.configPath
+				: getConfigPath(editor, projectRoot) ?? editor.configPath;
 
 		lines.push(`Add to ${configPath}:`);
 		lines.push('');
 
 		const config = generateMcpConfig(editor);
 		const jsonStr = JSON.stringify(config, null, 2);
-		lines.push(jsonStr.split('\n').map(l => '  ' + l).join('\n'));
+		lines.push(
+			jsonStr
+				.split('\n')
+				.map(l => '  ' + l)
+				.join('\n'),
+		);
 		lines.push('');
 	} else if (editor.configFormat === 'toml') {
 		lines.push(`Add to ${editor.configPath}:`);
 		lines.push('');
-		lines.push(generateTomlConfig().split('\n').map(l => '  ' + l).join('\n'));
+		lines.push(
+			generateTomlConfig()
+				.split('\n')
+				.map(l => '  ' + l)
+				.join('\n'),
+		);
 		lines.push('');
 	} else if (editor.configFormat === 'ui') {
 		lines.push('Manual setup required:');

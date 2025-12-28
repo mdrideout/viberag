@@ -73,9 +73,18 @@ const PROVIDER_CONFIG = {
 
 // Simple provider options for selection
 const PROVIDER_ITEMS: SelectItem<EmbeddingProviderType>[] = [
-	{label: 'Local   - jina-embeddings-v2-base-code, free, no API key', value: 'local'},
-	{label: 'Gemini  - gemini-embedding-001, free tier available', value: 'gemini'},
-	{label: 'Mistral - codestral-embed, code-optimized (Recommended)', value: 'mistral'},
+	{
+		label: 'Local   - jina-embeddings-v2-base-code, free, no API key',
+		value: 'local',
+	},
+	{
+		label: 'Gemini  - gemini-embedding-001, free tier available',
+		value: 'gemini',
+	},
+	{
+		label: 'Mistral - codestral-embed, code-optimized (Recommended)',
+		value: 'mistral',
+	},
 ];
 
 /**
