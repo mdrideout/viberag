@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Accepted (Updated)
 
 ## Context
 
@@ -19,15 +19,15 @@ We support three embedding providers, selectable during `/init`:
 
 ### Provider Comparison
 
-| Provider | Model                        | Dimensions | Context   | Cost                 |
-| -------- | ---------------------------- | ---------- | --------- | -------------------- |
-| Local    | jina-embeddings-v2-base-code | 768        | 8K tokens | Free                 |
-| Gemini   | gemini-embedding-001         | 768        | 2K tokens | Free tier / $0.15/1M |
-| Mistral  | codestral-embed-2505         | 1024       | 8K tokens | $0.15/1M             |
+| Provider  | Model                        | Dimensions | Context   | Cost                 | Status      |
+| --------- | ---------------------------- | ---------- | --------- | -------------------- | ----------- |
+| Local     | jina-embeddings-v2-base-code | 768        | 8K tokens | Free                 | Implemented |
+| Gemini    | gemini-embedding-001         | 768        | 2K tokens | Free tier / $0.15/1M | Planned     |
+| Mistral\* | codestral-embed-2505         | 1024       | 8K tokens | $0.15/1M             | Planned     |
 
-**Recommended**: Mistral (codestral-embed) for best code retrieval quality.
+\*Recommended for best code retrieval quality.
 
-### Local (Default)
+### Local (Default, Implemented)
 
 **Model**: `jinaai/jina-embeddings-v2-base-code` with int8 (q8) quantization
 
@@ -44,7 +44,7 @@ We support three embedding providers, selectable during `/init`:
 - Lower retrieval quality than cloud options
 - First run requires model download
 
-### Gemini
+### Gemini (Planned)
 
 **Model**: `gemini-embedding-001`
 
@@ -56,11 +56,11 @@ We support three embedding providers, selectable during `/init`:
 
 **Trade-offs**:
 
-- 2K token context limit - large functions get truncated or split more aggressively
+- 2K token context limit - large functions get truncated
 - Not specifically optimized for code
 - Requires API key
 
-### Mistral (Recommended)
+### Mistral (Planned)
 
 **Model**: `codestral-embed-2505`
 
@@ -68,7 +68,7 @@ We support three embedding providers, selectable during `/init`:
 
 - Specifically designed for code understanding
 - Built on Codestral, Mistral's code-focused model family
-- 1024 dimensions capture more semantic nuance than 768-dim models
+- 1024 dimensions capture more semantic nuance
 - 8K token context matches local model
 - Strong performance on code retrieval benchmarks
 
@@ -83,9 +83,11 @@ We support three embedding providers, selectable during `/init`:
 
 ```typescript
 interface EmbeddingProvider {
+	readonly dimensions: number;
+	initialize(): Promise<void>;
 	embed(texts: string[]): Promise<number[][]>;
-	dimensions: number;
-	close(): Promise<void>;
+	embedSingle(text: string): Promise<number[]>;
+	close(): void;
 }
 ```
 
@@ -101,7 +103,6 @@ const model = await pipeline(
 	'jinaai/jina-embeddings-v2-base-code',
 	{
 		dtype: 'q8', // int8 quantization for smaller size
-		device: 'auto', // Uses GPU if available
 	},
 );
 ```
@@ -167,14 +168,15 @@ This is acceptable for a local tool where reindexing is fast.
 ### Positive
 
 - **Zero-cost default**: Local model works offline without API keys
-- **Flexibility**: Users choose their quality/cost trade-off
-- **Code-optimized**: All options have strong code understanding (Jina trained on code, Mistral built for code)
-- **Large context**: 8K tokens (local/Mistral) handles most functions without splitting
+- **Code-optimized**: Jina model trained specifically on code
+- **Large context**: 8K tokens handles most functions without splitting
+- **Cloud options**: Gemini and Mistral available for faster indexing (when implemented)
 
 ### Negative
 
 - **~161MB download**: Local model requires initial download
 - **No hot-swapping**: Changing provider requires full reindex
+- **Cloud providers pending**: Gemini and Mistral implementations in progress
 
 ### Neutral
 

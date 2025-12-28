@@ -5,7 +5,7 @@ Local code RAG (Retrieval-Augmented Generation) for AI coding assistants. Index 
 ## Features
 
 - **Semantic code search** - Find code by meaning, not just keywords
-- **Local embeddings** - No API keys required (optional cloud providers for speed)
+- **Local embeddings** - No API keys required, runs entirely offline
 - **MCP server** - Works with Claude Code, Cursor, VS Code Copilot, and more
 - **Incremental indexing** - Only re-embeds changed files
 - **Multi-language support** - TypeScript, JavaScript, Python, Go, Rust, and more
@@ -81,19 +81,24 @@ For global configs, merge the viberag entry into your existing configuration.
 
 ## Embedding Providers
 
-Configure during `/init`:
+Choose your embedding provider during `/init`:
 
-| Provider     | Model                               | Dimensions | Speed   | API Key |
-| ------------ | ----------------------------------- | ---------- | ------- | ------- |
-| `local`      | jina-embeddings-v2-base-code (fp16) | 768        | Medium  | No      |
-| `local-fast` | jina-embeddings-v2-base-code (int8) | 768        | Fast    | No      |
-| `gemini`     | gemini-embedding-001                | 768        | Fastest | Yes     |
-| `mistral`    | codestral-embed-2505                | 1024       | Fast    | Yes     |
+| Provider  | Model        | Dims | Context | Cost     |
+| --------- | ------------ | ---- | ------- | -------- |
+| Local     | jina-v2-code | 768  | 8K      | Free     |
+| Gemini    | gemini-embed | 768  | 2K      | $0.15/1M |
+| Mistral\* | codestral    | 1024 | 8K      | $0.15/1M |
+
+\*Recommended for best code retrieval quality.
+
+- **Local** - No API key required, ~161MB model download, works offline
+- **Gemini** - Requires `GEMINI_API_KEY`, free tier available
+- **Mistral** - Requires `MISTRAL_API_KEY`, code-optimized embeddings
 
 ## How It Works
 
 1. **Parsing** - Tree-sitter extracts functions, classes, and semantic chunks
-2. **Embedding** - Code chunks are embedded using your chosen provider
+2. **Embedding** - Code chunks are embedded locally using Jina's code model
 3. **Storage** - Vectors stored in local SQLite with vec0 extension
 4. **Search** - Hybrid search combines vector similarity + full-text search
 5. **MCP** - AI tools query the index via the MCP protocol
