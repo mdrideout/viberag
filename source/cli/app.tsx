@@ -15,12 +15,15 @@ import type {
 	IndexDisplayStats,
 	WizardMode,
 	InitWizardConfig,
+	McpSetupWizardConfig,
+	McpSetupStep,
 } from '../common/types.js';
 
 // CLI-specific components and commands
 import WelcomeBanner from './components/WelcomeBanner.js';
 import SearchResultsDisplay from './components/SearchResultsDisplay.js';
 import InitWizard from './components/InitWizard.js';
+import McpSetupWizard from './components/McpSetupWizard.js';
 import {useRagCommands} from './commands/useRagCommands.js';
 import {
 	checkInitialized,
@@ -28,7 +31,6 @@ import {
 	runInit,
 	runIndex,
 	formatIndexStats,
-	getMcpSetupInstructions,
 } from './commands/handlers.js';
 import type {SearchResultsData} from '../common/types.js';
 
@@ -113,18 +115,43 @@ export default function App() {
 		setWizardMode({active: true, type: 'init', step: 0, config: {}, isReinit});
 	}, []);
 
-	// Handle wizard step changes
-	const handleWizardStep = useCallback(
+	// Start the MCP setup wizard
+	const startMcpSetupWizard = useCallback((showPrompt: boolean = false) => {
+		setWizardMode({
+			active: true,
+			type: 'mcp-setup',
+			step: showPrompt ? 'prompt' : 'select',
+			config: {},
+			showPrompt,
+		});
+	}, []);
+
+	// Handle init wizard step changes
+	const handleInitWizardStep = useCallback(
 		(step: number, data?: Partial<InitWizardConfig>) => {
 			setWizardMode(prev =>
-				prev.active ? {...prev, step, config: {...prev.config, ...data}} : prev,
+				prev.active && prev.type === 'init'
+					? {...prev, step, config: {...prev.config, ...data}}
+					: prev,
 			);
 		},
 		[],
 	);
 
-	// Handle wizard completion
-	const handleWizardComplete = useCallback(
+	// Handle MCP wizard step changes
+	const handleMcpWizardStep = useCallback(
+		(step: McpSetupStep, data?: Partial<McpSetupWizardConfig>) => {
+			setWizardMode(prev =>
+				prev.active && prev.type === 'mcp-setup'
+					? {...prev, step, config: {...prev.config, ...data}}
+					: prev,
+			);
+		},
+		[],
+	);
+
+	// Handle init wizard completion
+	const handleInitWizardComplete = useCallback(
 		async (config: InitWizardConfig) => {
 			// Close wizard first, then run init after a tick to ensure proper re-render
 			setWizardMode({active: false});
@@ -153,13 +180,14 @@ export default function App() {
 				);
 				addOutput('system', formatIndexStats(stats));
 
-				// Show MCP setup instructions
-				addOutput('system', getMcpSetupInstructions());
-
 				// Reload stats after indexing
 				const newStats = await loadIndexStats(projectRoot);
 				setIndexStats(newStats);
 				setAppStatus({state: 'ready'});
+
+				// Prompt for MCP setup after init completes
+				await new Promise(resolve => setTimeout(resolve, 100));
+				startMcpSetupWizard(true); // showPrompt = true for post-init flow
 			} catch (err) {
 				addOutput(
 					'system',
@@ -168,14 +196,27 @@ export default function App() {
 				setAppStatus({state: 'ready'});
 			}
 		},
-		[projectRoot, isInitialized],
+		[projectRoot, isInitialized, startMcpSetupWizard],
+	);
+
+	// Handle MCP wizard completion
+	const handleMcpWizardComplete = useCallback(
+		(_config: McpSetupWizardConfig) => {
+			setWizardMode({active: false});
+			// Results are already shown in the wizard summary
+		},
+		[],
 	);
 
 	// Handle wizard cancellation
 	const handleWizardCancel = useCallback(() => {
+		const wasInit = wizardMode.active && wizardMode.type === 'init';
 		setWizardMode({active: false});
-		addOutput('system', 'Initialization cancelled.');
-	}, []);
+		if (wasInit) {
+			addOutput('system', 'Initialization cancelled.');
+		}
+		// MCP wizard cancel just closes silently
+	}, [wizardMode]);
 
 	// Handle Ctrl+C with status message callback
 	const {handleCtrlC} = useCtrlC({
@@ -193,6 +234,7 @@ export default function App() {
 		projectRoot,
 		stdout,
 		startInitWizard,
+		startMcpSetupWizard,
 		isInitialized: isInitialized ?? false,
 	});
 
@@ -263,14 +305,25 @@ export default function App() {
 			<StatusBar status={appStatus} stats={indexStats} />
 
 			{/* Input area - show wizard or text input */}
-			{wizardMode.active ? (
+			{wizardMode.active && wizardMode.type === 'init' ? (
 				<InitWizard
 					step={wizardMode.step}
 					config={wizardMode.config}
 					isReinit={wizardMode.isReinit}
-					onStepChange={handleWizardStep}
-					onComplete={handleWizardComplete}
+					onStepChange={handleInitWizardStep}
+					onComplete={handleInitWizardComplete}
 					onCancel={handleWizardCancel}
+				/>
+			) : wizardMode.active && wizardMode.type === 'mcp-setup' ? (
+				<McpSetupWizard
+					step={wizardMode.step}
+					config={wizardMode.config}
+					projectRoot={projectRoot}
+					showPrompt={wizardMode.showPrompt}
+					onStepChange={handleMcpWizardStep}
+					onComplete={handleMcpWizardComplete}
+					onCancel={handleWizardCancel}
+					addOutput={addOutput}
 				/>
 			) : (
 				<TextInput

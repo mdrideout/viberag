@@ -11,7 +11,6 @@ import {
 	runSearch,
 	getStatus,
 	loadIndexStats,
-	getMcpSetupInstructions,
 	type IndexDisplayStats,
 } from './handlers.js';
 import {setupVSCodeTerminal} from '../../common/commands/terminalSetup.js';
@@ -25,6 +24,7 @@ type RagCommandContext = {
 	projectRoot: string;
 	stdout: NodeJS.WriteStream;
 	startInitWizard: (isReinit: boolean) => void;
+	startMcpSetupWizard: (showPrompt?: boolean) => void;
 	isInitialized: boolean;
 };
 
@@ -36,6 +36,7 @@ export function useRagCommands({
 	projectRoot,
 	stdout,
 	startInitWizard,
+	startMcpSetupWizard,
 	isInitialized,
 }: RagCommandContext) {
 	const {exit} = useApp();
@@ -53,7 +54,7 @@ export function useRagCommands({
   /reindex        - Force full reindex
   /search <query> - Search the codebase
   /status         - Show index status
-  /mcp-setup      - Show MCP server setup for Claude Code
+  /mcp-setup      - Configure MCP server for AI coding tools
   /quit           - Exit
 
 Multi-line input:
@@ -149,8 +150,8 @@ Tips:
 	}, [projectRoot, addOutput]);
 
 	const handleMcpSetup = useCallback(() => {
-		addOutput('system', getMcpSetupInstructions());
-	}, [addOutput]);
+		startMcpSetupWizard(false); // showPrompt = false for direct /mcp-setup command
+	}, [startMcpSetupWizard]);
 
 	const handleUnknown = useCallback(
 		(command: string) => {

@@ -84,6 +84,44 @@ export type InitWizardConfig = {
 };
 
 /**
+ * MCP editor identifiers.
+ */
+export type McpEditorId =
+	| 'claude-code'
+	| 'vscode'
+	| 'cursor'
+	| 'windsurf'
+	| 'roo-code'
+	| 'zed'
+	| 'gemini-cli'
+	| 'codex'
+	| 'jetbrains';
+
+/**
+ * MCP setup result.
+ */
+export type McpSetupResultType = {
+	success: boolean;
+	editor: McpEditorId;
+	method: 'file-created' | 'file-merged' | 'cli-command' | 'instructions-shown';
+	configPath?: string;
+	error?: string;
+};
+
+/**
+ * Configuration collected from the MCP setup wizard.
+ */
+export type McpSetupWizardConfig = {
+	selectedEditors: McpEditorId[];
+	results: McpSetupResultType[];
+};
+
+/**
+ * MCP setup wizard step types.
+ */
+export type McpSetupStep = 'prompt' | 'select' | 'configure' | 'summary';
+
+/**
  * Wizard mode state for the app.
  */
 export type WizardMode =
@@ -94,6 +132,13 @@ export type WizardMode =
 			step: number;
 			config: Partial<InitWizardConfig>;
 			isReinit: boolean;
+	  }
+	| {
+			active: true;
+			type: 'mcp-setup';
+			step: McpSetupStep;
+			config: Partial<McpSetupWizardConfig>;
+			showPrompt: boolean;
 	  };
 
 /**
