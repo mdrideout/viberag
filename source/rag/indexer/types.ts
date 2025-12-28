@@ -35,20 +35,51 @@ export interface Chunk {
 /**
  * Supported languages for tree-sitter parsing.
  */
-export type SupportedLanguage = 'python' | 'javascript' | 'typescript' | 'tsx';
+export type SupportedLanguage =
+	| 'python'
+	| 'javascript'
+	| 'typescript'
+	| 'tsx'
+	| 'go'
+	| 'rust'
+	| 'java'
+	| 'csharp'
+	| 'dart'
+	| 'swift'
+	| 'kotlin'
+	| 'php';
 
 /**
  * Map of file extensions to languages.
  */
 export const EXTENSION_TO_LANGUAGE: Record<string, SupportedLanguage> = {
-	'.py': 'python',
+	// JavaScript/TypeScript family
 	'.js': 'javascript',
-	'.ts': 'typescript',
-	'.tsx': 'tsx',
 	'.mjs': 'javascript',
 	'.cjs': 'javascript',
+	'.ts': 'typescript',
 	'.mts': 'typescript',
 	'.cts': 'typescript',
+	'.tsx': 'tsx',
+	// Python
+	'.py': 'python',
+	// Go
+	'.go': 'go',
+	// Rust
+	'.rs': 'rust',
+	// Java
+	'.java': 'java',
+	// C#
+	'.cs': 'csharp',
+	// Dart
+	'.dart': 'dart',
+	// Swift
+	'.swift': 'swift',
+	// Kotlin
+	'.kt': 'kotlin',
+	'.kts': 'kotlin',
+	// PHP
+	'.php': 'php',
 };
 
 /**

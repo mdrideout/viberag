@@ -16,7 +16,7 @@ const require = createRequire(import.meta.url);
  * Paths to language WASM files.
  */
 const LANGUAGE_WASM_PATHS: Record<SupportedLanguage, string> = {
-	python: require.resolve('tree-sitter-python/tree-sitter-python.wasm'),
+	// JavaScript/TypeScript family
 	javascript: require.resolve(
 		'tree-sitter-javascript/tree-sitter-javascript.wasm',
 	),
@@ -24,36 +24,113 @@ const LANGUAGE_WASM_PATHS: Record<SupportedLanguage, string> = {
 		'tree-sitter-typescript/tree-sitter-typescript.wasm',
 	),
 	tsx: require.resolve('tree-sitter-typescript/tree-sitter-tsx.wasm'),
+	// Python
+	python: require.resolve('tree-sitter-python/tree-sitter-python.wasm'),
+	// Go
+	go: require.resolve('tree-sitter-go/tree-sitter-go.wasm'),
+	// Rust
+	rust: require.resolve('tree-sitter-rust/tree-sitter-rust.wasm'),
+	// Java
+	java: require.resolve('tree-sitter-java/tree-sitter-java.wasm'),
+	// C# (via tree-sitter-wasms for web-tree-sitter compatibility)
+	csharp: require.resolve('tree-sitter-wasms/out/tree-sitter-c_sharp.wasm'),
+	// Dart (via tree-sitter-wasms for web-tree-sitter compatibility)
+	dart: require.resolve('tree-sitter-wasms/out/tree-sitter-dart.wasm'),
+	// Swift (via tree-sitter-wasms for web-tree-sitter compatibility)
+	swift: require.resolve('tree-sitter-wasms/out/tree-sitter-swift.wasm'),
+	// Kotlin (via tree-sitter-wasms for web-tree-sitter compatibility)
+	kotlin: require.resolve('tree-sitter-wasms/out/tree-sitter-kotlin.wasm'),
+	// PHP (via tree-sitter-wasms for web-tree-sitter compatibility)
+	php: require.resolve('tree-sitter-wasms/out/tree-sitter-php.wasm'),
 };
 
 /**
  * Node types that represent functions in each language.
  */
 const FUNCTION_NODE_TYPES: Record<SupportedLanguage, string[]> = {
-	python: ['function_definition'],
+	// JavaScript/TypeScript
 	javascript: ['function_declaration', 'function_expression', 'arrow_function'],
 	typescript: ['function_declaration', 'function_expression', 'arrow_function'],
 	tsx: ['function_declaration', 'function_expression', 'arrow_function'],
+	// Python
+	python: ['function_definition'],
+	// Go
+	go: ['function_declaration'],
+	// Rust
+	rust: ['function_item'],
+	// Java
+	java: ['method_declaration', 'constructor_declaration'],
+	// C#
+	csharp: ['method_declaration', 'constructor_declaration'],
+	// Dart
+	dart: ['function_signature', 'method_signature'],
+	// Swift
+	swift: ['function_declaration'],
+	// Kotlin
+	kotlin: ['function_declaration'],
+	// PHP
+	php: ['function_definition', 'method_declaration'],
 };
 
 /**
  * Node types that represent classes in each language.
  */
 const CLASS_NODE_TYPES: Record<SupportedLanguage, string[]> = {
-	python: ['class_definition'],
+	// JavaScript/TypeScript
 	javascript: ['class_declaration'],
 	typescript: ['class_declaration'],
 	tsx: ['class_declaration'],
+	// Python
+	python: ['class_definition'],
+	// Go (structs via type declarations)
+	go: ['type_declaration'],
+	// Rust
+	rust: ['struct_item', 'impl_item', 'enum_item', 'trait_item'],
+	// Java
+	java: ['class_declaration', 'interface_declaration', 'enum_declaration'],
+	// C#
+	csharp: [
+		'class_declaration',
+		'interface_declaration',
+		'struct_declaration',
+		'enum_declaration',
+	],
+	// Dart
+	dart: ['class_definition'],
+	// Swift
+	swift: ['class_declaration', 'struct_declaration', 'protocol_declaration'],
+	// Kotlin
+	kotlin: ['class_declaration', 'object_declaration', 'interface_declaration'],
+	// PHP
+	php: ['class_declaration', 'interface_declaration', 'trait_declaration'],
 };
 
 /**
  * Node types that represent methods in each language.
  */
 const METHOD_NODE_TYPES: Record<SupportedLanguage, string[]> = {
-	python: ['function_definition'], // When inside a class
+	// JavaScript/TypeScript
 	javascript: ['method_definition'],
 	typescript: ['method_definition'],
 	tsx: ['method_definition'],
+	// Python (function_definition inside class)
+	python: ['function_definition'],
+	// Go
+	go: ['method_declaration'],
+	// Rust (function_item inside impl)
+	rust: ['function_item'],
+	// Java
+	java: ['method_declaration'],
+	// C#
+	csharp: ['method_declaration'],
+	// Dart
+	dart: ['method_signature'],
+	// Swift
+	swift: ['function_declaration'],
+	// Kotlin
+	kotlin: ['function_declaration'],
+	// PHP
+	php: ['method_declaration'],
 };
 
 /**
@@ -356,10 +433,8 @@ export class Chunker {
 	): string | null {
 		const startLine = node.startPosition.row;
 
-		// For Python, signature may span multiple lines with parentheses
-		// For JS/TS, signature is typically the first line up to the opening brace
+		// Python: Signature ends with colon
 		if (lang === 'python') {
-			// Find the colon that ends the signature
 			let signatureEnd = startLine;
 			for (let i = startLine; i < lines.length && i < startLine + 10; i++) {
 				const line = lines[i];
@@ -372,33 +447,67 @@ export class Chunker {
 				.slice(startLine, signatureEnd + 1)
 				.join('\n')
 				.trim();
-		} else {
-			// JS/TS: First line up to opening brace
-			const firstLine = lines[startLine];
-			if (!firstLine) return null;
-
-			// Remove opening brace and body
-			const braceIndex = firstLine.indexOf('{');
-			if (braceIndex !== -1) {
-				return firstLine.slice(0, braceIndex).trim();
-			}
-
-			// Arrow function might not have brace on same line
-			const arrowIndex = firstLine.indexOf('=>');
-			if (arrowIndex !== -1) {
-				return firstLine.slice(0, arrowIndex + 2).trim();
-			}
-
-			return firstLine.trim();
 		}
+
+		// C-style languages (Go, Rust, Java, C#, Swift, Kotlin, Dart, PHP):
+		// Signature ends at opening brace, may span multiple lines
+		if (
+			lang === 'go' ||
+			lang === 'rust' ||
+			lang === 'java' ||
+			lang === 'csharp' ||
+			lang === 'swift' ||
+			lang === 'kotlin' ||
+			lang === 'dart' ||
+			lang === 'php'
+		) {
+			const signatureLines: string[] = [];
+			for (let i = startLine; i < lines.length && i < startLine + 10; i++) {
+				const line = lines[i];
+				if (!line) continue;
+				signatureLines.push(line);
+
+				// Check for opening brace to end signature
+				if (line.includes('{')) {
+					const lastLine = signatureLines[signatureLines.length - 1];
+					if (lastLine) {
+						const braceIndex = lastLine.indexOf('{');
+						signatureLines[signatureLines.length - 1] = lastLine
+							.slice(0, braceIndex)
+							.trim();
+					}
+					break;
+				}
+			}
+			const result = signatureLines.join('\n').trim();
+			return result || null;
+		}
+
+		// JS/TS: First line up to opening brace or arrow
+		const firstLine = lines[startLine];
+		if (!firstLine) return null;
+
+		// Remove opening brace and body
+		const braceIndex = firstLine.indexOf('{');
+		if (braceIndex !== -1) {
+			return firstLine.slice(0, braceIndex).trim();
+		}
+
+		// Arrow function might not have brace on same line
+		const arrowIndex = firstLine.indexOf('=>');
+		if (arrowIndex !== -1) {
+			return firstLine.slice(0, arrowIndex + 2).trim();
+		}
+
+		return firstLine.trim();
 	}
 
 	/**
 	 * Extract docstring from a function/class node.
 	 */
 	private extractDocstring(node: Node, lang: SupportedLanguage): string | null {
+		// Python: Docstring as first string in body
 		if (lang === 'python') {
-			// Python: Look for expression_statement with string as first statement in body
 			const body = node.childForFieldName('body');
 			if (!body) return null;
 
@@ -406,9 +515,7 @@ export class Chunker {
 			if (firstStatement?.type === 'expression_statement') {
 				const stringNode = firstStatement.children[0];
 				if (stringNode?.type === 'string') {
-					// Remove quotes and clean up
 					let text = stringNode.text;
-					// Remove triple quotes
 					if (text.startsWith('"""') || text.startsWith("'''")) {
 						text = text.slice(3, -3);
 					} else if (text.startsWith('"') || text.startsWith("'")) {
@@ -417,19 +524,84 @@ export class Chunker {
 					return text.trim() || null;
 				}
 			}
-		} else {
-			// JS/TS: Look for JSDoc comment immediately before the node
-			// Check previous sibling or parent's previous sibling
-			let checkNode: Node | null = node;
+			return null;
+		}
 
-			// Walk up through potential wrappers (export_statement, etc.)
-			while (checkNode) {
-				const prev = checkNode.previousSibling;
-				if (prev?.type === 'comment') {
-					const text = prev.text;
-					// Check if it's a JSDoc comment
+		// Go: // comment(s) immediately before
+		if (lang === 'go') {
+			const comments: string[] = [];
+			let sibling = node.previousSibling;
+			while (sibling) {
+				if (sibling.type === 'comment') {
+					const text = sibling.text.replace(/^\/\/\s*/, '');
+					comments.unshift(text);
+				} else {
+					break;
+				}
+				sibling = sibling.previousSibling;
+			}
+			return comments.length > 0 ? comments.join('\n').trim() : null;
+		}
+
+		// Rust: /// or //! doc comments
+		if (lang === 'rust') {
+			const comments: string[] = [];
+			let sibling = node.previousSibling;
+			while (sibling) {
+				if (sibling.type === 'line_comment') {
+					const text = sibling.text;
+					if (text.startsWith('///') || text.startsWith('//!')) {
+						comments.unshift(text.replace(/^\/\/[\/!]\s*/, ''));
+					} else {
+						break;
+					}
+				} else if (sibling.type === 'block_comment') {
+					break;
+				} else {
+					break;
+				}
+				sibling = sibling.previousSibling;
+			}
+			return comments.length > 0 ? comments.join('\n').trim() : null;
+		}
+
+		// C#: /// XML doc comments
+		if (lang === 'csharp') {
+			const comments: string[] = [];
+			let sibling = node.previousSibling;
+			while (sibling) {
+				if (sibling.type === 'comment') {
+					const text = sibling.text;
+					if (text.startsWith('///')) {
+						// Strip /// and XML tags
+						comments.unshift(
+							text
+								.replace(/^\/\/\/\s*/, '')
+								.replace(/<\/?[^>]+>/g, '')
+								.trim(),
+						);
+					} else {
+						break;
+					}
+				} else {
+					break;
+				}
+				sibling = sibling.previousSibling;
+			}
+			return comments.length > 0 ? comments.join(' ').trim() : null;
+		}
+
+		// Java, Kotlin, PHP: /** Javadoc */ style
+		if (lang === 'java' || lang === 'kotlin' || lang === 'php') {
+			let sibling = node.previousSibling;
+			while (sibling) {
+				if (
+					sibling.type === 'comment' ||
+					sibling.type === 'multiline_comment' ||
+					sibling.type === 'block_comment'
+				) {
+					const text = sibling.text;
 					if (text.startsWith('/**')) {
-						// Clean up the JSDoc
 						return text
 							.replace(/^\/\*\*/, '')
 							.replace(/\*\/$/, '')
@@ -437,16 +609,72 @@ export class Chunker {
 							.trim() || null;
 					}
 				}
-				// Try parent
-				checkNode = checkNode.parent;
+				// Skip modifiers/annotations to find doc comment
 				if (
-					checkNode &&
-					!EXPORT_WRAPPER_TYPES.includes(checkNode.type) &&
-					checkNode.type !== 'variable_declarator' &&
-					checkNode.type !== 'variable_declaration'
+					sibling.type === 'modifiers' ||
+					sibling.type === 'annotation' ||
+					sibling.type === 'marker_annotation'
 				) {
+					sibling = sibling.previousSibling;
+					continue;
+				}
+				break;
+			}
+			return null;
+		}
+
+		// Swift, Dart: /// or /** */ style
+		if (lang === 'swift' || lang === 'dart') {
+			const comments: string[] = [];
+			let sibling = node.previousSibling;
+			while (sibling) {
+				if (
+					sibling.type === 'comment' ||
+					sibling.type === 'multiline_comment'
+				) {
+					const text = sibling.text;
+					if (text.startsWith('/**')) {
+						return text
+							.replace(/^\/\*\*/, '')
+							.replace(/\*\/$/, '')
+							.replace(/^\s*\* ?/gm, '')
+							.trim() || null;
+					} else if (text.startsWith('///')) {
+						comments.unshift(text.replace(/^\/\/\/\s*/, ''));
+					} else {
+						break;
+					}
+				} else {
 					break;
 				}
+				sibling = sibling.previousSibling;
+			}
+			return comments.length > 0 ? comments.join('\n').trim() : null;
+		}
+
+		// JS/TS: JSDoc /** */ style
+		let checkNode: Node | null = node;
+
+		while (checkNode) {
+			const prev = checkNode.previousSibling;
+			if (prev?.type === 'comment') {
+				const text = prev.text;
+				if (text.startsWith('/**')) {
+					return text
+						.replace(/^\/\*\*/, '')
+						.replace(/\*\/$/, '')
+						.replace(/^\s*\* ?/gm, '')
+						.trim() || null;
+				}
+			}
+			checkNode = checkNode.parent;
+			if (
+				checkNode &&
+				!EXPORT_WRAPPER_TYPES.includes(checkNode.type) &&
+				checkNode.type !== 'variable_declarator' &&
+				checkNode.type !== 'variable_declaration'
+			) {
+				break;
 			}
 		}
 
@@ -454,14 +682,61 @@ export class Chunker {
 	}
 
 	/**
-	 * Check if a node is exported.
+	 * Check if a node is exported/public.
 	 */
 	private extractIsExported(node: Node, lang: SupportedLanguage): boolean {
+		// Python: Public if name doesn't start with underscore
 		if (lang === 'python') {
-			// Python: Would need to check __all__, but that's complex
-			// For now, assume public if name doesn't start with underscore
 			const name = this.extractName(node, lang);
 			return !name.startsWith('_');
+		}
+
+		// Dart: Same as Python - underscore prefix means private
+		if (lang === 'dart') {
+			const name = this.extractName(node, lang);
+			return !name.startsWith('_');
+		}
+
+		// Go: Exported if name starts with uppercase letter
+		if (lang === 'go') {
+			const name = this.extractName(node, lang);
+			return name.length > 0 && name[0] === name[0]?.toUpperCase();
+		}
+
+		// Rust: Look for 'pub' visibility modifier
+		if (lang === 'rust') {
+			return this.hasVisibilityModifier(node, 'pub');
+		}
+
+		// Java, C#, Swift: Look for 'public' keyword
+		if (lang === 'java' || lang === 'csharp' || lang === 'swift') {
+			return this.hasVisibilityModifier(node, 'public');
+		}
+
+		// Kotlin: Default is public unless marked private/internal/protected
+		if (lang === 'kotlin') {
+			return (
+				!this.hasVisibilityModifier(node, 'private') &&
+				!this.hasVisibilityModifier(node, 'internal') &&
+				!this.hasVisibilityModifier(node, 'protected')
+			);
+		}
+
+		// PHP: Public if has 'public' modifier or no visibility modifier (for functions)
+		if (lang === 'php') {
+			if (this.hasVisibilityModifier(node, 'public')) return true;
+			// Top-level functions are always public
+			if (
+				node.type === 'function_definition' &&
+				node.parent?.type === 'program'
+			) {
+				return true;
+			}
+			// Methods: check for visibility - no modifier means package-private
+			return (
+				!this.hasVisibilityModifier(node, 'private') &&
+				!this.hasVisibilityModifier(node, 'protected')
+			);
 		}
 
 		// JS/TS: Check for export keyword in node or parent
@@ -498,6 +773,60 @@ export class Chunker {
 	}
 
 	/**
+	 * Helper to check for visibility modifiers in a node.
+	 */
+	private hasVisibilityModifier(node: Node, modifier: string): boolean {
+		// Check direct children for visibility modifiers
+		for (const child of node.children) {
+			// Check common modifier node types
+			if (
+				child.type === 'visibility_modifier' ||
+				child.type === 'modifier' ||
+				child.type === 'modifiers' ||
+				child.type === modifier
+			) {
+				if (child.text === modifier || child.text?.includes(modifier)) {
+					return true;
+				}
+				// Check nested modifiers
+				for (const grandchild of child.children) {
+					if (
+						grandchild.text === modifier ||
+						grandchild.type === modifier
+					) {
+						return true;
+					}
+				}
+			}
+			// Direct text match
+			if (child.text === modifier) {
+				return true;
+			}
+		}
+
+		// Check parent for modifiers (for wrapped declarations)
+		if (node.parent) {
+			for (const sibling of node.parent.children) {
+				if (sibling === node) continue;
+				if (
+					sibling.type === 'visibility_modifier' ||
+					sibling.type === 'modifier' ||
+					sibling.type === 'modifiers'
+				) {
+					if (sibling.text === modifier || sibling.text?.includes(modifier)) {
+						return true;
+					}
+				}
+				if (sibling.text === modifier) {
+					return true;
+				}
+			}
+		}
+
+		return false;
+	}
+
+	/**
 	 * Extract decorator names from a node.
 	 */
 	private extractDecoratorNames(
@@ -506,17 +835,15 @@ export class Chunker {
 	): string | null {
 		const decorators: string[] = [];
 
+		// Python: @decorator syntax
 		if (lang === 'python') {
-			// Python: Look for decorator nodes as previous siblings
 			let sibling = node.previousSibling;
 			while (sibling) {
 				if (sibling.type === 'decorator') {
-					// Extract the decorator name (first identifier after @)
 					const nameNode = sibling.children.find(
 						c => c.type === 'identifier' || c.type === 'call',
 					);
 					if (nameNode) {
-						// For calls like @app.route(), get the function name
 						if (nameNode.type === 'call') {
 							const funcNode = nameNode.childForFieldName('function');
 							if (funcNode) {
@@ -527,20 +854,191 @@ export class Chunker {
 						}
 					}
 				} else if (sibling.type !== 'comment') {
-					// Stop if we hit something other than decorator or comment
 					break;
 				}
 				sibling = sibling.previousSibling;
 			}
-		} else {
-			// JS/TS: Look for decorator nodes
+		}
+
+		// Rust: #[attribute] syntax
+		else if (lang === 'rust') {
+			let sibling = node.previousSibling;
+			while (sibling) {
+				if (
+					sibling.type === 'attribute_item' ||
+					sibling.type === 'attribute'
+				) {
+					// Extract attribute name from #[name] or #[name(...)]
+					const attrNode = sibling.children.find(
+						c => c.type === 'attribute' || c.type === 'meta_item',
+					);
+					const target = attrNode || sibling;
+					const pathNode = target.children.find(
+						c =>
+							c.type === 'path' ||
+							c.type === 'identifier' ||
+							c.type === 'scoped_identifier',
+					);
+					if (pathNode) {
+						decorators.unshift(pathNode.text);
+					}
+				} else if (
+					sibling.type !== 'line_comment' &&
+					sibling.type !== 'block_comment'
+				) {
+					break;
+				}
+				sibling = sibling.previousSibling;
+			}
+		}
+
+		// Java, Kotlin: @Annotation syntax
+		else if (lang === 'java' || lang === 'kotlin') {
+			let sibling = node.previousSibling;
+			while (sibling) {
+				if (
+					sibling.type === 'annotation' ||
+					sibling.type === 'marker_annotation'
+				) {
+					const nameNode = sibling.children.find(
+						c => c.type === 'identifier' || c.type === 'scoped_identifier',
+					);
+					if (nameNode) {
+						decorators.unshift(nameNode.text);
+					}
+				} else if (sibling.type === 'modifiers') {
+					// Annotations may be inside modifiers node
+					for (const child of sibling.children) {
+						if (
+							child.type === 'annotation' ||
+							child.type === 'marker_annotation'
+						) {
+							const nameNode = child.children.find(
+								c => c.type === 'identifier',
+							);
+							if (nameNode) {
+								decorators.unshift(nameNode.text);
+							}
+						}
+					}
+				} else if (
+					sibling.type !== 'comment' &&
+					sibling.type !== 'multiline_comment'
+				) {
+					break;
+				}
+				sibling = sibling.previousSibling;
+			}
+		}
+
+		// C#: [Attribute] syntax
+		else if (lang === 'csharp') {
+			let sibling = node.previousSibling;
+			while (sibling) {
+				if (sibling.type === 'attribute_list') {
+					for (const attrNode of sibling.children) {
+						if (attrNode.type === 'attribute') {
+							const nameNode = attrNode.children.find(
+								c =>
+									c.type === 'identifier' ||
+									c.type === 'qualified_name' ||
+									c.type === 'name',
+							);
+							if (nameNode) {
+								decorators.unshift(nameNode.text);
+							}
+						}
+					}
+				} else if (sibling.type !== 'comment') {
+					break;
+				}
+				sibling = sibling.previousSibling;
+			}
+		}
+
+		// Swift: @attribute syntax
+		else if (lang === 'swift') {
+			let sibling = node.previousSibling;
+			while (sibling) {
+				if (sibling.type === 'attribute') {
+					const nameNode = sibling.children.find(
+						c =>
+							c.type === 'user_type' ||
+							c.type === 'simple_identifier' ||
+							c.type === 'identifier',
+					);
+					if (nameNode) {
+						decorators.unshift(nameNode.text);
+					}
+				} else if (
+					sibling.type !== 'comment' &&
+					sibling.type !== 'multiline_comment'
+				) {
+					break;
+				}
+				sibling = sibling.previousSibling;
+			}
+		}
+
+		// Dart: @annotation syntax
+		else if (lang === 'dart') {
+			let sibling = node.previousSibling;
+			while (sibling) {
+				if (sibling.type === 'annotation') {
+					const nameNode = sibling.children.find(
+						c => c.type === 'identifier' || c.type === 'qualified',
+					);
+					if (nameNode) {
+						decorators.unshift(nameNode.text);
+					}
+				} else if (sibling.type !== 'comment') {
+					break;
+				}
+				sibling = sibling.previousSibling;
+			}
+		}
+
+		// PHP: #[Attribute] syntax (PHP 8+)
+		else if (lang === 'php') {
+			let sibling = node.previousSibling;
+			while (sibling) {
+				if (
+					sibling.type === 'attribute_group' ||
+					sibling.type === 'attribute_list'
+				) {
+					for (const attrNode of sibling.children) {
+						if (attrNode.type === 'attribute') {
+							const nameNode = attrNode.children.find(
+								c =>
+									c.type === 'name' ||
+									c.type === 'qualified_name' ||
+									c.type === 'identifier',
+							);
+							if (nameNode) {
+								decorators.unshift(nameNode.text);
+							}
+						}
+					}
+				} else if (sibling.type !== 'comment') {
+					break;
+				}
+				sibling = sibling.previousSibling;
+			}
+		}
+
+		// Go: No decorators (uses comments like //go:embed but not proper decorators)
+
+		// JS/TS: @decorator syntax
+		else if (
+			lang === 'javascript' ||
+			lang === 'typescript' ||
+			lang === 'tsx'
+		) {
 			let checkNode: Node | null = node;
 
-			// Walk up to find decorators
 			while (checkNode) {
 				for (const child of checkNode.children) {
 					if (child.type === 'decorator') {
-						// Extract decorator name from call_expression or identifier
 						const expr = child.children.find(
 							c => c.type === 'call_expression' || c.type === 'identifier',
 						);
@@ -557,7 +1055,6 @@ export class Chunker {
 					}
 				}
 
-				// Also check previous siblings at this level
 				let sibling = checkNode.previousSibling;
 				while (sibling) {
 					if (sibling.type === 'decorator') {
@@ -580,7 +1077,6 @@ export class Chunker {
 					sibling = sibling.previousSibling;
 				}
 
-				// Move up through wrappers
 				const parent: Node | null = checkNode.parent;
 				if (parent && EXPORT_WRAPPER_TYPES.includes(parent.type)) {
 					checkNode = parent;
@@ -618,32 +1114,57 @@ export class Chunker {
 	/**
 	 * Extract the name of a function/class/method from its node.
 	 */
-	private extractName(node: Node, lang: SupportedLanguage): string {
-		// Look for identifier child node
+	private extractName(node: Node, _lang: SupportedLanguage): string {
+		// Try to get name via field first (works for many languages)
+		const nameField = node.childForFieldName('name');
+		if (nameField) {
+			return nameField.text;
+		}
+
+		// Look for common identifier node types
 		for (const child of node.children) {
-			if (child.type === 'identifier' || child.type === 'name') {
+			// Common identifier types across languages
+			if (
+				child.type === 'identifier' ||
+				child.type === 'name' ||
+				child.type === 'simple_identifier' || // Kotlin, Swift
+				child.type === 'type_identifier' // Rust, Go struct types
+			) {
 				return child.text;
 			}
 
-			// For JS/TS, check property_identifier for methods
+			// JS/TS method names
 			if (child.type === 'property_identifier') {
 				return child.text;
 			}
-		}
 
-		// For Python, look for the name node
-		if (lang === 'python') {
-			const nameNode = node.childForFieldName('name');
-			if (nameNode) {
-				return nameNode.text;
+			// Go type declarations (type Foo struct { })
+			if (child.type === 'type_spec') {
+				const specName = child.childForFieldName('name');
+				if (specName) {
+					return specName.text;
+				}
 			}
 		}
 
 		// For JS/TS variable declarations with arrow functions
 		if (node.parent?.type === 'variable_declarator') {
-			const nameNode = node.parent.childForFieldName('name');
-			if (nameNode) {
-				return nameNode.text;
+			const varName = node.parent.childForFieldName('name');
+			if (varName) {
+				return varName.text;
+			}
+		}
+
+		// For Rust impl blocks, try to get the type name
+		if (node.type === 'impl_item') {
+			const typeNode = node.childForFieldName('type');
+			if (typeNode) {
+				const typeId = typeNode.children.find(
+					c => c.type === 'type_identifier' || c.type === 'identifier',
+				);
+				if (typeId) {
+					return `impl ${typeId.text}`;
+				}
 			}
 		}
 
