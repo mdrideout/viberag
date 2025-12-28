@@ -11,15 +11,18 @@
 	},
 	"type": "module",
 	"engines": {
-		"node": ">=18 <24"
+		"node": ">=20 <24"
 	},
 	"scripts": {
 		"preinstall": "node scripts/check-node-version.js",
 		"build": "tsc",
 		"dev": "tsc --watch",
 		"test": "prettier --check . && eslint . && vitest run",
+		"test:smoke": "vitest run --testNamePattern='Grammar Smoke'",
 		"lint": "eslint .",
-		"lint:fix": "eslint . --fix"
+		"lint:fix": "eslint . --fix",
+		"bundle:cli": "esbuild dist/cli/index.js --bundle --platform=node --format=cjs --outfile=dist/cli-bundle.cjs --packages=external",
+		"pkg:build": "npm run build && npm run bundle:cli && yao-pkg dist/cli-bundle.cjs --compress GZip"
 	},
 	"files": [
 		"dist",
@@ -57,22 +60,39 @@
 		"zod": "^4.2.1"
 	},
 	"devDependencies": {
+		"@appthreat/caxa": "^1.0.13",
 		"@eslint/js": "^9.39.2",
 		"@sindresorhus/tsconfig": "^3.0.1",
 		"@types/react": "^18.0.32",
 		"@vdemedes/prettier-config": "^2.0.1",
+		"@yao-pkg/pkg": "^6.11.0",
+		"esbuild": "^0.27.2",
 		"eslint": "^9.39.2",
 		"eslint-plugin-react": "^7.37.5",
 		"eslint-plugin-react-hooks": "^7.0.1",
 		"globals": "^16.5.0",
 		"ink-testing-library": "^3.0.0",
-		"prebuild-install": "^7.1.2",
-		"prebuildify": "^6.0.1",
 		"prettier": "^2.8.7",
 		"ts-node": "^10.9.1",
 		"typescript": "^5.0.3",
 		"typescript-eslint": "^8.50.1",
 		"vitest": "^4.0.16"
+	},
+	"pkg": {
+		"assets": [
+			"node_modules/tree-sitter/**/*.node",
+			"node_modules/tree-sitter-*/**/*.node",
+			"node_modules/@sengac/**/*.node",
+			"node_modules/@lancedb/**/*.node",
+			"node_modules/onnxruntime-node/**/*"
+		],
+		"targets": [
+			"node22-linux-x64",
+			"node22-linux-arm64",
+			"node22-macos-x64",
+			"node22-macos-arm64",
+			"node22-win-x64"
+		]
 	},
 	"prettier": "@vdemedes/prettier-config"
 }
