@@ -11,6 +11,7 @@ import {
 	runSearch,
 	getStatus,
 	loadIndexStats,
+	getMcpSetupInstructions,
 	type IndexDisplayStats,
 } from './handlers.js';
 import {setupVSCodeTerminal} from '../../common/commands/terminalSetup.js';
@@ -52,6 +53,7 @@ export function useRagCommands({
   /reindex        - Force full reindex
   /search <query> - Search the codebase
   /status         - Show index status
+  /mcp-setup      - Show MCP server setup for Claude Code
   /quit           - Exit
 
 Multi-line input:
@@ -146,6 +148,10 @@ Tips:
 			.catch(err => addOutput('system', `Status failed: ${err.message}`));
 	}, [projectRoot, addOutput]);
 
+	const handleMcpSetup = useCallback(() => {
+		addOutput('system', getMcpSetupInstructions());
+	}, [addOutput]);
+
 	const handleUnknown = useCallback(
 		(command: string) => {
 			addOutput(
@@ -200,6 +206,9 @@ Tips:
 				case '/status':
 					handleStatus();
 					break;
+				case '/mcp-setup':
+					handleMcpSetup();
+					break;
 				case '/quit':
 				case '/exit':
 				case '/q':
@@ -219,6 +228,7 @@ Tips:
 			handleIndex,
 			handleSearch,
 			handleStatus,
+			handleMcpSetup,
 			handleUnknown,
 		],
 	);

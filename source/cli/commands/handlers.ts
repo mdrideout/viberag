@@ -246,3 +246,23 @@ export async function getStatus(projectRoot: string): Promise<string> {
 
 	return lines.join('\n');
 }
+
+/**
+ * Get MCP setup instructions for Claude Code.
+ */
+export function getMcpSetupInstructions(): string {
+	return `To add VibeRAG to Claude Code, run:
+
+  claude mcp add viberag -- npx viberag-mcp
+
+This registers VibeRAG as an MCP server. After adding:
+
+1. Restart Claude Code (or run: claude mcp restart viberag)
+2. The following tools will be available:
+   - viberag_search  Search the codebase semantically
+   - viberag_index   Index or reindex the codebase
+   - viberag_status  Get index statistics
+
+Note: The project must be initialized first (run /init in the CLI).
+The MCP server uses the current working directory as the project root.`;
+}

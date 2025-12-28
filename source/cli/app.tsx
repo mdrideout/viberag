@@ -28,6 +28,7 @@ import {
 	runInit,
 	runIndex,
 	formatIndexStats,
+	getMcpSetupInstructions,
 } from './commands/handlers.js';
 import type {SearchResultsData} from '../common/types.js';
 
@@ -45,6 +46,7 @@ const COMMANDS = [
 	'/reindex',
 	'/search',
 	'/status',
+	'/mcp-setup',
 	'/quit',
 	'/exit',
 	'/q',
@@ -150,6 +152,9 @@ export default function App() {
 					setAppStatus({state: 'indexing', current, total, stage}),
 				);
 				addOutput('system', formatIndexStats(stats));
+
+				// Show MCP setup instructions
+				addOutput('system', getMcpSetupInstructions());
 
 				// Reload stats after indexing
 				const newStats = await loadIndexStats(projectRoot);

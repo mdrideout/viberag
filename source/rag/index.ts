@@ -32,8 +32,10 @@ export {
 	saveConfig,
 	configExists,
 	DEFAULT_CONFIG,
+	DEFAULT_WATCH_CONFIG,
 	PROVIDER_CONFIGS,
 	type ViberagConfig,
+	type WatchConfig,
 	type EmbeddingProviderType,
 } from './config/index.js';
 
