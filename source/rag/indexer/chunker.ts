@@ -1,6 +1,6 @@
 import {createRequire} from 'node:module';
 import path from 'node:path';
-import {Parser, Language, Node} from 'web-tree-sitter';
+import Parser from 'tree-sitter';
 import {computeStringHash} from '../merkle/hash.js';
 import {
 	EXTENSION_TO_LANGUAGE,
@@ -9,39 +9,30 @@ import {
 	type SupportedLanguage,
 } from './types.js';
 
-// Use require to resolve paths to wasm files in node_modules
+// Use require for native tree-sitter grammar packages
 const require = createRequire(import.meta.url);
 
+// Tree-sitter types (from native tree-sitter)
+type TreeSitterNode = Parser.SyntaxNode;
+type TreeSitterLanguage = Parser.Language;
+
 /**
- * Paths to language WASM files.
+ * Language grammars loaded from native npm packages.
+ * Native tree-sitter loads these synchronously (no WASM).
  */
-const LANGUAGE_WASM_PATHS: Record<SupportedLanguage, string> = {
-	// JavaScript/TypeScript family
-	javascript: require.resolve(
-		'tree-sitter-javascript/tree-sitter-javascript.wasm',
-	),
-	typescript: require.resolve(
-		'tree-sitter-typescript/tree-sitter-typescript.wasm',
-	),
-	tsx: require.resolve('tree-sitter-typescript/tree-sitter-tsx.wasm'),
-	// Python
-	python: require.resolve('tree-sitter-python/tree-sitter-python.wasm'),
-	// Go
-	go: require.resolve('tree-sitter-go/tree-sitter-go.wasm'),
-	// Rust
-	rust: require.resolve('tree-sitter-rust/tree-sitter-rust.wasm'),
-	// Java
-	java: require.resolve('tree-sitter-java/tree-sitter-java.wasm'),
-	// C# (via tree-sitter-wasms for web-tree-sitter compatibility)
-	csharp: require.resolve('tree-sitter-wasms/out/tree-sitter-c_sharp.wasm'),
-	// Dart (via tree-sitter-wasms for web-tree-sitter compatibility)
-	dart: require.resolve('tree-sitter-wasms/out/tree-sitter-dart.wasm'),
-	// Swift (via tree-sitter-wasms for web-tree-sitter compatibility)
-	swift: require.resolve('tree-sitter-wasms/out/tree-sitter-swift.wasm'),
-	// Kotlin (via tree-sitter-wasms for web-tree-sitter compatibility)
-	kotlin: require.resolve('tree-sitter-wasms/out/tree-sitter-kotlin.wasm'),
-	// PHP (via tree-sitter-wasms for web-tree-sitter compatibility)
-	php: require.resolve('tree-sitter-wasms/out/tree-sitter-php.wasm'),
+const LANGUAGE_GRAMMARS: Record<SupportedLanguage, TreeSitterLanguage> = {
+	javascript: require('tree-sitter-javascript'),
+	typescript: require('tree-sitter-typescript/typescript'),
+	tsx: require('tree-sitter-typescript/tsx'),
+	python: require('tree-sitter-python'),
+	go: require('tree-sitter-go'),
+	rust: require('tree-sitter-rust'),
+	java: require('tree-sitter-java'),
+	csharp: require('tree-sitter-c-sharp'),
+	dart: require('@sengac/tree-sitter-dart'),
+	swift: require('tree-sitter-swift'),
+	kotlin: require('tree-sitter-kotlin'),
+	php: require('tree-sitter-php/php'),
 };
 
 /**
@@ -164,28 +155,28 @@ const MIN_CHUNK_SIZE = 100;
  * Chunker that uses tree-sitter to extract semantic code chunks.
  */
 export class Chunker {
-	private parser: Parser | null = null;
-	private languages: Map<SupportedLanguage, Language> = new Map();
+	private parser: Parser;
+	private languages: Map<SupportedLanguage, TreeSitterLanguage> = new Map();
 	private initialized = false;
 
+	constructor() {
+		// Create parser instance (native tree-sitter - no async init needed)
+		this.parser = new Parser();
+	}
+
 	/**
-	 * Initialize tree-sitter and load language grammars.
-	 * Must be called before using chunkFile().
+	 * Initialize language grammars.
+	 * With native tree-sitter, this is synchronous.
 	 */
-	async initialize(): Promise<void> {
+	initialize(): void {
 		if (this.initialized) return;
 
-		// Initialize the WASM runtime
-		await Parser.init();
-
-		// Create parser instance
-		this.parser = new Parser();
-
-		// Load all language grammars
-		for (const [lang, wasmPath] of Object.entries(LANGUAGE_WASM_PATHS)) {
+		// Load all language grammars synchronously from native packages
+		for (const [lang, grammar] of Object.entries(LANGUAGE_GRAMMARS)) {
 			try {
-				const language = await Language.load(wasmPath);
-				this.languages.set(lang as SupportedLanguage, language);
+				// Validate grammar by attempting to set it
+				this.parser.setLanguage(grammar);
+				this.languages.set(lang as SupportedLanguage, grammar);
 			} catch (error) {
 				// Log but don't fail - we can still work with other languages
 				console.error(`Failed to load ${lang} grammar:`, error);
@@ -217,13 +208,13 @@ export class Chunker {
 	 * @param maxChunkSize - Maximum chunk size in characters (default: 2000)
 	 * @returns Array of extracted chunks
 	 */
-	async chunkFile(
+	chunkFile(
 		filepath: string,
 		content: string,
 		maxChunkSize: number = DEFAULT_MAX_CHUNK_SIZE,
-	): Promise<Chunk[]> {
+	): Chunk[] {
 		if (!this.initialized) {
-			await this.initialize();
+			this.initialize();
 		}
 
 		// Determine language from extension
@@ -237,10 +228,10 @@ export class Chunker {
 
 		// Set parser language
 		const language = this.languages.get(lang)!;
-		this.parser!.setLanguage(language);
+		this.parser.setLanguage(language);
 
 		// Parse the content
-		const tree = this.parser!.parse(content);
+		const tree = this.parser.parse(content);
 
 		// If parsing failed, fall back to module chunk
 		if (!tree) {
@@ -271,7 +262,7 @@ export class Chunker {
 	 * Extract chunks from a syntax tree.
 	 */
 	private extractChunks(
-		root: Node,
+		root: TreeSitterNode,
 		content: string,
 		lang: SupportedLanguage,
 		filepath: string,
@@ -290,7 +281,7 @@ export class Chunker {
 	 * Tracks parent context (class name) for context headers.
 	 */
 	private traverseNode(
-		node: Node,
+		node: TreeSitterNode,
 		lang: SupportedLanguage,
 		lines: string[],
 		chunks: Chunk[],
@@ -370,7 +361,7 @@ export class Chunker {
 	 * Convert a syntax node to a chunk.
 	 */
 	private nodeToChunk(
-		node: Node,
+		node: TreeSitterNode,
 		lines: string[],
 		type: ChunkType,
 		lang: SupportedLanguage,
@@ -427,7 +418,7 @@ export class Chunker {
 	 * Extract the signature line (first line of function/class declaration).
 	 */
 	private extractSignature(
-		node: Node,
+		node: TreeSitterNode,
 		lines: string[],
 		lang: SupportedLanguage,
 	): string | null {
@@ -505,7 +496,10 @@ export class Chunker {
 	/**
 	 * Extract docstring from a function/class node.
 	 */
-	private extractDocstring(node: Node, lang: SupportedLanguage): string | null {
+	private extractDocstring(
+		node: TreeSitterNode,
+		lang: SupportedLanguage,
+	): string | null {
 		// Python: Docstring as first string in body
 		if (lang === 'python') {
 			const body = node.childForFieldName('body');
@@ -551,7 +545,7 @@ export class Chunker {
 				if (sibling.type === 'line_comment') {
 					const text = sibling.text;
 					if (text.startsWith('///') || text.startsWith('//!')) {
-						comments.unshift(text.replace(/^\/\/[\/!]\s*/, ''));
+						comments.unshift(text.replace(/^\/\/[/!]\s*/, ''));
 					} else {
 						break;
 					}
@@ -602,11 +596,13 @@ export class Chunker {
 				) {
 					const text = sibling.text;
 					if (text.startsWith('/**')) {
-						return text
-							.replace(/^\/\*\*/, '')
-							.replace(/\*\/$/, '')
-							.replace(/^\s*\* ?/gm, '')
-							.trim() || null;
+						return (
+							text
+								.replace(/^\/\*\*/, '')
+								.replace(/\*\/$/, '')
+								.replace(/^\s*\* ?/gm, '')
+								.trim() || null
+						);
 					}
 				}
 				// Skip modifiers/annotations to find doc comment
@@ -634,11 +630,13 @@ export class Chunker {
 				) {
 					const text = sibling.text;
 					if (text.startsWith('/**')) {
-						return text
-							.replace(/^\/\*\*/, '')
-							.replace(/\*\/$/, '')
-							.replace(/^\s*\* ?/gm, '')
-							.trim() || null;
+						return (
+							text
+								.replace(/^\/\*\*/, '')
+								.replace(/\*\/$/, '')
+								.replace(/^\s*\* ?/gm, '')
+								.trim() || null
+						);
 					} else if (text.startsWith('///')) {
 						comments.unshift(text.replace(/^\/\/\/\s*/, ''));
 					} else {
@@ -653,18 +651,20 @@ export class Chunker {
 		}
 
 		// JS/TS: JSDoc /** */ style
-		let checkNode: Node | null = node;
+		let checkNode: TreeSitterNode | null = node;
 
 		while (checkNode) {
 			const prev = checkNode.previousSibling;
 			if (prev?.type === 'comment') {
 				const text = prev.text;
 				if (text.startsWith('/**')) {
-					return text
-						.replace(/^\/\*\*/, '')
-						.replace(/\*\/$/, '')
-						.replace(/^\s*\* ?/gm, '')
-						.trim() || null;
+					return (
+						text
+							.replace(/^\/\*\*/, '')
+							.replace(/\*\/$/, '')
+							.replace(/^\s*\* ?/gm, '')
+							.trim() || null
+					);
 				}
 			}
 			checkNode = checkNode.parent;
@@ -684,7 +684,10 @@ export class Chunker {
 	/**
 	 * Check if a node is exported/public.
 	 */
-	private extractIsExported(node: Node, lang: SupportedLanguage): boolean {
+	private extractIsExported(
+		node: TreeSitterNode,
+		lang: SupportedLanguage,
+	): boolean {
 		// Python: Public if name doesn't start with underscore
 		if (lang === 'python') {
 			const name = this.extractName(node, lang);
@@ -740,7 +743,7 @@ export class Chunker {
 		}
 
 		// JS/TS: Check for export keyword in node or parent
-		let checkNode: Node | null = node;
+		let checkNode: TreeSitterNode | null = node;
 
 		while (checkNode) {
 			// Check if this node has export modifier
@@ -756,7 +759,7 @@ export class Chunker {
 			}
 
 			// Walk up through wrappers
-			const parent: Node | null = checkNode.parent;
+			const parent: TreeSitterNode | null = checkNode.parent;
 			if (
 				parent &&
 				(parent.type === 'export_statement' ||
@@ -775,7 +778,10 @@ export class Chunker {
 	/**
 	 * Helper to check for visibility modifiers in a node.
 	 */
-	private hasVisibilityModifier(node: Node, modifier: string): boolean {
+	private hasVisibilityModifier(
+		node: TreeSitterNode,
+		modifier: string,
+	): boolean {
 		// Check direct children for visibility modifiers
 		for (const child of node.children) {
 			// Check common modifier node types
@@ -790,10 +796,7 @@ export class Chunker {
 				}
 				// Check nested modifiers
 				for (const grandchild of child.children) {
-					if (
-						grandchild.text === modifier ||
-						grandchild.type === modifier
-					) {
+					if (grandchild.text === modifier || grandchild.type === modifier) {
 						return true;
 					}
 				}
@@ -830,7 +833,7 @@ export class Chunker {
 	 * Extract decorator names from a node.
 	 */
 	private extractDecoratorNames(
-		node: Node,
+		node: TreeSitterNode,
 		lang: SupportedLanguage,
 	): string | null {
 		const decorators: string[] = [];
@@ -864,10 +867,7 @@ export class Chunker {
 		else if (lang === 'rust') {
 			let sibling = node.previousSibling;
 			while (sibling) {
-				if (
-					sibling.type === 'attribute_item' ||
-					sibling.type === 'attribute'
-				) {
+				if (sibling.type === 'attribute_item' || sibling.type === 'attribute') {
 					// Extract attribute name from #[name] or #[name(...)]
 					const attrNode = sibling.children.find(
 						c => c.type === 'attribute' || c.type === 'meta_item',
@@ -1029,12 +1029,8 @@ export class Chunker {
 		// Go: No decorators (uses comments like //go:embed but not proper decorators)
 
 		// JS/TS: @decorator syntax
-		else if (
-			lang === 'javascript' ||
-			lang === 'typescript' ||
-			lang === 'tsx'
-		) {
-			let checkNode: Node | null = node;
+		else if (lang === 'javascript' || lang === 'typescript' || lang === 'tsx') {
+			let checkNode: TreeSitterNode | null = node;
 
 			while (checkNode) {
 				for (const child of checkNode.children) {
@@ -1077,7 +1073,7 @@ export class Chunker {
 					sibling = sibling.previousSibling;
 				}
 
-				const parent: Node | null = checkNode.parent;
+				const parent: TreeSitterNode | null = checkNode.parent;
 				if (parent && EXPORT_WRAPPER_TYPES.includes(parent.type)) {
 					checkNode = parent;
 				} else {
@@ -1114,7 +1110,7 @@ export class Chunker {
 	/**
 	 * Extract the name of a function/class/method from its node.
 	 */
-	private extractName(node: Node, _lang: SupportedLanguage): string {
+	private extractName(node: TreeSitterNode, _lang: SupportedLanguage): string {
 		// Try to get name via field first (works for many languages)
 		const nameField = node.childForFieldName('name');
 		if (nameField) {
@@ -1389,11 +1385,8 @@ export class Chunker {
 	 * Close the parser and free resources.
 	 */
 	close(): void {
-		if (this.parser) {
-			this.parser.delete();
-			this.parser = null;
-		}
-
+		// Native tree-sitter doesn't need explicit cleanup like WASM
+		// Just clear the language cache
 		this.languages.clear();
 		this.initialized = false;
 	}

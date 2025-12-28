@@ -6,29 +6,32 @@ This plan enhances VibeRAG's MCP tools to support diverse AI agent coding tasks.
 
 ### Design Principles
 
-| Principle | Rationale |
-|-----------|-----------|
+| Principle                            | Rationale                                                                                                                               |
+| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
 | **Store facts, not interpretations** | Pre-computed categories (e.g., `file_category='test'`) can be wrong, causing silent false negatives. Store raw facts; let AI interpret. |
-| **Transparent filtering** | AI sees exactly what's filtered via explicit path patterns, not opaque categories. |
-| **No silent false negatives** | The worst failure mode is excluding relevant code without the AI knowing. Avoid heuristic classifications. |
-| **AI interprets, system retrieves** | We don't decide what's a "test file" or "API endpoint". We provide search; AI decides. |
-| **Multi-stage over detection** | Progressive narrowing with powerful filters beats brittle pattern detection. |
+| **Transparent filtering**            | AI sees exactly what's filtered via explicit path patterns, not opaque categories.                                                      |
+| **No silent false negatives**        | The worst failure mode is excluding relevant code without the AI knowing. Avoid heuristic classifications.                              |
+| **AI interprets, system retrieves**  | We don't decide what's a "test file" or "API endpoint". We provide search; AI decides.                                                  |
+| **Multi-stage over detection**       | Progressive narrowing with powerful filters beats brittle pattern detection.                                                            |
 
 ---
 
 ## Current State
 
 ### Schema (code_chunks table)
+
 ```
 id, vector, text, content_hash, filepath, filename, extension,
 type, name, start_line, end_line, file_hash
 ```
 
 ### Search Capability
+
 - Single hybrid search (vector + BM25 with RRF fusion)
 - Parameters: `query`, `limit`, `bm25_weight`
 
 ### Gaps
+
 - No search mode differentiation (semantic vs exact vs definition)
 - No exhaustive mode for refactoring tasks
 - No metadata filtering (path, type, extension)
@@ -43,12 +46,12 @@ type, name, start_line, end_line, file_hash
 
 ### New Schema Fields
 
-| Field | Type | Source | Purpose |
-|-------|------|--------|---------|
-| `signature` | Utf8 | AST | Function/method signature line for quick preview |
-| `docstring` | Utf8 (nullable) | AST | Extracted documentation for semantic enrichment |
-| `is_exported` | Bool | AST | True if `export` keyword present (JS/TS) or public (Python `__all__`) |
-| `decorator_names` | Utf8 (nullable) | AST | Comma-separated decorator/annotation names |
+| Field             | Type            | Source | Purpose                                                               |
+| ----------------- | --------------- | ------ | --------------------------------------------------------------------- |
+| `signature`       | Utf8            | AST    | Function/method signature line for quick preview                      |
+| `docstring`       | Utf8 (nullable) | AST    | Extracted documentation for semantic enrichment                       |
+| `is_exported`     | Bool            | AST    | True if `export` keyword present (JS/TS) or public (Python `__all__`) |
+| `decorator_names` | Utf8 (nullable) | AST    | Comma-separated decorator/annotation names                            |
 
 ### Why These Are Safe
 
@@ -63,18 +66,19 @@ If extraction is wrong, it's a bug to fix—not a heuristic that varies by codeb
 
 ### What We Explicitly Do NOT Add
 
-| Rejected Field | Reason |
-|----------------|--------|
-| `file_category` | Heuristic. "Is this a test file?" depends on conventions we can't know. |
-| `service_name` | Heuristic. Requires config or convention inference that could be wrong. |
-| `language` | Redundant. We already have `extension`. AI can map if needed. |
-| `complexity_tier` | Arbitrary. "Simple vs complex" is subjective and low-value. |
-| `is_api_endpoint` | Heuristic. Requires framework-specific pattern detection. |
-| `event_type` | Heuristic. Framework-specific, highly fragile. |
+| Rejected Field    | Reason                                                                  |
+| ----------------- | ----------------------------------------------------------------------- |
+| `file_category`   | Heuristic. "Is this a test file?" depends on conventions we can't know. |
+| `service_name`    | Heuristic. Requires config or convention inference that could be wrong. |
+| `language`        | Redundant. We already have `extension`. AI can map if needed.           |
+| `complexity_tier` | Arbitrary. "Simple vs complex" is subjective and low-value.             |
+| `is_api_endpoint` | Heuristic. Requires framework-specific pattern detection.               |
+| `event_type`      | Heuristic. Framework-specific, highly fragile.                          |
 
 ### Extraction Implementation
 
 **Signature extraction** (tree-sitter):
+
 ```
 function_definition → first line up to opening brace/colon
 class_definition → first line (class Name extends Base)
@@ -82,15 +86,18 @@ method_definition → first line of method
 ```
 
 **Docstring extraction**:
+
 - Python: First expression if it's a string literal
 - JS/TS: JSDoc comment immediately preceding function
 - Go: Comment block immediately preceding function
 
 **is_exported**:
+
 - JS/TS: Node has `export` modifier or is in `export { }` statement
 - Python: Name is in module's `__all__` list (if present)
 
 **decorator_names**:
+
 - Python: `@decorator` → extract "decorator"
 - TS: `@Decorator()` → extract "Decorator"
 - Java: `@Annotation` → extract "Annotation"
@@ -113,22 +120,23 @@ method_definition → first line of method
 
 ### Search Modes
 
-| Mode | Implementation | Best For |
-|------|----------------|----------|
-| `semantic` | Dense vector search only | "How does auth work?", conceptual queries |
-| `exact` | BM25/FTS only | Symbol names, exact strings, exhaustive search |
-| `hybrid` | Vector + BM25 with RRF (default) | Mixed queries |
-| `definition` | Metadata filter: `type IN (...) AND name = ?` | "Where is X defined?" |
-| `similar` | Vector search with code snippet as query | "Find code like this" |
+| Mode         | Implementation                                | Best For                                       |
+| ------------ | --------------------------------------------- | ---------------------------------------------- |
+| `semantic`   | Dense vector search only                      | "How does auth work?", conceptual queries      |
+| `exact`      | BM25/FTS only                                 | Symbol names, exact strings, exhaustive search |
+| `hybrid`     | Vector + BM25 with RRF (default)              | Mixed queries                                  |
+| `definition` | Metadata filter: `type IN (...) AND name = ?` | "Where is X defined?"                          |
+| `similar`    | Vector search with code snippet as query      | "Find code like this"                          |
 
 ### Exhaustiveness Control
 
-| Setting | Behavior | Use Case |
-|---------|----------|----------|
-| `exhaustive: false` (default) | Top-K by relevance score | Exploration, understanding |
-| `exhaustive: true` | All matches above threshold | Refactoring, auditing, rename-all |
+| Setting                       | Behavior                    | Use Case                          |
+| ----------------------------- | --------------------------- | --------------------------------- |
+| `exhaustive: false` (default) | Top-K by relevance score    | Exploration, understanding        |
+| `exhaustive: true`            | All matches above threshold | Refactoring, auditing, rename-all |
 
 When `exhaustive: true`:
+
 - No early termination
 - Returns all matches up to `limit` (which can be set high)
 - Includes `total_matches` count in response for verification
@@ -139,20 +147,20 @@ Filters are **transparent and AI-controlled**. The AI sees exactly what's being 
 
 ```typescript
 interface SearchFilters {
-  // Path-based filtering (replaces opaque categories)
-  path_prefix?: string;           // e.g., "src/api/"
-  path_contains?: string[];       // Must contain ALL strings
-  path_not_contains?: string[];   // Must not contain ANY string
-  path_glob?: string;             // Glob pattern, e.g., "src/**/*.ts"
+	// Path-based filtering (replaces opaque categories)
+	path_prefix?: string; // e.g., "src/api/"
+	path_contains?: string[]; // Must contain ALL strings
+	path_not_contains?: string[]; // Must not contain ANY string
+	path_glob?: string; // Glob pattern, e.g., "src/**/*.ts"
 
-  // Code structure filtering
-  type?: ('function' | 'class' | 'method' | 'module')[];
-  extension?: string[];           // e.g., [".ts", ".tsx"]
+	// Code structure filtering
+	type?: ('function' | 'class' | 'method' | 'module')[];
+	extension?: string[]; // e.g., [".ts", ".tsx"]
 
-  // Metadata filtering (Phase 1 fields)
-  is_exported?: boolean;          // Only exported/public symbols
-  decorator_contains?: string;    // Decorator name contains string
-  has_docstring?: boolean;        // Has documentation
+	// Metadata filtering (Phase 1 fields)
+	is_exported?: boolean; // Only exported/public symbols
+	decorator_contains?: string; // Decorator name contains string
+	has_docstring?: boolean; // Has documentation
 }
 ```
 
@@ -189,28 +197,28 @@ Instead of opaque categories, AI constructs explicit filters:
 
 ```typescript
 interface ViberagSearchParams {
-  // Query
-  query: string;                  // Natural language or keywords
-  code_snippet?: string;          // For mode='similar' only
+	// Query
+	query: string; // Natural language or keywords
+	code_snippet?: string; // For mode='similar' only
 
-  // Mode selection
-  mode?: 'semantic' | 'exact' | 'hybrid' | 'definition' | 'similar';
+	// Mode selection
+	mode?: 'semantic' | 'exact' | 'hybrid' | 'definition' | 'similar';
 
-  // Result control
-  limit?: number;                 // 1-100, default 10
-  exhaustive?: boolean;           // Return all matches, default false
-  min_score?: number;             // Score threshold 0-1, default 0
+	// Result control
+	limit?: number; // 1-100, default 10
+	exhaustive?: boolean; // Return all matches, default false
+	min_score?: number; // Score threshold 0-1, default 0
 
-  // Filtering
-  filters?: SearchFilters;
+	// Filtering
+	filters?: SearchFilters;
 }
 
 interface ViberagSearchResponse {
-  results: SearchResult[];
-  query: string;
-  mode: string;
-  total_matches?: number;         // When exhaustive=true
-  elapsed_ms: number;
+	results: SearchResult[];
+	query: string;
+	mode: string;
+	total_matches?: number; // When exhaustive=true
+	elapsed_ms: number;
 }
 ```
 
@@ -236,6 +244,7 @@ interface ViberagSearchResponse {
 ### Why This Is Worth Building
 
 Symbol lookup is:
+
 - **Deterministic**: "Where is X defined?" has a factual answer
 - **High-value**: Most common coding assistant query pattern
 - **Hard to replicate**: Exact search finds occurrences but can't distinguish definition from usage
@@ -276,40 +285,47 @@ chunk_id        Utf8    FK to code_chunks.id for context retrieval
 
 ```typescript
 interface SymbolLookupParams {
-  name: string;                   // Symbol name (exact match)
-  kind?: ('class' | 'function' | 'method' | 'type' | 'interface' | 'variable')[];
-  role?: ('definition' | 'export' | 'import' | 'usage')[];
-  filters?: {
-    path_prefix?: string;
-    path_contains?: string[];
-    extension?: string[];
-  };
-  include_context?: boolean;      // Return chunk text (more tokens)
-  limit?: number;                 // Default 50
+	name: string; // Symbol name (exact match)
+	kind?: (
+		| 'class'
+		| 'function'
+		| 'method'
+		| 'type'
+		| 'interface'
+		| 'variable'
+	)[];
+	role?: ('definition' | 'export' | 'import' | 'usage')[];
+	filters?: {
+		path_prefix?: string;
+		path_contains?: string[];
+		extension?: string[];
+	};
+	include_context?: boolean; // Return chunk text (more tokens)
+	limit?: number; // Default 50
 }
 
 interface SymbolLookupResponse {
-  symbols: {
-    name: string;
-    qualified_name: string;
-    kind: string;
-    role: string;
-    filepath: string;
-    line: number;
-    context?: string;             // If include_context=true
-  }[];
-  total_count: number;
+	symbols: {
+		name: string;
+		qualified_name: string;
+		kind: string;
+		role: string;
+		filepath: string;
+		line: number;
+		context?: string; // If include_context=true
+	}[];
+	total_count: number;
 }
 ```
 
 ### Use Cases
 
-| Query | Parameters |
-|-------|------------|
-| "Where is UserService defined?" | `name="UserService", role=["definition"]` |
-| "What files import PaymentClient?" | `name="PaymentClient", role=["import"]` |
-| "Find all usages of deprecated apiV1" | `name="apiV1", role=["usage"], exhaustive=true` |
-| "What does the auth module export?" | `filters={path_prefix: "src/auth/"}, role=["export"]` |
+| Query                                 | Parameters                                            |
+| ------------------------------------- | ----------------------------------------------------- |
+| "Where is UserService defined?"       | `name="UserService", role=["definition"]`             |
+| "What files import PaymentClient?"    | `name="PaymentClient", role=["import"]`               |
+| "Find all usages of deprecated apiV1" | `name="apiV1", role=["usage"], exhaustive=true`       |
+| "What does the auth module export?"   | `filters={path_prefix: "src/auth/"}, role=["export"]` |
 
 ### Implementation Tasks
 
@@ -347,16 +363,16 @@ Stage 3 (Expand): Follow relationships from refined results
 
 ```typescript
 interface SearchParams {
-  // ... existing params ...
+	// ... existing params ...
 
-  stage?: 'discover' | 'refine';
+	stage?: 'discover' | 'refine';
 }
 ```
 
-| Stage | Behavior |
-|-------|----------|
+| Stage      | Behavior                                                     |
+| ---------- | ------------------------------------------------------------ |
 | `discover` | Higher limit (2x), relaxed score threshold, prefer diversity |
-| `refine` | Normal behavior, strict matching |
+| `refine`   | Normal behavior, strict matching                             |
 
 ### Context Narrowing
 
@@ -364,11 +380,11 @@ Allow filtering to files related to previous results:
 
 ```typescript
 interface SearchParams {
-  // ... existing params ...
+	// ... existing params ...
 
-  // Narrow to files from previous search
-  context_filepaths?: string[];   // Limit to these files
-  context_path_prefix?: string;   // Derived from previous results
+	// Narrow to files from previous search
+	context_filepaths?: string[]; // Limit to these files
+	context_path_prefix?: string; // Derived from previous results
 }
 ```
 
@@ -447,11 +463,13 @@ Each stage narrows based on what was learned. No special detection needed.
 Document:
 
 1. **What we index and why**
+
    - Deterministic AST-derived metadata
    - Symbol definitions and usages
    - The "facts not interpretations" principle
 
 2. **What we chose NOT to index and why**
+
    - File categories (test/source/config)
    - Service names
    - Event publishers/subscribers
@@ -459,6 +477,7 @@ Document:
    - The risks of heuristic classification
 
 3. **The filtering philosophy**
+
    - Transparent, AI-controlled filters
    - Path-based filtering over categories
    - Why silent false negatives are the worst failure mode
@@ -479,14 +498,14 @@ Document:
 
 ## Implementation Priority
 
-| Phase | Effort | Impact | Priority |
-|-------|--------|--------|----------|
-| Phase 1: Safe Metadata | Medium | High | P0 |
-| Phase 2: Search Modes & Filters | Medium | High | P0 |
-| Phase 3: Symbol Index | High | High | P1 |
-| Phase 4: Multi-Stage | Low | Medium | P1 |
-| Phase 5: Performance | Medium | Medium | P2 |
-| Phase 6: ADR Documentation | Low | High | P0 |
+| Phase                           | Effort | Impact | Priority |
+| ------------------------------- | ------ | ------ | -------- |
+| Phase 1: Safe Metadata          | Medium | High   | P0       |
+| Phase 2: Search Modes & Filters | Medium | High   | P0       |
+| Phase 3: Symbol Index           | High   | High   | P1       |
+| Phase 4: Multi-Stage            | Low    | Medium | P1       |
+| Phase 5: Performance            | Medium | Medium | P2       |
+| Phase 6: ADR Documentation      | Low    | High   | P0       |
 
 **Recommended order**: Phase 6 (ADR) → Phase 1 → Phase 2 → Phase 3 → Phase 4 → Phase 5
 
@@ -499,6 +518,7 @@ Write the ADR first to solidify decisions before implementation.
 ### Schema Versioning
 
 Increment `schemaVersion` in manifest when schema changes:
+
 ```json
 {
   "schemaVersion": 2,
@@ -518,22 +538,22 @@ On version mismatch: prompt for `/reindex`.
 
 ## Appendix A: Final Tool Summary
 
-| Tool | Purpose | Key Differentiator |
-|------|---------|-------------------|
-| `viberag_search` | General code search | Mode selection, transparent filters |
+| Tool                    | Purpose                        | Key Differentiator                      |
+| ----------------------- | ------------------------------ | --------------------------------------- |
+| `viberag_search`        | General code search            | Mode selection, transparent filters     |
 | `viberag_symbol_lookup` | Symbol definition/usage lookup | Direct metadata query, no vector search |
-| `viberag_index` | Index codebase | Unchanged |
-| `viberag_status` | Index status | Add schema version, index stats |
-| `viberag_watch_status` | File watcher status | Unchanged |
+| `viberag_index`         | Index codebase                 | Unchanged                               |
+| `viberag_status`        | Index status                   | Add schema version, index stats         |
+| `viberag_watch_status`  | File watcher status            | Unchanged                               |
 
 ### Removed from Original Plan
 
-| Removed Tool | Reason |
-|--------------|--------|
-| `viberag_event_trace` | Fragile framework-specific detection; AI can search instead |
-| `viberag_endpoint_lookup` | Fragile detection; decorator_contains filter + search suffices |
-| `viberag_expand_context` | Over-engineered; multi-stage search achieves same goal |
-| `viberag_composite_search` | Over-engineered; AI can make multiple calls |
+| Removed Tool               | Reason                                                         |
+| -------------------------- | -------------------------------------------------------------- |
+| `viberag_event_trace`      | Fragile framework-specific detection; AI can search instead    |
+| `viberag_endpoint_lookup`  | Fragile detection; decorator_contains filter + search suffices |
+| `viberag_expand_context`   | Over-engineered; multi-stage search achieves same goal         |
+| `viberag_composite_search` | Over-engineered; AI can make multiple calls                    |
 
 ---
 
@@ -604,17 +624,21 @@ Returns filepath, line number, kind, role, and optionally code context.
 The ADR should cover:
 
 ### Title
+
 ADR-005: Code Indexing Strategy — Facts Not Interpretations
 
 ### Status
+
 Proposed
 
 ### Context
+
 - AI agents need code search for diverse tasks
 - Pre-computed metadata can improve search precision
 - But heuristic classifications risk silent false negatives
 
 ### Decision
+
 1. Index only deterministic, AST-derived metadata
 2. Do not index interpreted categories (file_category, service_name)
 3. Provide transparent path-based filters instead of opaque categories
@@ -622,6 +646,7 @@ Proposed
 5. Use multi-stage search instead of brittle pattern detection
 
 ### Consequences
+
 - Positive: No silent false negatives from misclassification
 - Positive: AI agents have full control over filtering
 - Positive: System is framework-agnostic, no maintenance for new patterns
@@ -629,6 +654,7 @@ Proposed
 - Negative: No pre-computed event/API graphs (AI must search iteratively)
 
 ### Alternatives Considered
+
 - Pre-computed file categories → Rejected (heuristic, could be wrong)
 - Event detection → Rejected (framework-specific, fragile)
 - API endpoint detection → Rejected (fragile, search suffices)

@@ -180,10 +180,13 @@ describe('Metadata Extraction', () => {
 	describe('decorator extraction', () => {
 		it('finds decorated Python functions', async () => {
 			// Search semantically for Python functions in decorators file
-			const results = await search.search('process data logging decorator python', {
-				mode: 'semantic',
-				filters: {extension: ['.py']},
-			});
+			const results = await search.search(
+				'process data logging decorator python',
+				{
+					mode: 'semantic',
+					filters: {extension: ['.py']},
+				},
+			);
 
 			// Should find functions from decorators.py
 			if (results.results.length > 0) {
@@ -212,9 +215,9 @@ describe('Metadata Extraction', () => {
 
 			// Should find functions from decorators.py
 			if (results.results.length > 0) {
-				expect(
-					results.results.some(r => r.filepath.includes('.py')),
-				).toBe(true);
+				expect(results.results.some(r => r.filepath.includes('.py'))).toBe(
+					true,
+				);
 			}
 		}, 60_000);
 	});

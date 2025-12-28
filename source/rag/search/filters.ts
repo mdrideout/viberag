@@ -117,8 +117,5 @@ export function buildDefinitionFilter(
 function escapeSqlString(str: string): string {
 	// Escape single quotes by doubling them
 	// Also escape % and _ which are LIKE wildcards
-	return str
-		.replace(/'/g, "''")
-		.replace(/%/g, '\\%')
-		.replace(/_/g, '\\_');
+	return str.replace(/'/g, "''").replace(/%/g, '\\%').replace(/_/g, '\\_');
 }

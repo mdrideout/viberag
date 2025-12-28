@@ -154,9 +154,7 @@ describe('Multi-Language Support', () => {
 				filters: {extension: ['.java']},
 			});
 			if (results.results.length > 0) {
-				const method = results.results.find(r =>
-					r.name?.includes('getName'),
-				);
+				const method = results.results.find(r => r.name?.includes('getName'));
 				if (method) {
 					expect(method.isExported).toBe(true);
 				}
@@ -252,7 +250,9 @@ describe('Multi-Language Support', () => {
 			// Note: C# grammar may have ABI compatibility issues with current web-tree-sitter
 			expect(results).toBeDefined();
 			if (results.results.length > 0) {
-				expect(results.results.some(r => r.filepath.includes('.cs'))).toBe(true);
+				expect(results.results.some(r => r.filepath.includes('.cs'))).toBe(
+					true,
+				);
 			}
 		}, 60_000);
 
@@ -445,7 +445,9 @@ describe('Multi-Language Support', () => {
 			// Note: Kotlin grammar may have ABI compatibility issues with current web-tree-sitter
 			expect(results).toBeDefined();
 			if (results.results.length > 0) {
-				expect(results.results.some(r => r.filepath.includes('.kt'))).toBe(true);
+				expect(results.results.some(r => r.filepath.includes('.kt'))).toBe(
+					true,
+				);
 			}
 		}, 60_000);
 
@@ -489,8 +491,7 @@ describe('Multi-Language Support', () => {
 			});
 			if (results.results.length > 0) {
 				const method = results.results.find(
-					r =>
-						r.name?.includes('privateMethod') && r.filepath.includes('.php'),
+					r => r.name?.includes('privateMethod') && r.filepath.includes('.php'),
 				);
 				if (method) {
 					expect(method.isExported).toBe(false);
@@ -509,7 +510,9 @@ describe('Multi-Language Support', () => {
 			// Note: PHP grammar may have ABI compatibility issues with current web-tree-sitter
 			expect(results).toBeDefined();
 			if (results.results.length > 0) {
-				expect(results.results.some(r => r.filepath.includes('.php'))).toBe(true);
+				expect(results.results.some(r => r.filepath.includes('.php'))).toBe(
+					true,
+				);
 			}
 		}, 60_000);
 

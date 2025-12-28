@@ -19,6 +19,7 @@ scoop install viberag           # Windows users
 ## Current State
 
 ### What Works
+
 - [x] Local embeddings (Jina, transformers.js)
 - [x] Cloud embeddings (Gemini, Mistral)
 - [x] LanceDB vector storage
@@ -28,6 +29,7 @@ scoop install viberag           # Windows users
 - [x] File watching / incremental indexing
 
 ### What's Limited
+
 - [ ] web-tree-sitter WASM ABI compatibility issues
 - [ ] Some language grammars fail to load (C#, Dart, Swift, Kotlin, PHP)
 - [ ] npm-only distribution
@@ -46,31 +48,31 @@ scoop install viberag           # Windows users
 ```json
 // package.json changes
 {
-  "dependencies": {
-    // REMOVE
-    "web-tree-sitter": "^0.26.3",
-    "tree-sitter-wasms": "^0.1.13",
+	"dependencies": {
+		// REMOVE
+		"web-tree-sitter": "^0.26.3",
+		"tree-sitter-wasms": "^0.1.13",
 
-    // ADD - Native tree-sitter
-    "tree-sitter": "^0.21.1",
+		// ADD - Native tree-sitter
+		"tree-sitter": "^0.21.1",
 
-    // ADD - Native grammar packages
-    "tree-sitter-javascript": "^0.21.0",
-    "tree-sitter-typescript": "^0.21.0",
-    "tree-sitter-python": "^0.21.0",
-    "tree-sitter-go": "^0.21.0",
-    "tree-sitter-rust": "^0.21.0",
-    "tree-sitter-java": "^0.21.0",
-    "tree-sitter-c-sharp": "^0.21.0",
-    "tree-sitter-kotlin": "^0.3.8",
-    "tree-sitter-swift": "^0.6.0",
-    "tree-sitter-dart": "^1.0.0",
-    "tree-sitter-php": "^0.23.0"
-  },
-  "devDependencies": {
-    "prebuildify": "^6.0.0",
-    "node-gyp": "^10.0.0"
-  }
+		// ADD - Native grammar packages
+		"tree-sitter-javascript": "^0.21.0",
+		"tree-sitter-typescript": "^0.21.0",
+		"tree-sitter-python": "^0.21.0",
+		"tree-sitter-go": "^0.21.0",
+		"tree-sitter-rust": "^0.21.0",
+		"tree-sitter-java": "^0.21.0",
+		"tree-sitter-c-sharp": "^0.21.0",
+		"tree-sitter-kotlin": "^0.3.8",
+		"tree-sitter-swift": "^0.6.0",
+		"tree-sitter-dart": "^1.0.0",
+		"tree-sitter-php": "^0.23.0"
+	},
+	"devDependencies": {
+		"prebuildify": "^6.0.0",
+		"node-gyp": "^10.0.0"
+	}
 }
 ```
 
@@ -102,34 +104,34 @@ import Dart from 'tree-sitter-dart';
 import PHP from 'tree-sitter-php';
 
 const GRAMMARS: Record<SupportedLanguage, any> = {
-  javascript: JavaScript,
-  typescript: TypeScript.typescript,
-  tsx: TypeScript.tsx,
-  python: Python,
-  go: Go,
-  rust: Rust,
-  java: Java,
-  csharp: CSharp,
-  kotlin: Kotlin,
-  swift: Swift,
-  dart: Dart,
-  php: PHP,
+	javascript: JavaScript,
+	typescript: TypeScript.typescript,
+	tsx: TypeScript.tsx,
+	python: Python,
+	go: Go,
+	rust: Rust,
+	java: Java,
+	csharp: CSharp,
+	kotlin: Kotlin,
+	swift: Swift,
+	dart: Dart,
+	php: PHP,
 };
 
 // Synchronous initialization
 const parser = new Parser();
-parser.setLanguage(GRAMMARS[language]);  // No await needed!
+parser.setLanguage(GRAMMARS[language]); // No await needed!
 ```
 
 ### 1.3 API Changes
 
-| Before (web-tree-sitter) | After (native) |
-|--------------------------|----------------|
-| `await Parser.init()` | Not needed |
+| Before (web-tree-sitter)    | After (native)                |
+| --------------------------- | ----------------------------- |
+| `await Parser.init()`       | Not needed                    |
 | `await Language.load(path)` | `require('tree-sitter-lang')` |
-| `parser.setLanguage(lang)` | `parser.setLanguage(grammar)` |
-| Async initialization | Sync initialization |
-| WASM file resolution | Module resolution |
+| `parser.setLanguage(lang)`  | `parser.setLanguage(grammar)` |
+| Async initialization        | Sync initialization           |
+| WASM file resolution        | Module resolution             |
 
 ### 1.4 Fallback Strategy
 
@@ -138,13 +140,13 @@ parser.setLanguage(GRAMMARS[language]);  // No await needed!
 let useNative = true;
 
 try {
-  const Parser = require('tree-sitter');
-  // Native works
+	const Parser = require('tree-sitter');
+	// Native works
 } catch (e) {
-  console.warn('Native tree-sitter unavailable, falling back to WASM');
-  useNative = false;
-  const {Parser} = await import('web-tree-sitter');
-  await Parser.init();
+	console.warn('Native tree-sitter unavailable, falling back to WASM');
+	useNative = false;
+	const {Parser} = await import('web-tree-sitter');
+	await Parser.init();
 }
 ```
 
@@ -166,14 +168,14 @@ try {
 
 ### 2.1 Supported Platforms
 
-| OS | Architecture | Node ABI | Priority |
-|----|--------------|----------|----------|
-| Linux | x64 | napi | P0 |
-| Linux | arm64 | napi | P1 |
-| macOS | x64 (Intel) | napi | P0 |
-| macOS | arm64 (Apple Silicon) | napi | P0 |
-| Windows | x64 | napi | P0 |
-| Windows | arm64 | napi | P2 |
+| OS      | Architecture          | Node ABI | Priority |
+| ------- | --------------------- | -------- | -------- |
+| Linux   | x64                   | napi     | P0       |
+| Linux   | arm64                 | napi     | P1       |
+| macOS   | x64 (Intel)           | napi     | P0       |
+| macOS   | arm64 (Apple Silicon) | napi     | P0       |
+| Windows | x64                   | napi     | P0       |
+| Windows | arm64                 | napi     | P2       |
 
 ### 2.2 GitHub Actions Workflow
 
@@ -278,15 +280,12 @@ jobs:
 
 ```json
 {
-  "scripts": {
-    "install": "prebuild-install || echo 'Prebuild not found, using fallback'",
-    "prebuild": "prebuildify --napi --strip",
-    "prebuild:all": "prebuildify-cross -i centos7-devtoolset7 -i alpine -i linux-arm64 -i darwin-x64 -i darwin-arm64"
-  },
-  "files": [
-    "dist/",
-    "prebuilds/"
-  ]
+	"scripts": {
+		"install": "prebuild-install || echo 'Prebuild not found, using fallback'",
+		"prebuild": "prebuildify --napi --strip",
+		"prebuild:all": "prebuildify-cross -i centos7-devtoolset7 -i alpine -i linux-arm64 -i darwin-x64 -i darwin-arm64"
+	},
+	"files": ["dist/", "prebuilds/"]
 }
 ```
 
@@ -300,12 +299,12 @@ jobs:
 
 ### 3.1 Executable Builder Selection
 
-| Tool | Pros | Cons | Recommendation |
-|------|------|------|----------------|
-| **pkg** | Mature, widely used | Vercel maintenance unclear | Good choice |
-| **nexe** | Active development | Less popular | Alternative |
-| **caxa** | Simple, modern | Less features | For simple cases |
-| **sea** (Node 20+) | Official Node.js | Experimental | Future option |
+| Tool               | Pros                | Cons                       | Recommendation   |
+| ------------------ | ------------------- | -------------------------- | ---------------- |
+| **pkg**            | Mature, widely used | Vercel maintenance unclear | Good choice      |
+| **nexe**           | Active development  | Less popular               | Alternative      |
+| **caxa**           | Simple, modern      | Less features              | For simple cases |
+| **sea** (Node 20+) | Official Node.js    | Experimental               | Future option    |
 
 **Decision:** Use `pkg` for now, evaluate Node.js SEA when stable.
 
@@ -314,25 +313,25 @@ jobs:
 ```json
 // package.json
 {
-  "bin": {
-    "viberag": "./dist/cli/index.js"
-  },
-  "pkg": {
-    "scripts": "dist/**/*.js",
-    "assets": [
-      "dist/**/*.wasm",
-      "node_modules/@anthropic-ai/**/*",
-      "node_modules/onnxruntime-node/**/*"
-    ],
-    "targets": [
-      "node20-linux-x64",
-      "node20-linux-arm64",
-      "node20-macos-x64",
-      "node20-macos-arm64",
-      "node20-win-x64"
-    ],
-    "outputPath": "standalone"
-  }
+	"bin": {
+		"viberag": "./dist/cli/index.js"
+	},
+	"pkg": {
+		"scripts": "dist/**/*.js",
+		"assets": [
+			"dist/**/*.wasm",
+			"node_modules/@anthropic-ai/**/*",
+			"node_modules/onnxruntime-node/**/*"
+		],
+		"targets": [
+			"node20-linux-x64",
+			"node20-linux-arm64",
+			"node20-macos-x64",
+			"node20-macos-arm64",
+			"node20-win-x64"
+		],
+		"outputPath": "standalone"
+	}
 }
 ```
 
@@ -503,6 +502,7 @@ end
 ```
 
 **Setup:**
+
 ```bash
 # Create tap repository
 gh repo create YourOrg/homebrew-viberag --public
@@ -563,6 +563,7 @@ echo "Run 'viberag --help' to get started."
 ```
 
 **Usage:**
+
 ```bash
 curl -fsSL https://viberag.dev/install.sh | sh
 ```
@@ -572,25 +573,25 @@ curl -fsSL https://viberag.dev/install.sh | sh
 ```json
 // scoop-bucket/viberag.json
 {
-  "version": "0.2.0",
-  "description": "Local Code RAG MCP Server for AI coding assistants",
-  "homepage": "https://github.com/YourOrg/viberag",
-  "license": "MIT",
-  "architecture": {
-    "64bit": {
-      "url": "https://github.com/YourOrg/viberag/releases/download/v0.2.0/viberag-win-x64.exe",
-      "hash": "PLACEHOLDER_SHA256"
-    }
-  },
-  "bin": "viberag-win-x64.exe",
-  "checkver": "github",
-  "autoupdate": {
-    "architecture": {
-      "64bit": {
-        "url": "https://github.com/YourOrg/viberag/releases/download/v$version/viberag-win-x64.exe"
-      }
-    }
-  }
+	"version": "0.2.0",
+	"description": "Local Code RAG MCP Server for AI coding assistants",
+	"homepage": "https://github.com/YourOrg/viberag",
+	"license": "MIT",
+	"architecture": {
+		"64bit": {
+			"url": "https://github.com/YourOrg/viberag/releases/download/v0.2.0/viberag-win-x64.exe",
+			"hash": "PLACEHOLDER_SHA256"
+		}
+	},
+	"bin": "viberag-win-x64.exe",
+	"checkver": "github",
+	"autoupdate": {
+		"architecture": {
+			"64bit": {
+				"url": "https://github.com/YourOrg/viberag/releases/download/v$version/viberag-win-x64.exe"
+			}
+		}
+	}
 }
 ```
 
@@ -642,36 +643,36 @@ jobs:
 
 ### 5.1 Tier 1 Languages (Full Support)
 
-| Language | Grammar Package | Export Detection | Decorators | Docstrings |
-|----------|-----------------|------------------|------------|------------|
-| JavaScript | tree-sitter-javascript | `export` keyword | `@decorator` | `/** */` |
-| TypeScript | tree-sitter-typescript | `export` keyword | `@decorator` | `/** */` |
-| TSX | tree-sitter-typescript | `export` keyword | `@decorator` | `/** */` |
-| Python | tree-sitter-python | `_` prefix | `@decorator` | `"""docstring"""` |
-| Go | tree-sitter-go | Capitalization | N/A | `// comment` |
-| Rust | tree-sitter-rust | `pub` keyword | `#[attr]` | `///` or `//!` |
-| Java | tree-sitter-java | `public` keyword | `@Annotation` | `/** */` |
+| Language   | Grammar Package        | Export Detection | Decorators    | Docstrings        |
+| ---------- | ---------------------- | ---------------- | ------------- | ----------------- |
+| JavaScript | tree-sitter-javascript | `export` keyword | `@decorator`  | `/** */`          |
+| TypeScript | tree-sitter-typescript | `export` keyword | `@decorator`  | `/** */`          |
+| TSX        | tree-sitter-typescript | `export` keyword | `@decorator`  | `/** */`          |
+| Python     | tree-sitter-python     | `_` prefix       | `@decorator`  | `"""docstring"""` |
+| Go         | tree-sitter-go         | Capitalization   | N/A           | `// comment`      |
+| Rust       | tree-sitter-rust       | `pub` keyword    | `#[attr]`     | `///` or `//!`    |
+| Java       | tree-sitter-java       | `public` keyword | `@Annotation` | `/** */`          |
 
 ### 5.2 Tier 2 Languages (Standard Support)
 
-| Language | Grammar Package | Export Detection | Decorators | Docstrings |
-|----------|-----------------|------------------|------------|------------|
-| C# | tree-sitter-c-sharp | `public` keyword | `[Attribute]` | `/// <summary>` |
-| Kotlin | tree-sitter-kotlin | default public | `@Annotation` | `/** */` |
-| Swift | tree-sitter-swift | `public` keyword | `@attribute` | `///` |
-| PHP | tree-sitter-php | `public` keyword | `#[Attr]` | `/** */` |
-| Dart | tree-sitter-dart | `_` prefix | `@annotation` | `///` |
+| Language | Grammar Package     | Export Detection | Decorators    | Docstrings      |
+| -------- | ------------------- | ---------------- | ------------- | --------------- |
+| C#       | tree-sitter-c-sharp | `public` keyword | `[Attribute]` | `/// <summary>` |
+| Kotlin   | tree-sitter-kotlin  | default public   | `@Annotation` | `/** */`        |
+| Swift    | tree-sitter-swift   | `public` keyword | `@attribute`  | `///`           |
+| PHP      | tree-sitter-php     | `public` keyword | `#[Attr]`     | `/** */`        |
+| Dart     | tree-sitter-dart    | `_` prefix       | `@annotation` | `///`           |
 
 ### 5.3 Future Languages (Planned)
 
-| Language | Priority | Grammar Package |
-|----------|----------|-----------------|
-| C/C++ | P1 | tree-sitter-c, tree-sitter-cpp |
-| Ruby | P1 | tree-sitter-ruby |
-| Scala | P2 | tree-sitter-scala |
-| Elixir | P2 | tree-sitter-elixir |
-| Lua | P3 | tree-sitter-lua |
-| Zig | P3 | tree-sitter-zig |
+| Language | Priority | Grammar Package                |
+| -------- | -------- | ------------------------------ |
+| C/C++    | P1       | tree-sitter-c, tree-sitter-cpp |
+| Ruby     | P1       | tree-sitter-ruby               |
+| Scala    | P2       | tree-sitter-scala              |
+| Elixir   | P2       | tree-sitter-elixir             |
+| Lua      | P3       | tree-sitter-lua                |
+| Zig      | P3       | tree-sitter-zig                |
 
 ---
 
@@ -707,39 +708,42 @@ jobs:
 ```typescript
 // source/rag/__tests__/native-languages.test.ts
 describe('Native Tree-Sitter Languages', () => {
-  const languages = [
-    { ext: '.js', lang: 'javascript', grammar: 'tree-sitter-javascript' },
-    { ext: '.ts', lang: 'typescript', grammar: 'tree-sitter-typescript' },
-    { ext: '.py', lang: 'python', grammar: 'tree-sitter-python' },
-    { ext: '.go', lang: 'go', grammar: 'tree-sitter-go' },
-    { ext: '.rs', lang: 'rust', grammar: 'tree-sitter-rust' },
-    { ext: '.java', lang: 'java', grammar: 'tree-sitter-java' },
-    { ext: '.cs', lang: 'csharp', grammar: 'tree-sitter-c-sharp' },
-    { ext: '.kt', lang: 'kotlin', grammar: 'tree-sitter-kotlin' },
-    { ext: '.swift', lang: 'swift', grammar: 'tree-sitter-swift' },
-    { ext: '.dart', lang: 'dart', grammar: 'tree-sitter-dart' },
-    { ext: '.php', lang: 'php', grammar: 'tree-sitter-php' },
-  ];
+	const languages = [
+		{ext: '.js', lang: 'javascript', grammar: 'tree-sitter-javascript'},
+		{ext: '.ts', lang: 'typescript', grammar: 'tree-sitter-typescript'},
+		{ext: '.py', lang: 'python', grammar: 'tree-sitter-python'},
+		{ext: '.go', lang: 'go', grammar: 'tree-sitter-go'},
+		{ext: '.rs', lang: 'rust', grammar: 'tree-sitter-rust'},
+		{ext: '.java', lang: 'java', grammar: 'tree-sitter-java'},
+		{ext: '.cs', lang: 'csharp', grammar: 'tree-sitter-c-sharp'},
+		{ext: '.kt', lang: 'kotlin', grammar: 'tree-sitter-kotlin'},
+		{ext: '.swift', lang: 'swift', grammar: 'tree-sitter-swift'},
+		{ext: '.dart', lang: 'dart', grammar: 'tree-sitter-dart'},
+		{ext: '.php', lang: 'php', grammar: 'tree-sitter-php'},
+	];
 
-  test.each(languages)('$lang grammar loads correctly', ({ lang, grammar }) => {
-    const Parser = require('tree-sitter');
-    const Grammar = require(grammar);
+	test.each(languages)('$lang grammar loads correctly', ({lang, grammar}) => {
+		const Parser = require('tree-sitter');
+		const Grammar = require(grammar);
 
-    const parser = new Parser();
-    expect(() => parser.setLanguage(Grammar)).not.toThrow();
-  });
+		const parser = new Parser();
+		expect(() => parser.setLanguage(Grammar)).not.toThrow();
+	});
 
-  test.each(languages)('$lang parses sample file', async ({ ext, lang }) => {
-    const fixture = path.join(__dirname, `../../test-fixtures/codebase/sample${ext}`);
-    const content = await fs.readFile(fixture, 'utf-8');
+	test.each(languages)('$lang parses sample file', async ({ext, lang}) => {
+		const fixture = path.join(
+			__dirname,
+			`../../test-fixtures/codebase/sample${ext}`,
+		);
+		const content = await fs.readFile(fixture, 'utf-8');
 
-    const parser = new Parser();
-    parser.setLanguage(GRAMMARS[lang]);
+		const parser = new Parser();
+		parser.setLanguage(GRAMMARS[lang]);
 
-    const tree = parser.parse(content);
-    expect(tree.rootNode).toBeDefined();
-    expect(tree.rootNode.hasError()).toBe(false);
-  });
+		const tree = parser.parse(content);
+		expect(tree.rootNode).toBeDefined();
+		expect(tree.rootNode.hasError()).toBe(false);
+	});
 });
 ```
 
@@ -748,22 +752,22 @@ describe('Native Tree-Sitter Languages', () => {
 ```typescript
 // source/rag/__tests__/platform.test.ts
 describe('Platform Compatibility', () => {
-  it('identifies correct platform', () => {
-    expect(['darwin', 'linux', 'win32']).toContain(process.platform);
-  });
+	it('identifies correct platform', () => {
+		expect(['darwin', 'linux', 'win32']).toContain(process.platform);
+	});
 
-  it('identifies correct architecture', () => {
-    expect(['x64', 'arm64']).toContain(process.arch);
-  });
+	it('identifies correct architecture', () => {
+		expect(['x64', 'arm64']).toContain(process.arch);
+	});
 
-  it('loads native bindings', () => {
-    expect(() => require('tree-sitter')).not.toThrow();
-  });
+	it('loads native bindings', () => {
+		expect(() => require('tree-sitter')).not.toThrow();
+	});
 
-  it('ONNX runtime loads', async () => {
-    const { InferenceSession } = await import('onnxruntime-node');
-    expect(InferenceSession).toBeDefined();
-  });
+	it('ONNX runtime loads', async () => {
+		const {InferenceSession} = await import('onnxruntime-node');
+		expect(InferenceSession).toBeDefined();
+	});
 });
 ```
 
@@ -820,15 +824,15 @@ docs/
 
 ## Implementation Timeline
 
-| Phase | Description | Duration | Dependencies |
-|-------|-------------|----------|--------------|
-| 1 | Native Tree-Sitter Migration | 2-3 days | None |
-| 2 | Prebuildify CI/CD | 1-2 days | Phase 1 |
-| 3 | Standalone Executables | 1-2 days | Phase 2 |
-| 4 | Package Manager Distribution | 2-3 days | Phase 3 |
-| 5 | Language Support Matrix | Ongoing | Phase 1 |
-| 6 | Testing & Validation | 1-2 days | Phase 1-3 |
-| 7 | Documentation & Website | 2-3 days | Phase 1-4 |
+| Phase | Description                  | Duration | Dependencies |
+| ----- | ---------------------------- | -------- | ------------ |
+| 1     | Native Tree-Sitter Migration | 2-3 days | None         |
+| 2     | Prebuildify CI/CD            | 1-2 days | Phase 1      |
+| 3     | Standalone Executables       | 1-2 days | Phase 2      |
+| 4     | Package Manager Distribution | 2-3 days | Phase 3      |
+| 5     | Language Support Matrix      | Ongoing  | Phase 1      |
+| 6     | Testing & Validation         | 1-2 days | Phase 1-3    |
+| 7     | Documentation & Website      | 2-3 days | Phase 1-4    |
 
 **Total Estimated Time:** 2-3 weeks
 
@@ -847,27 +851,31 @@ docs/
 
 ## Risk Mitigation
 
-| Risk | Mitigation |
-|------|------------|
-| Grammar package breaking changes | Pin versions, test in CI |
-| Prebuild failures on exotic platforms | WASM fallback |
-| pkg bundling issues | Explicit asset configuration |
-| Large package size | Compress prebuilds, lazy loading |
-| Native binding ABI changes | Rebuild on Node.js major versions |
+| Risk                                  | Mitigation                        |
+| ------------------------------------- | --------------------------------- |
+| Grammar package breaking changes      | Pin versions, test in CI          |
+| Prebuild failures on exotic platforms | WASM fallback                     |
+| pkg bundling issues                   | Explicit asset configuration      |
+| Large package size                    | Compress prebuilds, lazy loading  |
+| Native binding ABI changes            | Rebuild on Node.js major versions |
 
 ---
 
 ## Long-Term Considerations
 
 ### Rust Rewrite (Future)
+
 For maximum performance and smallest binary size, consider rewriting core parsing in Rust:
+
 - tree-sitter has native Rust bindings
 - ort crate for ONNX embeddings
 - Single <20MB binary
 - No runtime dependencies
 
 ### WASI Support (Future)
+
 WebAssembly System Interface could enable:
+
 - Running in browsers
 - Edge compute (Cloudflare Workers, etc.)
 - Truly universal single binary
@@ -877,6 +885,7 @@ WebAssembly System Interface could enable:
 ## Appendix: Full CI/CD Configuration
 
 See `.github/workflows/` for complete workflow files:
+
 - `ci.yml` - Continuous integration
 - `prebuild.yml` - Native binary prebuilds
 - `release.yml` - Standalone executables & GitHub release

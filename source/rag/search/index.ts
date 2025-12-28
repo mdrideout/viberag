@@ -70,7 +70,7 @@ export class SearchEngine {
 		const mode: SearchMode = options.mode ?? 'hybrid';
 		const limit = options.exhaustive
 			? EXHAUSTIVE_LIMIT
-			: (options.limit ?? DEFAULT_LIMIT);
+			: options.limit ?? DEFAULT_LIMIT;
 		const filterClause = buildFilterClause(options.filters);
 
 		await this.ensureInitialized();
@@ -318,7 +318,8 @@ export class SearchEngine {
 
 		return {
 			results,
-			query: codeSnippet.substring(0, 100) + (codeSnippet.length > 100 ? '...' : ''),
+			query:
+				codeSnippet.substring(0, 100) + (codeSnippet.length > 100 ? '...' : ''),
 			searchType: 'similar',
 			elapsedMs: 0,
 		};

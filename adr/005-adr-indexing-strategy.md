@@ -17,20 +17,21 @@ AI agents rely on our search results to understand codebases. **Silent false neg
 
 ### Query Types We Must Support
 
-| Query Type | Example | Ideal Approach |
-|------------|---------|----------------|
-| Conceptual | "How does authentication work?" | Semantic (vector) search |
-| Exact symbol | "Find handlePaymentWebhook" | Keyword (BM25) search |
-| Definition lookup | "Where is UserService defined?" | Metadata filter |
-| Exhaustive | "Find ALL uses of deprecated API" | Full scan with keyword match |
-| Scoped | "Auth code, not tests" | Filtered search |
-| Similar code | "Find code like this pattern" | Vector search with code as query |
+| Query Type        | Example                           | Ideal Approach                   |
+| ----------------- | --------------------------------- | -------------------------------- |
+| Conceptual        | "How does authentication work?"   | Semantic (vector) search         |
+| Exact symbol      | "Find handlePaymentWebhook"       | Keyword (BM25) search            |
+| Definition lookup | "Where is UserService defined?"   | Metadata filter                  |
+| Exhaustive        | "Find ALL uses of deprecated API" | Full scan with keyword match     |
+| Scoped            | "Auth code, not tests"            | Filtered search                  |
+| Similar code      | "Find code like this pattern"     | Vector search with code as query |
 
 ### The Metadata Dilemma
 
 We evaluated two approaches:
 
 **Approach A: Rich pre-computed categories**
+
 ```
 file_category: "test" | "source" | "config"
 service_name: "api" | "frontend" | "worker"
@@ -39,6 +40,7 @@ event_type: "publish" | "subscribe" | null
 ```
 
 **Approach B: Raw facts only**
+
 ```
 filepath: "src/api/auth/handlers.ts"
 extension: ".ts"
@@ -55,6 +57,7 @@ We adopt **Approach B: Store facts, not interpretations**.
 ### What We Index
 
 #### 1. Existing Fields (unchanged)
+
 - `filepath`, `filename`, `extension` — File location facts
 - `type` — AST-derived: "function", "class", "method", "module"
 - `name` — Symbol name from AST
@@ -63,6 +66,7 @@ We adopt **Approach B: Store facts, not interpretations**.
 - `vector` — Embedding for semantic search
 
 #### 2. New Deterministic Fields
+
 - `signature` — Function/method signature line (first line of declaration)
 - `docstring` — Extracted documentation (JSDoc, Python docstring, etc.)
 - `is_exported` — Boolean: does this symbol have `export` modifier?
@@ -72,14 +76,14 @@ All new fields are **deterministic extractions from the AST**. If the extraction
 
 ### What We Do NOT Index
 
-| Rejected Field | Reason |
-|----------------|--------|
-| `file_category` | Heuristic. What's a "test file" varies by project. `src/test-utils/helpers.ts` — is that a test? Conventions differ. |
-| `service_name` | Heuristic. Requires knowing project structure. Could be wrong, causing silent exclusions. |
-| `language` | Redundant. We have `extension`. AI can map `.ts` → TypeScript if needed. |
-| `is_api_endpoint` | Framework-specific. Express, Fastify, NestJS, Flask all differ. Detection is fragile. |
-| `event_type` | Framework-specific. EventEmitter, Kafka, Pub/Sub, custom buses — too many patterns. |
-| `complexity_tier` | Arbitrary. "Simple" vs "complex" is subjective and low-value. |
+| Rejected Field    | Reason                                                                                                               |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `file_category`   | Heuristic. What's a "test file" varies by project. `src/test-utils/helpers.ts` — is that a test? Conventions differ. |
+| `service_name`    | Heuristic. Requires knowing project structure. Could be wrong, causing silent exclusions.                            |
+| `language`        | Redundant. We have `extension`. AI can map `.ts` → TypeScript if needed.                                             |
+| `is_api_endpoint` | Framework-specific. Express, Fastify, NestJS, Flask all differ. Detection is fragile.                                |
+| `event_type`      | Framework-specific. EventEmitter, Kafka, Pub/Sub, custom buses — too many patterns.                                  |
+| `complexity_tier` | Arbitrary. "Simple" vs "complex" is subjective and low-value.                                                        |
 
 ### How AI Agents Filter Instead
 
@@ -105,12 +109,14 @@ The AI sees exactly what's being filtered. If the project has unusual convention
 We considered pre-computing event publishers/subscribers and API endpoints. Instead, we rely on multi-stage search:
 
 **Pre-computed detection (rejected):**
+
 - Must understand every framework's patterns
 - Breaks when patterns change or are custom
 - False positives/negatives are invisible to AI
 - Maintenance burden for new frameworks
 
 **Multi-stage search (adopted):**
+
 ```
 Stage 1: viberag_search(query="event publish emit", mode="semantic")
          → Finds event-related code
@@ -149,10 +155,11 @@ The AI has domain knowledge we don't. It can handle framework variations, custom
 ### 1. Configurable Categories
 
 Allow users to define category rules in `.viberag/categories.json`:
+
 ```json
 {
-  "test": ["**/test/**", "**/*.test.*"],
-  "api": ["src/api/**"]
+	"test": ["**/test/**", "**/*.test.*"],
+	"api": ["src/api/**"]
 }
 ```
 
@@ -161,6 +168,7 @@ Allow users to define category rules in `.viberag/categories.json`:
 ### 2. Confidence-Scored Categories
 
 Store categories with confidence scores, let AI decide threshold:
+
 ```
 file_category: "test"
 category_confidence: 0.8
@@ -171,8 +179,9 @@ category_confidence: 0.8
 ### 3. Framework Detection Plugins
 
 Pluggable detectors for Express, NestJS, Django, etc.:
+
 ```typescript
-plugins: [expressDetector, nestjsDetector, djangoDetector]
+plugins: [expressDetector, nestjsDetector, djangoDetector];
 ```
 
 **Rejected**: Maintenance burden. Always behind on new frameworks. Still fragile for custom patterns.
@@ -190,35 +199,39 @@ Store facts always, categories optionally based on user config.
 All new fields use deterministic AST extraction:
 
 **Signature**: First line of function/class/method declaration
+
 ```typescript
 // Input
 export async function handleLogin(req: Request, res: Response): Promise<void> {
-  // ... body
+	// ... body
 }
 
 // Extracted signature
-"export async function handleLogin(req: Request, res: Response): Promise<void>"
+('export async function handleLogin(req: Request, res: Response): Promise<void>');
 ```
 
 **Docstring**: First comment/string in function body
+
 ```typescript
 // Input
 function calculate(x: number) {
-  /** Calculates the result */
-  return x * 2;
+	/** Calculates the result */
+	return x * 2;
 }
 
 // Extracted docstring
-"Calculates the result"
+('Calculates the result');
 ```
 
 **is_exported**: Presence of `export` keyword
+
 ```typescript
-export function foo() {}  // is_exported = true
-function bar() {}         // is_exported = false
+export function foo() {} // is_exported = true
+function bar() {} // is_exported = false
 ```
 
 **decorator_names**: List of decorator identifiers
+
 ```typescript
 @Get('/users')
 @Auth()
@@ -232,15 +245,15 @@ async getUsers() {}
 
 Path filters map to LanceDB WHERE clauses:
 
-| Filter | LanceDB |
-|--------|---------|
-| `path_prefix: "src/api/"` | `filepath LIKE 'src/api/%'` |
-| `path_contains: ["auth"]` | `filepath LIKE '%auth%'` |
-| `path_not_contains: ["test"]` | `filepath NOT LIKE '%test%'` |
-| `extension: [".ts"]` | `extension = '.ts'` |
-| `type: ["function"]` | `type = 'function'` |
-| `is_exported: true` | `is_exported = true` |
-| `decorator_contains: "Get"` | `decorator_names LIKE '%Get%'` |
+| Filter                        | LanceDB                        |
+| ----------------------------- | ------------------------------ |
+| `path_prefix: "src/api/"`     | `filepath LIKE 'src/api/%'`    |
+| `path_contains: ["auth"]`     | `filepath LIKE '%auth%'`       |
+| `path_not_contains: ["test"]` | `filepath NOT LIKE '%test%'`   |
+| `extension: [".ts"]`          | `extension = '.ts'`            |
+| `type: ["function"]`          | `type = 'function'`            |
+| `is_exported: true`           | `is_exported = true`           |
+| `decorator_contains: "Get"`   | `decorator_names LIKE '%Get%'` |
 
 ### Symbol Index (Phase 3)
 

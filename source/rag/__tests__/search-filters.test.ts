@@ -85,9 +85,9 @@ describe('Search Filters', () => {
 			});
 
 			// No results should be in __tests__ directory
-			expect(results.results.every(r => !r.filepath.includes('__tests__'))).toBe(
-				true,
-			);
+			expect(
+				results.results.every(r => !r.filepath.includes('__tests__')),
+			).toBe(true);
 		}, 60_000);
 
 		it('excludes multiple patterns with pathNotContains', async () => {
