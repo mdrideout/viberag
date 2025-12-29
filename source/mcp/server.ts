@@ -256,7 +256,7 @@ For complex queries, call multiple times with progressive filtering:
 						isExported: args.filters.is_exported,
 						decoratorContains: args.filters.decorator_contains,
 						hasDocstring: args.filters.has_docstring,
-				  }
+					}
 				: undefined;
 
 			const engine = new SearchEngine(projectRoot);

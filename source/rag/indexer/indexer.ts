@@ -272,9 +272,8 @@ export class Indexer {
 
 				// Check embedding cache for each chunk
 				const contentHashes = chunks.map(c => c.contentHash);
-				const cachedEmbeddings = await storage.getCachedEmbeddings(
-					contentHashes,
-				);
+				const cachedEmbeddings =
+					await storage.getCachedEmbeddings(contentHashes);
 
 				// Compute embeddings for cache misses
 				const missingChunks = chunks.filter(

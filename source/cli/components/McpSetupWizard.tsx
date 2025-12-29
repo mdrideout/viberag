@@ -369,15 +369,15 @@ export function McpSetupWizard({
 			currentEditor.scope === 'ui'
 				? UI_ACTION_ITEMS
 				: currentEditor.scope === 'global'
-				? GLOBAL_ACTION_ITEMS
-				: PROJECT_ACTION_ITEMS;
+					? GLOBAL_ACTION_ITEMS
+					: PROJECT_ACTION_ITEMS;
 
 		const configPathDisplay =
 			currentEditor.scope === 'project'
 				? currentEditor.configPath
 				: currentEditor.scope === 'global'
-				? `${currentEditor.configPath}`
-				: 'IDE Settings';
+					? `${currentEditor.configPath}`
+					: 'IDE Settings';
 
 		return (
 			<Box flexDirection="column" borderStyle="round" paddingX={2} paddingY={1}>
@@ -441,8 +441,8 @@ export function McpSetupWizard({
 									{r.method === 'file-created'
 										? `Created ${r.configPath}`
 										: r.method === 'file-merged'
-										? `Updated ${r.configPath}`
-										: 'CLI command'}
+											? `Updated ${r.configPath}`
+											: 'CLI command'}
 								</Text>
 							</Text>
 						);

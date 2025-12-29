@@ -64,7 +64,7 @@ export class GeminiEmbeddingProvider implements EmbeddingProvider {
 				'Content-Type': 'application/json',
 			},
 			body: JSON.stringify({
-				requests: texts.map((text) => ({
+				requests: texts.map(text => ({
 					model: `models/${MODEL}`,
 					content: {
 						parts: [{text}],
@@ -83,7 +83,7 @@ export class GeminiEmbeddingProvider implements EmbeddingProvider {
 			embeddings: Array<{values: number[]}>;
 		};
 
-		return data.embeddings.map((e) => e.values);
+		return data.embeddings.map(e => e.values);
 	}
 
 	async embedSingle(text: string): Promise<number[]> {

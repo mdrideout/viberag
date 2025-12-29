@@ -38,13 +38,14 @@ scoop install viberag           # Windows users
 
 ### Bundler Status (Dec 2025)
 
-| Bundler | Binary Size | Status | Blocker |
-|---------|-------------|--------|---------|
-| Bun compile | 157MB | Compiles but fails at runtime | ink v4 uses yoga-wasm-web, Bun can't load WASM |
-| Deno compile | 642MB | **Works correctly** | Large binary size |
-| pkg/yao-pkg | N/A | Fails | ESM import.meta not supported |
+| Bundler      | Binary Size | Status                        | Blocker                                        |
+| ------------ | ----------- | ----------------------------- | ---------------------------------------------- |
+| Bun compile  | 157MB       | Compiles but fails at runtime | ink v4 uses yoga-wasm-web, Bun can't load WASM |
+| Deno compile | 642MB       | **Works correctly**           | Large binary size                              |
+| pkg/yao-pkg  | N/A         | Fails                         | ESM import.meta not supported                  |
 
 **Path to Bun:**
+
 - ink v6 uses `yoga-layout` (native) instead of `yoga-wasm-web` (WASM)
 - ink v6 requires React 19
 - Need to upgrade ink + React + ink-select-input + ink-big-text + ink-gradient
@@ -57,6 +58,7 @@ scoop install viberag           # Windows users
 **Reason:** These dependencies pull in `onnxruntime-node` (~210MB) with complex native dylib loading that breaks standalone binary compilation (pkg, Deno compile all failed).
 
 **New approach:** API-based embeddings only:
+
 - Gemini (free tier available)
 - Mistral (codestral-embed-2505, best for code)
 - OpenAI (text-embedding-3-large)
@@ -107,9 +109,9 @@ npm uninstall @huggingface/transformers fastembed
 ```typescript
 // source/common/types.ts
 export type EmbeddingProviderType =
-  | 'gemini'      // gemini-embedding-001 (768d, free tier)
-  | 'mistral'     // codestral-embed-2505 (1024d, best for code)
-  | 'openai';     // text-embedding-3-large (3072d, highest quality)
+	| 'gemini' // gemini-embedding-001 (768d, free tier)
+	| 'mistral' // codestral-embed-2505 (1024d, best for code)
+	| 'openai'; // text-embedding-3-large (3072d, highest quality)
 ```
 
 ### 1.5.3 Implement API Providers
@@ -117,67 +119,67 @@ export type EmbeddingProviderType =
 ```typescript
 // source/rag/embeddings/gemini.ts
 export class GeminiEmbeddingProvider implements EmbeddingProvider {
-  readonly dimensions = 768;
+	readonly dimensions = 768;
 
-  async embed(texts: string[]): Promise<number[][]> {
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1/models/embedding-001:batchEmbedContents?key=${this.apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          requests: texts.map(text => ({
-            model: 'models/embedding-001',
-            content: { parts: [{ text }] }
-          }))
-        })
-      }
-    );
-    const data = await response.json();
-    return data.embeddings.map((e: any) => e.values);
-  }
+	async embed(texts: string[]): Promise<number[][]> {
+		const response = await fetch(
+			`https://generativelanguage.googleapis.com/v1/models/embedding-001:batchEmbedContents?key=${this.apiKey}`,
+			{
+				method: 'POST',
+				headers: {'Content-Type': 'application/json'},
+				body: JSON.stringify({
+					requests: texts.map(text => ({
+						model: 'models/embedding-001',
+						content: {parts: [{text}]},
+					})),
+				}),
+			},
+		);
+		const data = await response.json();
+		return data.embeddings.map((e: any) => e.values);
+	}
 }
 
 // source/rag/embeddings/mistral.ts
 export class MistralEmbeddingProvider implements EmbeddingProvider {
-  readonly dimensions = 1024;
+	readonly dimensions = 1024;
 
-  async embed(texts: string[]): Promise<number[][]> {
-    const response = await fetch('https://api.mistral.ai/v1/embeddings', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.apiKey}`
-      },
-      body: JSON.stringify({
-        model: 'codestral-embed-2505',
-        input: texts
-      })
-    });
-    const data = await response.json();
-    return data.data.map((d: any) => d.embedding);
-  }
+	async embed(texts: string[]): Promise<number[][]> {
+		const response = await fetch('https://api.mistral.ai/v1/embeddings', {
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json',
+				Authorization: `Bearer ${this.apiKey}`,
+			},
+			body: JSON.stringify({
+				model: 'codestral-embed-2505',
+				input: texts,
+			}),
+		});
+		const data = await response.json();
+		return data.data.map((d: any) => d.embedding);
+	}
 }
 
 // source/rag/embeddings/openai.ts
 export class OpenAIEmbeddingProvider implements EmbeddingProvider {
-  readonly dimensions = 3072;
+	readonly dimensions = 3072;
 
-  async embed(texts: string[]): Promise<number[][]> {
-    const response = await fetch('https://api.openai.com/v1/embeddings', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.apiKey}`
-      },
-      body: JSON.stringify({
-        model: 'text-embedding-3-large',
-        input: texts
-      })
-    });
-    const data = await response.json();
-    return data.data.map((d: any) => d.embedding);
-  }
+	async embed(texts: string[]): Promise<number[][]> {
+		const response = await fetch('https://api.openai.com/v1/embeddings', {
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json',
+				Authorization: `Bearer ${this.apiKey}`,
+			},
+			body: JSON.stringify({
+				model: 'text-embedding-3-large',
+				input: texts,
+			}),
+		});
+		const data = await response.json();
+		return data.data.map((d: any) => d.embedding);
+	}
 }
 ```
 
@@ -198,16 +200,17 @@ Store API keys in `.viberag/config.json`:
 
 ```json
 {
-  "embeddingProvider": "gemini",
-  "apiKeys": {
-    "gemini": "AIza...",
-    "mistral": "...",
-    "openai": "sk-..."
-  }
+	"embeddingProvider": "gemini",
+	"apiKeys": {
+		"gemini": "AIza...",
+		"mistral": "...",
+		"openai": "sk-..."
+	}
 }
 ```
 
 Or via environment variables:
+
 - `GEMINI_API_KEY`
 - `MISTRAL_API_KEY`
 - `OPENAI_API_KEY`
@@ -250,16 +253,16 @@ deno compile --allow-all --no-check --include node_modules --output viberag dist
 
 ### 3.2 Future Solution: Bun Compile (requires ink v6)
 
-| Factor | Bun | Deno |
-|--------|-----|------|
-| tree-sitter support | ✅ v1.1.34+ | ✅ |
-| Native addon loading | ✅ Node-API | ✅ |
-| Anthropic backing | ✅ Acquired | ❌ |
-| Claude Code uses | ✅ Yes | ❌ |
-| Binary size | 157MB | 642MB |
-| Startup time | Fast | Medium |
-| ink v4 (current) | ❌ yoga.wasm fails | ✅ Works |
-| ink v6 (needed) | ✅ Would work | ✅ Works |
+| Factor               | Bun                | Deno     |
+| -------------------- | ------------------ | -------- |
+| tree-sitter support  | ✅ v1.1.34+        | ✅       |
+| Native addon loading | ✅ Node-API        | ✅       |
+| Anthropic backing    | ✅ Acquired        | ❌       |
+| Claude Code uses     | ✅ Yes             | ❌       |
+| Binary size          | 157MB              | 642MB    |
+| Startup time         | Fast               | Medium   |
+| ink v4 (current)     | ❌ yoga.wasm fails | ✅ Works |
+| ink v6 (needed)      | ✅ Would work      | ✅ Works |
 
 **Key insight:** [Anthropic acquired Bun](https://bun.com/blog/bun-joins-anthropic) and Claude Code ships as a Bun executable. However, Claude Code uses a custom renderer instead of ink to avoid the yoga.wasm issue.
 
@@ -410,20 +413,20 @@ jobs:
 
 After removing ML stack:
 
-| Bundler | darwin-arm64 | Notes |
-|---------|--------------|-------|
-| Deno compile | 642MB | Works today |
-| Bun compile | 157MB | Needs ink v6 + React 19 |
+| Bundler      | darwin-arm64 | Notes                   |
+| ------------ | ------------ | ----------------------- |
+| Deno compile | 642MB        | Works today             |
+| Bun compile  | 157MB        | Needs ink v6 + React 19 |
 
 **With ink v6 (projected):**
 
-| Platform | Bun Size | Deno Size |
-|----------|----------|-----------|
-| linux-x64 | ~160MB | ~650MB |
-| linux-arm64 | ~160MB | ~650MB |
-| darwin-x64 | ~160MB | ~650MB |
-| darwin-arm64 | 157MB | 642MB |
-| win-x64 | ~170MB | ~700MB |
+| Platform     | Bun Size | Deno Size |
+| ------------ | -------- | --------- |
+| linux-x64    | ~160MB   | ~650MB    |
+| linux-arm64  | ~160MB   | ~650MB    |
+| darwin-x64   | ~160MB   | ~650MB    |
+| darwin-arm64 | 157MB    | 642MB     |
+| win-x64      | ~170MB   | ~700MB    |
 
 **Total release size with Bun:** ~850MB (5 platforms)
 **Total release size with Deno:** ~3.3GB (5 platforms)
@@ -517,6 +520,7 @@ viberag --version
 ```
 
 **Usage:**
+
 ```bash
 curl -fsSL https://viberag.dev/install.sh | sh
 ```
@@ -529,25 +533,25 @@ curl -fsSL https://viberag.dev/install.sh | sh
 
 ### Tier 1 Languages (Full Support)
 
-| Language | Grammar Package | Export Detection | Decorators | Docstrings |
-|----------|----------------|------------------|------------|------------|
-| JavaScript | tree-sitter-javascript | `export` keyword | `@decorator` | `/** */` |
-| TypeScript | tree-sitter-typescript | `export` keyword | `@decorator` | `/** */` |
-| TSX | tree-sitter-typescript | `export` keyword | `@decorator` | `/** */` |
-| Python | tree-sitter-python | `_` prefix | `@decorator` | `"""docstring"""` |
-| Go | tree-sitter-go | Capitalization | N/A | `// comment` |
-| Rust | tree-sitter-rust | `pub` keyword | `#[attr]` | `///` or `//!` |
-| Java | tree-sitter-java | `public` keyword | `@Annotation` | `/** */` |
+| Language   | Grammar Package        | Export Detection | Decorators    | Docstrings        |
+| ---------- | ---------------------- | ---------------- | ------------- | ----------------- |
+| JavaScript | tree-sitter-javascript | `export` keyword | `@decorator`  | `/** */`          |
+| TypeScript | tree-sitter-typescript | `export` keyword | `@decorator`  | `/** */`          |
+| TSX        | tree-sitter-typescript | `export` keyword | `@decorator`  | `/** */`          |
+| Python     | tree-sitter-python     | `_` prefix       | `@decorator`  | `"""docstring"""` |
+| Go         | tree-sitter-go         | Capitalization   | N/A           | `// comment`      |
+| Rust       | tree-sitter-rust       | `pub` keyword    | `#[attr]`     | `///` or `//!`    |
+| Java       | tree-sitter-java       | `public` keyword | `@Annotation` | `/** */`          |
 
 ### Tier 2 Languages (Standard Support)
 
-| Language | Grammar Package | Export Detection | Decorators | Docstrings |
-|----------|----------------|------------------|------------|------------|
-| C# | tree-sitter-c-sharp | `public` keyword | `[Attribute]` | `/// <summary>` |
-| Kotlin | tree-sitter-kotlin | default public | `@Annotation` | `/** */` |
-| Swift | tree-sitter-swift | `public` keyword | `@attribute` | `///` |
-| PHP | tree-sitter-php | `public` keyword | `#[Attr]` | `/** */` |
-| Dart | @sengac/tree-sitter-dart | `_` prefix | `@annotation` | `///` |
+| Language | Grammar Package          | Export Detection | Decorators    | Docstrings      |
+| -------- | ------------------------ | ---------------- | ------------- | --------------- |
+| C#       | tree-sitter-c-sharp      | `public` keyword | `[Attribute]` | `/// <summary>` |
+| Kotlin   | tree-sitter-kotlin       | default public   | `@Annotation` | `/** */`        |
+| Swift    | tree-sitter-swift        | `public` keyword | `@attribute`  | `///`           |
+| PHP      | tree-sitter-php          | `public` keyword | `#[Attr]`     | `/** */`        |
+| Dart     | @sengac/tree-sitter-dart | `_` prefix       | `@annotation` | `///`           |
 
 ---
 
@@ -563,25 +567,25 @@ curl -fsSL https://viberag.dev/install.sh | sh
 
 ## Success Metrics (Updated)
 
-| Metric | Target | Notes |
-|--------|--------|-------|
-| Installation success rate | >99% | No build tools needed |
-| Platform coverage | 5 platforms | linux/darwin x64/arm64, win-x64 |
-| Language support | 12 languages | All working with native tree-sitter |
-| Standalone binary size | <150MB | Down from ~900MB+ with ML stack |
-| npm package size | <50MB | Just dist + scripts |
-| Startup time | <2s | Bun is fast |
+| Metric                    | Target       | Notes                               |
+| ------------------------- | ------------ | ----------------------------------- |
+| Installation success rate | >99%         | No build tools needed               |
+| Platform coverage         | 5 platforms  | linux/darwin x64/arm64, win-x64     |
+| Language support          | 12 languages | All working with native tree-sitter |
+| Standalone binary size    | <150MB       | Down from ~900MB+ with ML stack     |
+| npm package size          | <50MB        | Just dist + scripts                 |
+| Startup time              | <2s          | Bun is fast                         |
 
 ---
 
 ## Risk Mitigation
 
-| Risk | Mitigation |
-|------|------------|
-| Bun compile issues with native addons | Test thoroughly, fallback to npm |
-| API rate limits | Implement retry with backoff |
-| API cost concerns | Default to Gemini (free tier) |
-| LanceDB native issues | Already tested, works with Node-API |
+| Risk                                  | Mitigation                          |
+| ------------------------------------- | ----------------------------------- |
+| Bun compile issues with native addons | Test thoroughly, fallback to npm    |
+| API rate limits                       | Implement retry with backoff        |
+| API cost concerns                     | Default to Gemini (free tier)       |
+| LanceDB native issues                 | Already tested, works with Node-API |
 
 ---
 
@@ -590,6 +594,7 @@ curl -fsSL https://viberag.dev/install.sh | sh
 ### Optional Local Embeddings (Phase 6)
 
 If users strongly request local embeddings:
+
 - Document Ollama as external option
 - `viberag` just calls `http://localhost:11434/api/embed`
 - User manages Ollama separately
@@ -598,6 +603,7 @@ If users strongly request local embeddings:
 ### Rust Rewrite (Long-term)
 
 For maximum performance and smallest binary:
+
 - tree-sitter has native Rust bindings
 - Single <20MB binary possible
 - No runtime dependencies

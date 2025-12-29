@@ -72,7 +72,7 @@ export class SearchEngine {
 		const mode: SearchMode = options.mode ?? 'hybrid';
 		const limit = options.exhaustive
 			? EXHAUSTIVE_LIMIT
-			: options.limit ?? DEFAULT_LIMIT;
+			: (options.limit ?? DEFAULT_LIMIT);
 		const filterClause = buildFilterClause(options.filters);
 
 		await this.ensureInitialized();

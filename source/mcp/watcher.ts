@@ -122,7 +122,7 @@ export class FileWatcher {
 				? {
 						stabilityThreshold: 300,
 						pollInterval: 100,
-				  }
+					}
 				: false,
 			depth: 20, // Reasonable depth limit
 		});

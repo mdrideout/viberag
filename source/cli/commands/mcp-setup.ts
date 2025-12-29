@@ -228,7 +228,7 @@ export function getManualInstructions(
 		const configPath =
 			editor.scope === 'project'
 				? editor.configPath
-				: getConfigPath(editor, projectRoot) ?? editor.configPath;
+				: (getConfigPath(editor, projectRoot) ?? editor.configPath);
 
 		lines.push(`Add to ${configPath}:`);
 		lines.push('');

@@ -463,13 +463,11 @@ Each stage narrows based on what was learned. No special detection needed.
 Document:
 
 1. **What we index and why**
-
    - Deterministic AST-derived metadata
    - Symbol definitions and usages
    - The "facts not interpretations" principle
 
 2. **What we chose NOT to index and why**
-
    - File categories (test/source/config)
    - Service names
    - Event publishers/subscribers
@@ -477,7 +475,6 @@ Document:
    - The risks of heuristic classification
 
 3. **The filtering philosophy**
-
    - Transparent, AI-controlled filters
    - Path-based filtering over categories
    - Why silent false negatives are the worst failure mode

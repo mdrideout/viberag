@@ -77,9 +77,7 @@ export class MistralEmbeddingProvider implements EmbeddingProvider {
 		};
 
 		// Sort by index to ensure correct order
-		return data.data
-			.sort((a, b) => a.index - b.index)
-			.map((d) => d.embedding);
+		return data.data.sort((a, b) => a.index - b.index).map(d => d.embedding);
 	}
 
 	async embedSingle(text: string): Promise<number[]> {
