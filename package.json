@@ -29,7 +29,6 @@
 		"scripts"
 	],
 	"dependencies": {
-		"@huggingface/transformers": "^3.8.1",
 		"@lancedb/lancedb": "^0.23.0",
 		"@sengac/tree-sitter-dart": "^1.1.6",
 		"apache-arrow": "^21.1.0",
@@ -37,7 +36,6 @@
 		"chokidar": "^5.0.0",
 		"cli-highlight": "^2.1.11",
 		"fast-glob": "^3.3.3",
-		"fastembed": "^2.1.0",
 		"fastmcp": "^3.26.7",
 		"ink": "^4.1.0",
 		"ink-big-text": "^2.0.0",
@@ -73,6 +71,7 @@
 		"globals": "^16.5.0",
 		"ink-testing-library": "^3.0.0",
 		"prettier": "^2.8.7",
+		"react-devtools-core": "^7.0.1",
 		"ts-node": "^10.9.1",
 		"typescript": "^5.0.3",
 		"typescript-eslint": "^8.50.1",

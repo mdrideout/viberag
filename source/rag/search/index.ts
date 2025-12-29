@@ -12,7 +12,9 @@
 import type {Table} from '@lancedb/lancedb';
 import {loadConfig} from '../config/index.js';
 import {
-	LocalEmbeddingProvider,
+	GeminiEmbeddingProvider,
+	MistralEmbeddingProvider,
+	OpenAIEmbeddingProvider,
 	type EmbeddingProvider,
 } from '../embeddings/index.js';
 import type {Logger} from '../logger/index.js';
@@ -358,14 +360,29 @@ export class SearchEngine {
 		await this.storage.connect();
 
 		// Initialize embeddings with config
-		this.embeddings = new LocalEmbeddingProvider(
-			config.embeddingModel,
-			config.embeddingDimensions,
-		);
+		this.embeddings = this.createEmbeddingProvider(config.embeddingProvider);
 		await this.embeddings.initialize();
 
 		this.initialized = true;
 		this.log('info', 'SearchEngine initialized');
+	}
+
+	/**
+	 * Create the appropriate embedding provider based on provider type.
+	 */
+	private createEmbeddingProvider(
+		providerType: 'gemini' | 'mistral' | 'openai',
+	): EmbeddingProvider {
+		switch (providerType) {
+			case 'gemini':
+				return new GeminiEmbeddingProvider();
+			case 'mistral':
+				return new MistralEmbeddingProvider();
+			case 'openai':
+				return new OpenAIEmbeddingProvider();
+			default:
+				throw new Error(`Unknown embedding provider: ${providerType}`);
+		}
 	}
 
 	/**

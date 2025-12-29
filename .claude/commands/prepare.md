@@ -1,5 +1,7 @@
 # VibeRAG - Local Code RAG MCP Server
 
+Check the current date and time.
+
 VibeRAG is a React Ink / Typescript CLI and MCP server for local codebase RAG. 
 
 Powered by LanceDB, it leverages LanceDB's advanced querying capabilities for local semantic search, BM25, keyword search, fuzzy matching, etc. for AI agents.

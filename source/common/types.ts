@@ -62,19 +62,12 @@ export type IndexDisplayStats = {
 };
 
 /**
- * Embedding provider types.
- * Local options (no API key required):
- * - local: jina-embeddings-v2-base-code fp16 (768d, 8K context, best local quality)
- * - local-fast: jina-embeddings-v2-base-code int8 (768d, 8K context, faster)
- * Cloud options (API key required, fastest):
- * - gemini: gemini-embedding-001 (768d, 2K context)
- * - mistral: codestral-embed-2505 (1024d, 8K context, best accuracy)
+ * Embedding provider types (API-based only).
+ * - gemini: text-embedding-004 (768d) - Free tier available
+ * - mistral: mistral-embed (1024d) - Good for code
+ * - openai: text-embedding-3-large (3072d) - Highest quality
  */
-export type EmbeddingProviderType =
-	| 'local'
-	| 'local-fast'
-	| 'gemini'
-	| 'mistral';
+export type EmbeddingProviderType = 'gemini' | 'mistral' | 'openai';
 
 /**
  * Configuration collected from the init wizard.

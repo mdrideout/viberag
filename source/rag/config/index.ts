@@ -39,26 +39,19 @@ export interface ViberagConfig {
  */
 export const PROVIDER_CONFIGS: Record<
 	EmbeddingProviderType,
-	{model: string; dimensions: number; dtype?: string}
+	{model: string; dimensions: number}
 > = {
-	local: {
-		model: 'jinaai/jina-embeddings-v2-base-code',
-		dimensions: 768,
-		dtype: 'q8',
-	},
-	'local-fast': {
-		// Alias for local, kept for backward compatibility
-		model: 'jinaai/jina-embeddings-v2-base-code',
-		dimensions: 768,
-		dtype: 'q8',
-	},
 	gemini: {
-		model: 'gemini-embedding-001',
+		model: 'text-embedding-004',
 		dimensions: 768,
 	},
 	mistral: {
-		model: 'codestral-embed-2505',
+		model: 'mistral-embed',
 		dimensions: 1024,
+	},
+	openai: {
+		model: 'text-embedding-3-large',
+		dimensions: 3072,
 	},
 };
 
@@ -90,9 +83,9 @@ export const DEFAULT_WATCH_CONFIG: WatchConfig = {
 
 export const DEFAULT_CONFIG: ViberagConfig = {
 	version: 1,
-	embeddingProvider: 'local',
-	embeddingModel: PROVIDER_CONFIGS['local'].model,
-	embeddingDimensions: PROVIDER_CONFIGS['local'].dimensions,
+	embeddingProvider: 'gemini',
+	embeddingModel: PROVIDER_CONFIGS['gemini'].model,
+	embeddingDimensions: PROVIDER_CONFIGS['gemini'].dimensions,
 	extensions: [
 		'.py',
 		'.js',

@@ -74,7 +74,7 @@ export async function runInit(
 	await fs.mkdir(viberagDir, {recursive: true});
 
 	// Build config from wizard choices
-	const provider = wizardConfig?.provider ?? 'local';
+	const provider = wizardConfig?.provider ?? 'gemini';
 	const {model, dimensions} = PROVIDER_CONFIGS[provider];
 
 	const config: ViberagConfig = {

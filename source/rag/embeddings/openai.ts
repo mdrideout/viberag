@@ -1,0 +1,93 @@
+/**
+ * OpenAI embedding provider using OpenAI API.
+ *
+ * Uses text-embedding-3-large model (3072 dimensions).
+ * Highest quality embeddings, good for precision-critical use cases.
+ */
+
+import type {EmbeddingProvider} from './types.js';
+
+const OPENAI_API_BASE = 'https://api.openai.com/v1';
+const MODEL = 'text-embedding-3-large';
+const BATCH_SIZE = 2048; // OpenAI supports up to 2048 texts per request
+
+/**
+ * OpenAI embedding provider.
+ * Uses text-embedding-3-large model via OpenAI API.
+ */
+export class OpenAIEmbeddingProvider implements EmbeddingProvider {
+	readonly dimensions = 3072;
+	private apiKey: string;
+	private initialized = false;
+
+	constructor(apiKey?: string) {
+		this.apiKey = apiKey || process.env['OPENAI_API_KEY'] || '';
+	}
+
+	async initialize(): Promise<void> {
+		if (!this.apiKey) {
+			throw new Error(
+				'OpenAI API key required. Set OPENAI_API_KEY environment variable or pass to constructor.',
+			);
+		}
+		this.initialized = true;
+	}
+
+	async embed(texts: string[]): Promise<number[][]> {
+		if (!this.initialized) {
+			await this.initialize();
+		}
+
+		if (texts.length === 0) {
+			return [];
+		}
+
+		const results: number[][] = [];
+
+		// Process in batches
+		for (let i = 0; i < texts.length; i += BATCH_SIZE) {
+			const batch = texts.slice(i, i + BATCH_SIZE);
+			const batchResults = await this.embedBatch(batch);
+			results.push(...batchResults);
+		}
+
+		return results;
+	}
+
+	private async embedBatch(texts: string[]): Promise<number[][]> {
+		const response = await fetch(`${OPENAI_API_BASE}/embeddings`, {
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json',
+				Authorization: `Bearer ${this.apiKey}`,
+			},
+			body: JSON.stringify({
+				model: MODEL,
+				input: texts,
+			}),
+		});
+
+		if (!response.ok) {
+			const error = await response.text();
+			throw new Error(`OpenAI API error: ${response.status} - ${error}`);
+		}
+
+		const data = (await response.json()) as {
+			data: Array<{embedding: number[]; index: number}>;
+		};
+
+		// Sort by index to ensure correct order
+		return data.data
+			.sort((a, b) => a.index - b.index)
+			.map((d) => d.embedding);
+	}
+
+	async embedSingle(text: string): Promise<number[]> {
+		const results = await this.embed([text]);
+		return results[0]!;
+	}
+
+	close(): void {
+		this.initialized = false;
+	}
+}

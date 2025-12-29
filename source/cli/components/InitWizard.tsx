@@ -28,91 +28,91 @@ type SelectItem<T> = {
 /**
  * Provider configurations with specs and pricing.
  */
-const PROVIDER_CONFIG = {
-	local: {
-		name: 'Local',
-		model: 'jina-v2-code',
-		modelFull: 'jinaai/jina-embeddings-v2-base-code (int8)',
-		dims: '768',
-		context: '8K',
-		cost: 'Free',
-		note: '161MB download',
-		description: 'Local inference, no API key',
-	},
-	'local-fast': {
-		name: 'Local',
-		model: 'jina-v2-code',
-		modelFull: 'jinaai/jina-embeddings-v2-base-code (int8)',
-		dims: '768',
-		context: '8K',
-		cost: 'Free',
-		note: '161MB download',
-		description: 'Local inference, no API key',
-	},
+const PROVIDER_CONFIG: Record<
+	EmbeddingProviderType,
+	{
+		name: string;
+		model: string;
+		modelFull: string;
+		dims: string;
+		context: string;
+		cost: string;
+		note: string;
+		description: string;
+	}
+> = {
 	gemini: {
 		name: 'Gemini',
-		model: 'gemini-embedding-001',
-		modelFull: 'gemini-embedding-001',
+		model: 'text-embedding-004',
+		modelFull: 'text-embedding-004',
 		dims: '768',
 		context: '2K',
-		cost: '$0.15/1M',
+		cost: 'Free tier',
 		note: 'Free tier available',
 		description: 'Google Cloud, fast API',
 	},
 	mistral: {
 		name: 'Mistral',
-		model: 'codestral-embed',
-		modelFull: 'codestral-embed-2505',
+		model: 'mistral-embed',
+		modelFull: 'mistral-embed',
 		dims: '1024',
 		context: '8K',
-		cost: '$0.15/1M',
-		note: 'Best for code',
-		description: 'Code-optimized, fastest indexing',
+		cost: '$0.10/1M',
+		note: 'Good for code',
+		description: 'Fast and affordable',
 	},
-} as const;
+	openai: {
+		name: 'OpenAI',
+		model: 'text-embedding-3-large',
+		modelFull: 'text-embedding-3-large',
+		dims: '3072',
+		context: '8K',
+		cost: '$0.13/1M',
+		note: 'Highest quality',
+		description: 'Best quality embeddings',
+	},
+};
 
 // Simple provider options for selection
 const PROVIDER_ITEMS: SelectItem<EmbeddingProviderType>[] = [
 	{
-		label: 'Local   - jina-embeddings-v2-base-code, free, no API key',
-		value: 'local',
-	},
-	{
-		label: 'Gemini  - gemini-embedding-001, free tier available',
+		label: 'Gemini  - text-embedding-004, free tier (Recommended)',
 		value: 'gemini',
 	},
 	{
-		label: 'Mistral - codestral-embed, code-optimized (Recommended)',
+		label: 'Mistral - mistral-embed, good for code',
 		value: 'mistral',
+	},
+	{
+		label: 'OpenAI  - text-embedding-3-large, highest quality',
+		value: 'openai',
 	},
 ];
 
 /**
  * Comparison table data.
- * First index is slower (model download). Incremental indexes are fast.
- * Cloud providers (Gemini/Mistral) have fastest indexing.
  */
 const COMPARISON_DATA = [
 	{
-		Provider: 'Local',
-		Model: 'jina-v2-code',
-		Dims: '768',
-		Context: '8K',
-		Cost: 'Free',
-	},
-	{
-		Provider: 'Gemini',
-		Model: 'gemini-embed',
+		Provider: 'Gemini*',
+		Model: 'embed-004',
 		Dims: '768',
 		Context: '2K',
-		Cost: '$0.15/1M',
+		Cost: 'Free tier',
 	},
 	{
-		Provider: 'Mistral*',
-		Model: 'codestral',
+		Provider: 'Mistral',
+		Model: 'embed',
 		Dims: '1024',
 		Context: '8K',
-		Cost: '$0.15/1M',
+		Cost: '$0.10/1M',
+	},
+	{
+		Provider: 'OpenAI',
+		Model: 'embed-3-lg',
+		Dims: '3072',
+		Context: '8K',
+		Cost: '$0.13/1M',
 	},
 ];
 
@@ -270,7 +270,7 @@ export function InitWizard({
 
 	// Step 2: Confirmation
 	if (effectiveStep === 2) {
-		const provider = config.provider ?? 'local';
+		const provider = config.provider ?? 'gemini';
 		const info = PROVIDER_CONFIG[provider];
 		return (
 			<Box flexDirection="column" borderStyle="round" paddingX={2} paddingY={1}>

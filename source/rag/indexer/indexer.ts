@@ -17,10 +17,11 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {loadConfig, type ViberagConfig} from '../config/index.js';
 import {
-	LocalEmbeddingProvider,
+	GeminiEmbeddingProvider,
+	MistralEmbeddingProvider,
+	OpenAIEmbeddingProvider,
 	type EmbeddingProvider,
 } from '../embeddings/index.js';
-import {PROVIDER_CONFIGS} from '../config/index.js';
 import type {Logger} from '../logger/index.js';
 import {
 	loadManifest,
@@ -369,21 +370,12 @@ export class Indexer {
 	 */
 	private createEmbeddingProvider(config: ViberagConfig): EmbeddingProvider {
 		switch (config.embeddingProvider) {
-			case 'local':
-			case 'local-fast': {
-				const providerConfig = PROVIDER_CONFIGS[config.embeddingProvider];
-				return new LocalEmbeddingProvider(
-					config.embeddingModel,
-					config.embeddingDimensions,
-					providerConfig.dtype as 'fp16' | 'q8',
-				);
-			}
 			case 'gemini':
+				return new GeminiEmbeddingProvider();
 			case 'mistral':
-				// Cloud providers not yet implemented
-				throw new Error(
-					`Cloud provider "${config.embeddingProvider}" not yet implemented`,
-				);
+				return new MistralEmbeddingProvider();
+			case 'openai':
+				return new OpenAIEmbeddingProvider();
 			default:
 				throw new Error(
 					`Unknown embedding provider: ${config.embeddingProvider}`,

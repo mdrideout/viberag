@@ -2,6 +2,8 @@
 
 VibeRAG: React Ink CLI for local codebase RAG.
 
+Check the current date and time.
+
 ## Architecture: Vertical Slicing
 
 Interfaces are self-contained features. Delete a folder, delete the feature.

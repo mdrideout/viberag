@@ -106,7 +106,9 @@ export {
 
 // Embeddings
 export {
-	LocalEmbeddingProvider,
+	GeminiEmbeddingProvider,
+	MistralEmbeddingProvider,
+	OpenAIEmbeddingProvider,
 	type EmbeddingProvider,
 } from './embeddings/index.js';
 
