@@ -21,11 +21,12 @@ We support three embedding providers, selectable during `/init`:
 
 | Provider  | Model                        | Dimensions | Context   | Cost                 | Status      |
 | --------- | ---------------------------- | ---------- | --------- | -------------------- | ----------- |
-| Local     | jina-embeddings-v2-base-code | 768        | 8K tokens | Free                 | Implemented |
-| Gemini    | gemini-embedding-001         | 768        | 2K tokens | Free tier / $0.15/1M | Planned     |
-| Mistral\* | codestral-embed-2505         | 1024       | 8K tokens | $0.15/1M             | Planned     |
+| Local\*   | jina-embeddings-v2-base-code | 768        | 8K tokens | Free                 | Implemented |
+| Gemini    | text-embedding-004           | 768        | 2K tokens | Free tier            | Implemented |
+| Mistral   | mistral-embed                | 1024       | 8K tokens | $0.10/1M             | Implemented |
+| OpenAI    | text-embedding-3-large       | 3072       | 8K tokens | $0.13/1M             | Implemented |
 
-\*Recommended for best code retrieval quality.
+\*Recommended for offline use and code-optimized embeddings.
 
 ### Local (Default, Implemented)
 
@@ -44,9 +45,9 @@ We support three embedding providers, selectable during `/init`:
 - Lower retrieval quality than cloud options
 - First run requires model download
 
-### Gemini (Planned)
+### Gemini (Implemented)
 
-**Model**: `gemini-embedding-001`
+**Model**: `text-embedding-004`
 
 **Strengths**:
 
@@ -60,22 +61,36 @@ We support three embedding providers, selectable during `/init`:
 - Not specifically optimized for code
 - Requires API key
 
-### Mistral (Planned)
+### Mistral (Implemented)
 
-**Model**: `codestral-embed-2505`
+**Model**: `mistral-embed`
 
 **Strengths**:
 
-- Specifically designed for code understanding
-- Built on Codestral, Mistral's code-focused model family
+- Good balance of quality and cost
 - 1024 dimensions capture more semantic nuance
 - 8K token context matches local model
-- Strong performance on code retrieval benchmarks
 
 **Trade-offs**:
 
 - Requires API key and costs money for large codebases
 - Higher dimensions mean slightly larger vector storage
+
+### OpenAI (Implemented)
+
+**Model**: `text-embedding-3-large`
+
+**Strengths**:
+
+- Highest quality embeddings
+- 3072 dimensions for maximum semantic nuance
+- 8K token context
+
+**Trade-offs**:
+
+- Highest cost ($0.13/1M tokens)
+- Requires API key
+- Largest vector storage requirements
 
 ## Implementation
 
@@ -114,15 +129,18 @@ export const PROVIDER_CONFIGS = {
 	local: {
 		model: 'jinaai/jina-embeddings-v2-base-code',
 		dimensions: 768,
-		dtype: 'q8',
 	},
 	gemini: {
-		model: 'gemini-embedding-001',
+		model: 'text-embedding-004',
 		dimensions: 768,
 	},
 	mistral: {
-		model: 'codestral-embed-2505',
+		model: 'mistral-embed',
 		dimensions: 1024,
+	},
+	openai: {
+		model: 'text-embedding-3-large',
+		dimensions: 3072,
 	},
 };
 ```
@@ -170,13 +188,12 @@ This is acceptable for a local tool where reindexing is fast.
 - **Zero-cost default**: Local model works offline without API keys
 - **Code-optimized**: Jina model trained specifically on code
 - **Large context**: 8K tokens handles most functions without splitting
-- **Cloud options**: Gemini and Mistral available for faster indexing (when implemented)
+- **Cloud options**: Gemini, Mistral, and OpenAI available for faster indexing
 
 ### Negative
 
 - **~161MB download**: Local model requires initial download
 - **No hot-swapping**: Changing provider requires full reindex
-- **Cloud providers pending**: Gemini and Mistral implementations in progress
 
 ### Neutral
 

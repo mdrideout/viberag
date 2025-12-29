@@ -163,9 +163,9 @@ Configure `package.json` for global installation:
 }
 ```
 
-### Phase 3: Optional Local Embeddings
+### Phase 3: Local Embeddings
 
-Add `@xenova/transformers` as optional peer dependency for offline/privacy use.
+Add `@huggingface/transformers` for offline/privacy-focused embedding support.
 
 ### Phase 4: Homebrew Tap
 

@@ -67,8 +67,8 @@ brew install viberag            # macOS/Linux (Homebrew tap)
 │  - Universal compatibility│  - Good prebuild coverage       │
 ├───────────────────────────┴─────────────────────────────────┤
 │  Embeddings                                                  │
+│  - Local: @huggingface/transformers (recommended)           │
 │  - API: Gemini, Mistral, OpenAI                             │
-│  - Local: @xenova/transformers (optional)                   │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -237,19 +237,19 @@ parser.setLanguage(JavaScript);
 | Mistral | codestral-embed-2505 | 1024 | Paid |
 | OpenAI | text-embedding-3-large | 3072 | Paid |
 
-**Default:** Gemini (free tier, good quality)
+**Recommended:** Local (offline, no API key, code-optimized)
 
 ### Local Embeddings
 
 **Status:** ✅ Implemented
 
-Uses `jinaai/jina-embeddings-v2-base-code` via `@xenova/transformers`:
+Uses `jinaai/jina-embeddings-v2-base-code` via `@huggingface/transformers`:
 
 ```typescript
-import { pipeline } from '@xenova/transformers';
+import { pipeline } from '@huggingface/transformers';
 
 const embedder = await pipeline('feature-extraction', 'jinaai/jina-embeddings-v2-base-code', {
-  quantized: true  // int8 for smaller size (~161MB)
+  dtype: 'q8'  // int8 quantization for smaller size (~161MB)
 });
 const embedding = await embedder(text, { pooling: 'mean', normalize: true });
 ```

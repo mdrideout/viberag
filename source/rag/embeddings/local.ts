@@ -1,11 +1,11 @@
 /**
  * Local embedding provider using Jina AI's code embedding model.
  *
- * Uses jinaai/jina-embeddings-v2-base-code via @xenova/transformers (ONNX Runtime).
+ * Uses jinaai/jina-embeddings-v2-base-code via @huggingface/transformers (ONNX Runtime).
  * - 768 dimensions (matches Gemini)
  * - 8K token context window
  * - Trained on 150M+ code QA pairs
- * - int8 quantized for smaller size (~161MB) and faster inference
+ * - q8 (int8) quantized for smaller size (~161MB) and faster inference
  *
  * Benefits:
  * - Works completely offline
@@ -14,6 +14,7 @@
  * - Data never leaves your machine
  */
 
+import {pipeline} from '@huggingface/transformers';
 import type {EmbeddingProvider} from './types.js';
 
 const MODEL_NAME = 'jinaai/jina-embeddings-v2-base-code';
@@ -30,13 +31,10 @@ export class LocalEmbeddingProvider implements EmbeddingProvider {
 	async initialize(): Promise<void> {
 		if (this.initialized) return;
 
-		// Dynamic import for optional dependency
-		const {pipeline} = await import('@xenova/transformers');
-
-		// Load the model with int8 quantization for smaller size and faster inference
+		// Load the model with q8 (int8) quantization for smaller size and faster inference
 		// First load will download the model (~161MB)
 		this.extractor = await pipeline('feature-extraction', MODEL_NAME, {
-			quantized: true, // int8 quantization
+			dtype: 'q8', // int8 quantization
 		});
 
 		this.initialized = true;
