@@ -33,23 +33,25 @@ scoop install viberag           # Windows users
 ### What's In Progress
 
 - [x] API-only embeddings (Gemini, Mistral, OpenAI implemented)
-- [ ] Standalone executables via Deno compile (working) or Bun (needs ink v6)
+- [x] React 19 + ink v6 upgrade (yoga.wasm issue FIXED)
+- [ ] Bun compile tree-sitter bundling
 - [ ] Package manager distribution (Homebrew, etc.)
 
 ### Bundler Status (Dec 2025)
 
-| Bundler      | Binary Size | Status                        | Blocker                                        |
-| ------------ | ----------- | ----------------------------- | ---------------------------------------------- |
-| Bun compile  | 157MB       | Compiles but fails at runtime | ink v4 uses yoga-wasm-web, Bun can't load WASM |
-| Deno compile | 642MB       | **Works correctly**           | Large binary size                              |
-| pkg/yao-pkg  | N/A         | Fails                         | ESM import.meta not supported                  |
+| Bundler      | Binary Size | Status                           | Blocker                                    |
+| ------------ | ----------- | -------------------------------- | ------------------------------------------ |
+| Bun compile  | 157MB       | yoga.wasm FIXED, tree-sitter WIP | Need to bundle tree-sitter grammars        |
+| Deno compile | 642MB       | **Works correctly**              | Large binary size                          |
+| pkg/yao-pkg  | N/A         | Fails                            | ESM import.meta not supported              |
 
-**Path to Bun:**
+**ink v6 + React 19 Upgrade Complete:**
 
-- ink v6 uses `yoga-layout` (native) instead of `yoga-wasm-web` (WASM)
-- ink v6 requires React 19
-- Need to upgrade ink + React + ink-select-input + ink-big-text + ink-gradient
-- This would enable 157MB Bun binaries (4x smaller than Deno)
+- ✅ ink 6.6.0 uses `yoga-layout` (native) - yoga.wasm issue resolved
+- ✅ React 19.2.3 installed
+- ✅ ink-select-input 6.2.0 installed
+- ✅ meow 14.0.0, prettier 3.7.4 installed
+- 🔧 Next: Bundle tree-sitter grammars for Bun compile
 
 ### Key Decision: API-Only Embeddings
 
