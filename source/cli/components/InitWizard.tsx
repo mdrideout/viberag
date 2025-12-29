@@ -41,6 +41,16 @@ const PROVIDER_CONFIG: Record<
 		description: string;
 	}
 > = {
+	local: {
+		name: 'Local',
+		model: 'jina-v2-code',
+		modelFull: 'jina-embeddings-v2-base-code',
+		dims: '768',
+		context: '8K',
+		cost: 'Free',
+		note: 'No API key needed',
+		description: 'Offline, private, no costs',
+	},
 	gemini: {
 		name: 'Gemini',
 		model: 'text-embedding-004',
@@ -76,7 +86,11 @@ const PROVIDER_CONFIG: Record<
 // Simple provider options for selection
 const PROVIDER_ITEMS: SelectItem<EmbeddingProviderType>[] = [
 	{
-		label: 'Gemini  - text-embedding-004, free tier (Recommended)',
+		label: 'Local   - jina-v2-code, offline, no API key (Recommended)',
+		value: 'local',
+	},
+	{
+		label: 'Gemini  - text-embedding-004, free tier',
 		value: 'gemini',
 	},
 	{
@@ -94,7 +108,14 @@ const PROVIDER_ITEMS: SelectItem<EmbeddingProviderType>[] = [
  */
 const COMPARISON_DATA = [
 	{
-		Provider: 'Gemini*',
+		Provider: 'Local*',
+		Model: 'jina-v2',
+		Dims: '768',
+		Context: '8K',
+		Cost: 'Free',
+	},
+	{
+		Provider: 'Gemini',
 		Model: 'embed-004',
 		Dims: '768',
 		Context: '2K',

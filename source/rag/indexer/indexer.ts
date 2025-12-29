@@ -18,6 +18,7 @@ import path from 'node:path';
 import {loadConfig, type ViberagConfig} from '../config/index.js';
 import {
 	GeminiEmbeddingProvider,
+	LocalEmbeddingProvider,
 	MistralEmbeddingProvider,
 	OpenAIEmbeddingProvider,
 	type EmbeddingProvider,
@@ -369,6 +370,8 @@ export class Indexer {
 	 */
 	private createEmbeddingProvider(config: ViberagConfig): EmbeddingProvider {
 		switch (config.embeddingProvider) {
+			case 'local':
+				return new LocalEmbeddingProvider();
 			case 'gemini':
 				return new GeminiEmbeddingProvider();
 			case 'mistral':

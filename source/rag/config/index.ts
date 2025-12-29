@@ -41,6 +41,10 @@ export const PROVIDER_CONFIGS: Record<
 	EmbeddingProviderType,
 	{model: string; dimensions: number}
 > = {
+	local: {
+		model: 'jinaai/jina-embeddings-v2-base-code',
+		dimensions: 768,
+	},
 	gemini: {
 		model: 'text-embedding-004',
 		dimensions: 768,

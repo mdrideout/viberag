@@ -1,6 +1,6 @@
-import {createRequire} from 'node:module';
 import path from 'node:path';
-import Parser from 'tree-sitter';
+import {createRequire} from 'node:module';
+import Parser from 'web-tree-sitter';
 import {computeStringHash} from '../merkle/hash.js';
 import {
 	EXTENSION_TO_LANGUAGE,
@@ -9,30 +9,28 @@ import {
 	type SupportedLanguage,
 } from './types.js';
 
-// Use require for native tree-sitter grammar packages
+// Use createRequire to resolve WASM file paths from tree-sitter-wasms
 const require = createRequire(import.meta.url);
 
-// Tree-sitter types (from native tree-sitter)
-type TreeSitterNode = Parser.SyntaxNode;
-type TreeSitterLanguage = Parser.Language;
-
 /**
- * Language grammars loaded from native npm packages.
- * Native tree-sitter loads these synchronously (no WASM).
+ * Mapping from our language names to tree-sitter-wasms filenames.
+ * WASM files are in node_modules/tree-sitter-wasms/out/
+ * Note: Dart is temporarily disabled due to tree-sitter version mismatch.
+ * tree-sitter-wasms Dart WASM is version 15, web-tree-sitter 0.24.7 supports 13-14.
  */
-const LANGUAGE_GRAMMARS: Record<SupportedLanguage, TreeSitterLanguage> = {
-	javascript: require('tree-sitter-javascript'),
-	typescript: require('tree-sitter-typescript/typescript'),
-	tsx: require('tree-sitter-typescript/tsx'),
-	python: require('tree-sitter-python'),
-	go: require('tree-sitter-go'),
-	rust: require('tree-sitter-rust'),
-	java: require('tree-sitter-java'),
-	csharp: require('tree-sitter-c-sharp'),
-	dart: require('@sengac/tree-sitter-dart'),
-	swift: require('tree-sitter-swift'),
-	kotlin: require('tree-sitter-kotlin'),
-	php: require('tree-sitter-php/php'),
+const LANGUAGE_WASM_FILES: Record<SupportedLanguage, string | null> = {
+	javascript: 'tree-sitter-javascript.wasm',
+	typescript: 'tree-sitter-typescript.wasm',
+	tsx: 'tree-sitter-tsx.wasm',
+	python: 'tree-sitter-python.wasm',
+	go: 'tree-sitter-go.wasm',
+	rust: 'tree-sitter-rust.wasm',
+	java: 'tree-sitter-java.wasm',
+	csharp: 'tree-sitter-c_sharp.wasm',
+	kotlin: 'tree-sitter-kotlin.wasm',
+	swift: 'tree-sitter-swift.wasm',
+	dart: null, // Disabled: version 15 incompatible with web-tree-sitter 0.24.7 (supports 13-14)
+	php: 'tree-sitter-php.wasm',
 };
 
 /**
@@ -133,14 +131,6 @@ const EXPORT_WRAPPER_TYPES = [
 	'lexical_declaration', // May have export modifier
 ];
 
-// Note: Statement container types kept for future AST-based splitting
-// const STATEMENT_CONTAINER_TYPES: Record<SupportedLanguage, string[]> = {
-// 	python: ['block'],
-// 	javascript: ['statement_block'],
-// 	typescript: ['statement_block'],
-// 	tsx: ['statement_block'],
-// };
-
 /**
  * Default max chunk size in characters.
  */
@@ -152,37 +142,55 @@ const DEFAULT_MAX_CHUNK_SIZE = 2000;
 const MIN_CHUNK_SIZE = 100;
 
 /**
- * Chunker that uses tree-sitter to extract semantic code chunks.
+ * Chunker that uses web-tree-sitter (WASM) to extract semantic code chunks.
+ * Provides 100% platform compatibility - no native compilation required.
  */
 export class Chunker {
-	private parser: Parser;
-	private languages: Map<SupportedLanguage, TreeSitterLanguage> = new Map();
+	private parser: Parser | null = null;
+	private languages: Map<SupportedLanguage, Parser.Language> = new Map();
 	private initialized = false;
+	private wasmBasePath: string | null = null;
 
 	constructor() {
-		// Create parser instance (native tree-sitter - no async init needed)
-		this.parser = new Parser();
+		// Parser instance created in initialize()
 	}
 
 	/**
-	 * Initialize language grammars.
-	 * With native tree-sitter, this is synchronous.
+	 * Initialize web-tree-sitter and load language grammars.
+	 * Must be called before using chunkFile().
 	 */
-	initialize(): void {
+	async initialize(): Promise<void> {
 		if (this.initialized) return;
 
-		// Load all language grammars synchronously from native packages
-		for (const [lang, grammar] of Object.entries(LANGUAGE_GRAMMARS)) {
-			try {
-				// Validate grammar by attempting to set it
-				this.parser.setLanguage(grammar);
-				this.languages.set(lang as SupportedLanguage, grammar);
-			} catch (error) {
-				// Log but don't fail - we can still work with other languages
-				console.error(`Failed to load ${lang} grammar:`, error);
-			}
-		}
+		// Initialize the web-tree-sitter WASM module
+		await Parser.init();
 
+		// Create parser instance after init
+		this.parser = new Parser();
+
+		// Resolve the path to tree-sitter-wasms/out/
+		const wasmPackagePath = require.resolve('tree-sitter-wasms/package.json');
+		this.wasmBasePath = path.join(path.dirname(wasmPackagePath), 'out');
+
+		// Load all language grammars (skip null entries like Dart)
+		const loadPromises = Object.entries(LANGUAGE_WASM_FILES).map(
+			async ([lang, wasmFile]) => {
+				if (!wasmFile) {
+					// Language temporarily disabled (e.g., Dart due to version mismatch)
+					return;
+				}
+				try {
+					const wasmPath = path.join(this.wasmBasePath!, wasmFile);
+					const language = await Parser.Language.load(wasmPath);
+					this.languages.set(lang as SupportedLanguage, language);
+				} catch (error) {
+					// Log but don't fail - we can still work with other languages
+					console.error(`Failed to load ${lang} grammar:`, error);
+				}
+			},
+		);
+
+		await Promise.all(loadPromises);
 		this.initialized = true;
 	}
 
@@ -213,8 +221,10 @@ export class Chunker {
 		content: string,
 		maxChunkSize: number = DEFAULT_MAX_CHUNK_SIZE,
 	): Chunk[] {
-		if (!this.initialized) {
-			this.initialize();
+		if (!this.initialized || !this.parser) {
+			throw new Error(
+				'Chunker not initialized. Call initialize() before chunkFile().',
+			);
 		}
 
 		// Determine language from extension
@@ -262,7 +272,7 @@ export class Chunker {
 	 * Extract chunks from a syntax tree.
 	 */
 	private extractChunks(
-		root: TreeSitterNode,
+		root: Parser.SyntaxNode,
 		content: string,
 		lang: SupportedLanguage,
 		filepath: string,
@@ -281,7 +291,7 @@ export class Chunker {
 	 * Tracks parent context (class name) for context headers.
 	 */
 	private traverseNode(
-		node: TreeSitterNode,
+		node: Parser.SyntaxNode,
 		lang: SupportedLanguage,
 		lines: string[],
 		chunks: Chunk[],
@@ -306,8 +316,11 @@ export class Chunker {
 			}
 
 			// Also extract methods from inside the class
-			for (const child of node.children) {
-				this.traverseNode(child, lang, lines, chunks, filepath, className);
+			for (let i = 0; i < node.childCount; i++) {
+				const child = node.child(i);
+				if (child) {
+					this.traverseNode(child, lang, lines, chunks, filepath, className);
+				}
 			}
 
 			return;
@@ -352,8 +365,11 @@ export class Chunker {
 		}
 
 		// Recurse into children
-		for (const child of node.children) {
-			this.traverseNode(child, lang, lines, chunks, filepath, parentClassName);
+		for (let i = 0; i < node.childCount; i++) {
+			const child = node.child(i);
+			if (child) {
+				this.traverseNode(child, lang, lines, chunks, filepath, parentClassName);
+			}
 		}
 	}
 
@@ -361,7 +377,7 @@ export class Chunker {
 	 * Convert a syntax node to a chunk.
 	 */
 	private nodeToChunk(
-		node: TreeSitterNode,
+		node: Parser.SyntaxNode,
 		lines: string[],
 		type: ChunkType,
 		lang: SupportedLanguage,
@@ -418,7 +434,7 @@ export class Chunker {
 	 * Extract the signature line (first line of function/class declaration).
 	 */
 	private extractSignature(
-		node: TreeSitterNode,
+		node: Parser.SyntaxNode,
 		lines: string[],
 		lang: SupportedLanguage,
 	): string | null {
@@ -497,7 +513,7 @@ export class Chunker {
 	 * Extract docstring from a function/class node.
 	 */
 	private extractDocstring(
-		node: TreeSitterNode,
+		node: Parser.SyntaxNode,
 		lang: SupportedLanguage,
 	): string | null {
 		// Python: Docstring as first string in body
@@ -505,9 +521,9 @@ export class Chunker {
 			const body = node.childForFieldName('body');
 			if (!body) return null;
 
-			const firstStatement = body.children[0];
+			const firstStatement = body.child(0);
 			if (firstStatement?.type === 'expression_statement') {
-				const stringNode = firstStatement.children[0];
+				const stringNode = firstStatement.child(0);
 				if (stringNode?.type === 'string') {
 					let text = stringNode.text;
 					if (text.startsWith('"""') || text.startsWith("'''")) {
@@ -651,7 +667,7 @@ export class Chunker {
 		}
 
 		// JS/TS: JSDoc /** */ style
-		let checkNode: TreeSitterNode | null = node;
+		let checkNode: Parser.SyntaxNode | null = node;
 
 		while (checkNode) {
 			const prev = checkNode.previousSibling;
@@ -685,7 +701,7 @@ export class Chunker {
 	 * Check if a node is exported/public.
 	 */
 	private extractIsExported(
-		node: TreeSitterNode,
+		node: Parser.SyntaxNode,
 		lang: SupportedLanguage,
 	): boolean {
 		// Python: Public if name doesn't start with underscore
@@ -743,7 +759,7 @@ export class Chunker {
 		}
 
 		// JS/TS: Check for export keyword in node or parent
-		let checkNode: TreeSitterNode | null = node;
+		let checkNode: Parser.SyntaxNode | null = node;
 
 		while (checkNode) {
 			// Check if this node has export modifier
@@ -752,14 +768,15 @@ export class Chunker {
 			}
 
 			// Check for 'export' child (for class/function declarations)
-			for (const child of checkNode.children) {
-				if (child.type === 'export' || child.text === 'export') {
+			for (let i = 0; i < checkNode.childCount; i++) {
+				const child = checkNode.child(i);
+				if (child && (child.type === 'export' || child.text === 'export')) {
 					return true;
 				}
 			}
 
 			// Walk up through wrappers
-			const parent: TreeSitterNode | null = checkNode.parent;
+			const parent: Parser.SyntaxNode | null = checkNode.parent;
 			if (
 				parent &&
 				(parent.type === 'export_statement' ||
@@ -779,11 +796,14 @@ export class Chunker {
 	 * Helper to check for visibility modifiers in a node.
 	 */
 	private hasVisibilityModifier(
-		node: TreeSitterNode,
+		node: Parser.SyntaxNode,
 		modifier: string,
 	): boolean {
 		// Check direct children for visibility modifiers
-		for (const child of node.children) {
+		for (let i = 0; i < node.childCount; i++) {
+			const child = node.child(i);
+			if (!child) continue;
+
 			// Check common modifier node types
 			if (
 				child.type === 'visibility_modifier' ||
@@ -795,8 +815,12 @@ export class Chunker {
 					return true;
 				}
 				// Check nested modifiers
-				for (const grandchild of child.children) {
-					if (grandchild.text === modifier || grandchild.type === modifier) {
+				for (let j = 0; j < child.childCount; j++) {
+					const grandchild = child.child(j);
+					if (
+						grandchild &&
+						(grandchild.text === modifier || grandchild.type === modifier)
+					) {
 						return true;
 					}
 				}
@@ -809,8 +833,9 @@ export class Chunker {
 
 		// Check parent for modifiers (for wrapped declarations)
 		if (node.parent) {
-			for (const sibling of node.parent.children) {
-				if (sibling === node) continue;
+			for (let i = 0; i < node.parent.childCount; i++) {
+				const sibling = node.parent.child(i);
+				if (!sibling || sibling.equals(node)) continue;
 				if (
 					sibling.type === 'visibility_modifier' ||
 					sibling.type === 'modifier' ||
@@ -833,7 +858,7 @@ export class Chunker {
 	 * Extract decorator names from a node.
 	 */
 	private extractDecoratorNames(
-		node: TreeSitterNode,
+		node: Parser.SyntaxNode,
 		lang: SupportedLanguage,
 	): string | null {
 		const decorators: string[] = [];
@@ -843,9 +868,10 @@ export class Chunker {
 			let sibling = node.previousSibling;
 			while (sibling) {
 				if (sibling.type === 'decorator') {
-					const nameNode = sibling.children.find(
-						c => c.type === 'identifier' || c.type === 'call',
-					);
+					const nameNode = this.findChildOfType(sibling, [
+						'identifier',
+						'call',
+					]);
 					if (nameNode) {
 						if (nameNode.type === 'call') {
 							const funcNode = nameNode.childForFieldName('function');
@@ -869,16 +895,16 @@ export class Chunker {
 			while (sibling) {
 				if (sibling.type === 'attribute_item' || sibling.type === 'attribute') {
 					// Extract attribute name from #[name] or #[name(...)]
-					const attrNode = sibling.children.find(
-						c => c.type === 'attribute' || c.type === 'meta_item',
-					);
+					const attrNode = this.findChildOfType(sibling, [
+						'attribute',
+						'meta_item',
+					]);
 					const target = attrNode || sibling;
-					const pathNode = target.children.find(
-						c =>
-							c.type === 'path' ||
-							c.type === 'identifier' ||
-							c.type === 'scoped_identifier',
-					);
+					const pathNode = this.findChildOfType(target, [
+						'path',
+						'identifier',
+						'scoped_identifier',
+					]);
 					if (pathNode) {
 						decorators.unshift(pathNode.text);
 					}
@@ -900,22 +926,22 @@ export class Chunker {
 					sibling.type === 'annotation' ||
 					sibling.type === 'marker_annotation'
 				) {
-					const nameNode = sibling.children.find(
-						c => c.type === 'identifier' || c.type === 'scoped_identifier',
-					);
+					const nameNode = this.findChildOfType(sibling, [
+						'identifier',
+						'scoped_identifier',
+					]);
 					if (nameNode) {
 						decorators.unshift(nameNode.text);
 					}
 				} else if (sibling.type === 'modifiers') {
 					// Annotations may be inside modifiers node
-					for (const child of sibling.children) {
+					for (let i = 0; i < sibling.childCount; i++) {
+						const child = sibling.child(i);
 						if (
-							child.type === 'annotation' ||
-							child.type === 'marker_annotation'
+							child &&
+							(child.type === 'annotation' || child.type === 'marker_annotation')
 						) {
-							const nameNode = child.children.find(
-								c => c.type === 'identifier',
-							);
+							const nameNode = this.findChildOfType(child, ['identifier']);
 							if (nameNode) {
 								decorators.unshift(nameNode.text);
 							}
@@ -936,14 +962,14 @@ export class Chunker {
 			let sibling = node.previousSibling;
 			while (sibling) {
 				if (sibling.type === 'attribute_list') {
-					for (const attrNode of sibling.children) {
-						if (attrNode.type === 'attribute') {
-							const nameNode = attrNode.children.find(
-								c =>
-									c.type === 'identifier' ||
-									c.type === 'qualified_name' ||
-									c.type === 'name',
-							);
+					for (let i = 0; i < sibling.childCount; i++) {
+						const attrNode = sibling.child(i);
+						if (attrNode?.type === 'attribute') {
+							const nameNode = this.findChildOfType(attrNode, [
+								'identifier',
+								'qualified_name',
+								'name',
+							]);
 							if (nameNode) {
 								decorators.unshift(nameNode.text);
 							}
@@ -961,12 +987,11 @@ export class Chunker {
 			let sibling = node.previousSibling;
 			while (sibling) {
 				if (sibling.type === 'attribute') {
-					const nameNode = sibling.children.find(
-						c =>
-							c.type === 'user_type' ||
-							c.type === 'simple_identifier' ||
-							c.type === 'identifier',
-					);
+					const nameNode = this.findChildOfType(sibling, [
+						'user_type',
+						'simple_identifier',
+						'identifier',
+					]);
 					if (nameNode) {
 						decorators.unshift(nameNode.text);
 					}
@@ -985,9 +1010,10 @@ export class Chunker {
 			let sibling = node.previousSibling;
 			while (sibling) {
 				if (sibling.type === 'annotation') {
-					const nameNode = sibling.children.find(
-						c => c.type === 'identifier' || c.type === 'qualified',
-					);
+					const nameNode = this.findChildOfType(sibling, [
+						'identifier',
+						'qualified',
+					]);
 					if (nameNode) {
 						decorators.unshift(nameNode.text);
 					}
@@ -1006,14 +1032,14 @@ export class Chunker {
 					sibling.type === 'attribute_group' ||
 					sibling.type === 'attribute_list'
 				) {
-					for (const attrNode of sibling.children) {
-						if (attrNode.type === 'attribute') {
-							const nameNode = attrNode.children.find(
-								c =>
-									c.type === 'name' ||
-									c.type === 'qualified_name' ||
-									c.type === 'identifier',
-							);
+					for (let i = 0; i < sibling.childCount; i++) {
+						const attrNode = sibling.child(i);
+						if (attrNode?.type === 'attribute') {
+							const nameNode = this.findChildOfType(attrNode, [
+								'name',
+								'qualified_name',
+								'identifier',
+							]);
 							if (nameNode) {
 								decorators.unshift(nameNode.text);
 							}
@@ -1030,14 +1056,16 @@ export class Chunker {
 
 		// JS/TS: @decorator syntax
 		else if (lang === 'javascript' || lang === 'typescript' || lang === 'tsx') {
-			let checkNode: TreeSitterNode | null = node;
+			let checkNode: Parser.SyntaxNode | null = node;
 
 			while (checkNode) {
-				for (const child of checkNode.children) {
-					if (child.type === 'decorator') {
-						const expr = child.children.find(
-							c => c.type === 'call_expression' || c.type === 'identifier',
-						);
+				for (let i = 0; i < checkNode.childCount; i++) {
+					const child = checkNode.child(i);
+					if (child?.type === 'decorator') {
+						const expr = this.findChildOfType(child, [
+							'call_expression',
+							'identifier',
+						]);
 						if (expr) {
 							if (expr.type === 'call_expression') {
 								const func = expr.childForFieldName('function');
@@ -1054,9 +1082,10 @@ export class Chunker {
 				let sibling = checkNode.previousSibling;
 				while (sibling) {
 					if (sibling.type === 'decorator') {
-						const expr = sibling.children.find(
-							c => c.type === 'call_expression' || c.type === 'identifier',
-						);
+						const expr = this.findChildOfType(sibling, [
+							'call_expression',
+							'identifier',
+						]);
 						if (expr) {
 							if (expr.type === 'call_expression') {
 								const func = expr.childForFieldName('function');
@@ -1073,7 +1102,7 @@ export class Chunker {
 					sibling = sibling.previousSibling;
 				}
 
-				const parent: TreeSitterNode | null = checkNode.parent;
+				const parent: Parser.SyntaxNode | null = checkNode.parent;
 				if (parent && EXPORT_WRAPPER_TYPES.includes(parent.type)) {
 					checkNode = parent;
 				} else {
@@ -1083,6 +1112,22 @@ export class Chunker {
 		}
 
 		return decorators.length > 0 ? decorators.join(',') : null;
+	}
+
+	/**
+	 * Helper to find a child node of specific types.
+	 */
+	private findChildOfType(
+		node: Parser.SyntaxNode,
+		types: string[],
+	): Parser.SyntaxNode | null {
+		for (let i = 0; i < node.childCount; i++) {
+			const child = node.child(i);
+			if (child && types.includes(child.type)) {
+				return child;
+			}
+		}
+		return null;
 	}
 
 	/**
@@ -1110,7 +1155,7 @@ export class Chunker {
 	/**
 	 * Extract the name of a function/class/method from its node.
 	 */
-	private extractName(node: TreeSitterNode, _lang: SupportedLanguage): string {
+	private extractName(node: Parser.SyntaxNode, _lang: SupportedLanguage): string {
 		// Try to get name via field first (works for many languages)
 		const nameField = node.childForFieldName('name');
 		if (nameField) {
@@ -1118,7 +1163,10 @@ export class Chunker {
 		}
 
 		// Look for common identifier node types
-		for (const child of node.children) {
+		for (let i = 0; i < node.childCount; i++) {
+			const child = node.child(i);
+			if (!child) continue;
+
 			// Common identifier types across languages
 			if (
 				child.type === 'identifier' ||
@@ -1155,9 +1203,10 @@ export class Chunker {
 		if (node.type === 'impl_item') {
 			const typeNode = node.childForFieldName('type');
 			if (typeNode) {
-				const typeId = typeNode.children.find(
-					c => c.type === 'type_identifier' || c.type === 'identifier',
-				);
+				const typeId = this.findChildOfType(typeNode, [
+					'type_identifier',
+					'identifier',
+				]);
 				if (typeId) {
 					return `impl ${typeId.text}`;
 				}
@@ -1385,8 +1434,12 @@ export class Chunker {
 	 * Close the parser and free resources.
 	 */
 	close(): void {
-		// Native tree-sitter doesn't need explicit cleanup like WASM
-		// Just clear the language cache
+		// Delete the parser to free WASM memory
+		if (this.parser) {
+			this.parser.delete();
+			this.parser = null;
+		}
+		// Clear the language cache
 		this.languages.clear();
 		this.initialized = false;
 	}

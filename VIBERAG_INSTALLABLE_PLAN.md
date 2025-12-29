@@ -4,477 +4,311 @@ A comprehensive plan for making VibeRAG a universally installable Code RAG MCP s
 
 ## Vision
 
-Create a **zero-friction installation experience** for developers using any AI coding assistant (Claude Code, Cursor, VS Code Copilot, Zed, etc.) on any platform, enabling powerful semantic code search across polyglot codebases.
+Create a **zero-friction installation experience** for developers using any AI coding assistant (Claude Code, Cursor, VS Code Copilot, Zed, etc.) on any platform.
 
-```
-# The dream installation experience
-npm install -g viberag          # Node.js developers
-brew install viberag            # macOS users
-curl -fsSL viberag.dev/i | sh   # Linux users
-scoop install viberag           # Windows users
+```bash
+npm install -g viberag          # Primary installation method
+brew install viberag            # macOS/Linux (Homebrew tap)
 ```
 
 ---
 
-## Current State (Updated Dec 2025)
+## Architecture Decision: Node.js Runtime
 
-### What's Complete
+**Decision:** VibeRAG requires Node.js 18+ as a runtime dependency.
 
-- [x] Native tree-sitter migration (Phase 1)
-- [x] All 12 language grammars working
+**This matches the approach used by:**
+- [Google Gemini CLI](https://github.com/google-gemini/gemini-cli) - Requires Node.js 20+
+- Many production MCP servers and developer tools
+
+**Why not standalone binaries?** See [Bundler Research](#bundler-research-dec-2025) below.
+
+---
+
+## Current State (Dec 2025)
+
+### Completed
+
+- [x] Native tree-sitter → web-tree-sitter migration ✅
+- [x] 11/12 language grammars working (Dart temporarily disabled - version mismatch)
 - [x] LanceDB vector storage
 - [x] Semantic + hybrid search
 - [x] MCP server protocol
 - [x] Multi-editor setup wizard
 - [x] File watching / incremental indexing
 - [x] CI/CD workflows (ci.yml, release.yml)
-- [x] Grammar smoke tests
+- [x] Grammar smoke tests (updated for WASM)
+- [x] API embeddings (Gemini, Mistral, OpenAI)
+- [x] React 19 + ink v6 upgrade
+- [x] npm global package configuration (`bin` field, `engines` field)
+- [x] ADR-006 documenting distribution strategy decision
+- [x] Local embeddings option (@xenova/transformers, jina-v2-code)
 
-### What's In Progress
+### In Progress
 
-- [x] API-only embeddings (Gemini, Mistral, OpenAI implemented)
-- [x] React 19 + ink v6 upgrade (yoga.wasm issue FIXED)
-- [ ] Bun compile tree-sitter bundling
-- [ ] Package manager distribution (Homebrew, etc.)
+- [ ] Homebrew tap
 
-### Bundler Status (Dec 2025)
+### Known Issues
 
-| Bundler      | Binary Size | Status                           | Blocker                                    |
-| ------------ | ----------- | -------------------------------- | ------------------------------------------ |
-| Bun compile  | 157MB       | yoga.wasm FIXED, tree-sitter WIP | Need to bundle tree-sitter grammars        |
-| Deno compile | 642MB       | **Works correctly**              | Large binary size                          |
-| pkg/yao-pkg  | N/A         | Fails                            | ESM import.meta not supported              |
+- **Dart grammar disabled**: tree-sitter-wasms Dart WASM uses version 15, but web-tree-sitter 0.24.7 only supports versions 13-14. Will be re-enabled when web-tree-sitter updates.
 
-**ink v6 + React 19 Upgrade Complete:**
+### Architecture
 
-- ✅ ink 6.6.0 uses `yoga-layout` (native) - yoga.wasm issue resolved
-- ✅ React 19.2.3 installed
-- ✅ ink-select-input 6.2.0 installed
-- ✅ meow 14.0.0, prettier 3.7.4 installed
-- 🔧 Next: Bundle tree-sitter grammars for Bun compile
-
-### Key Decision: API-Only Embeddings
-
-**Removed:** Local embeddings via `@huggingface/transformers` and `fastembed`
-
-**Reason:** These dependencies pull in `onnxruntime-node` (~210MB) with complex native dylib loading that breaks standalone binary compilation (pkg, Deno compile all failed).
-
-**New approach:** API-based embeddings only:
-
-- Gemini (free tier available)
-- Mistral (codestral-embed-2505, best for code)
-- OpenAI (text-embedding-3-large)
-
-This reduces dependencies by ~730MB and enables Bun compile to work.
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      viberag CLI                             │
+├─────────────────────────────────────────────────────────────┤
+│  ink v6 + React 19        │  MCP Server Protocol            │
+├───────────────────────────┴─────────────────────────────────┤
+│                     RAG Engine                               │
+├─────────────────────────────────────────────────────────────┤
+│  web-tree-sitter (WASM)   │  LanceDB (Native)               │
+│  - 12 language grammars   │  - Vector storage               │
+│  - Universal compatibility│  - Good prebuild coverage       │
+├───────────────────────────┴─────────────────────────────────┤
+│  Embeddings                                                  │
+│  - API: Gemini, Mistral, OpenAI                             │
+│  - Local: @xenova/transformers (optional)                   │
+└─────────────────────────────────────────────────────────────┘
+```
 
 ---
 
-## Phase 1: Native Tree-Sitter Migration ✅ COMPLETE
+## Bundler Research (Dec 2025)
 
-**Status:** Done
+### Summary
 
-- Migrated from web-tree-sitter to native tree-sitter v0.25.0
-- All 12 language grammars working
-- Synchronous initialization (no WASM loading)
-- Grammar smoke tests passing
+| Bundler | Binary Size | Result | Blocker |
+|---------|-------------|--------|---------|
+| Bun compile | 157MB | ❌ Failed | LanceDB NAPI-RS dlopen |
+| Deno compile | 642MB | ✅ Works | Large binary size |
+| pkg/yao-pkg | N/A | ❌ Failed | ESM import.meta not supported |
 
----
+**Conclusion:** Standalone executables are not viable due to native module bundling issues. Node.js runtime dependency is the pragmatic choice.
 
-## Phase 1.5: API-Only Embeddings (NEW)
+### Bun Compile Deep Dive
 
-**Goal:** Remove local ML dependencies, implement cloud embedding APIs.
+**What we fixed:**
 
-**Timeline:** 1 day
+1. **yoga.wasm issue** - ink v4 used `yoga-wasm-web` which Bun couldn't load
+   - Solution: Upgraded to ink v6 which uses native `yoga-layout`
+   - Result: ✅ yoga.wasm error eliminated
 
-### 1.5.1 Remove Heavy Dependencies
+2. **tree-sitter grammars** - Dynamic `require()` wasn't bundled
+   - Solution: Changed to static imports in `chunker.ts`
+   - Result: ✅ All 12 grammars bundle correctly
+
+**What blocked us:**
+
+3. **LanceDB NAPI-RS module** (93MB native `.node` file)
+   ```
+   error: dlopen(/$bunfs/root/lancedb.darwin-arm64.node, 0x0001):
+     tried: '/$bunfs/root/lancedb.darwin-arm64.node' (no such file)
+   ```
+
+   **Root cause:**
+   - Bun's bundler includes the `.node` file in its virtual filesystem (`/$bunfs/root/`)
+   - BUT the OS's dynamic linker cannot load from a virtual filesystem
+   - According to [Bun v1.2.13](https://bun.sh/blog/bun-v1.2.13), native modules should be extracted to temp before dlopen
+   - This extraction doesn't work correctly for NAPI-RS modules like LanceDB
+
+   **Related issues:**
+   - [oven-sh/bun#11598](https://github.com/oven-sh/bun/issues/11598) - FFI dlopen fails in compiled exe
+   - [argon2 discussion](https://github.com/oven-sh/bun/discussions/17618) - NAPI module workarounds
+
+**Workaround researched but rejected:**
+
+Patching LanceDB's NAPI-RS loader to use static platform detection:
+```javascript
+// Would need to change from dynamic to static:
+if (process.platform === 'darwin' && process.arch === 'arm64') {
+  module.exports = require('@lancedb/lancedb-darwin-arm64');
+}
+```
+
+**Rejected because:**
+- Requires maintaining patches against upstream
+- Fragile when LanceDB updates
+- Significant ongoing maintenance burden
+
+### Deno Compile
+
+Works correctly but produces large binaries:
 
 ```bash
-npm uninstall @huggingface/transformers fastembed
+deno compile --allow-all --include node_modules --output viberag dist/cli/index.js
+# Result: 642MB binary
 ```
 
-**What gets removed:**
-| Package | Size | Why Remove |
-|---------|------|------------|
-| @huggingface/transformers | 519MB | Pulls onnxruntime, sharp |
-| fastembed | 164KB | Wrapper for onnxruntime |
-| onnxruntime-node | 210MB | Native dylibs break pkg/Bun/Deno |
+**Why not use Deno:**
+- 642MB per platform = 3.2GB total release size (5 platforms)
+- Startup time slower than Bun
+- Less ecosystem alignment (Claude Code uses Bun)
 
-**What remains:**
-| Package | Size | Status |
-|---------|------|--------|
-| tree-sitter + 12 grammars | ~327MB | Works with Bun compile |
-| @lancedb/lancedb | 94MB | Node-API, should work |
-| ink/react | ~5MB | Pure JS |
+### pkg / yao-pkg
 
-### 1.5.2 Embedding Provider Types
+Both fail immediately:
+```
+Error: ESM import.meta.url is not supported in pkg
+```
+
+Not viable for ESM projects.
+
+---
+
+## web-tree-sitter Migration
+
+### Why Migrate
+
+| Aspect | Native tree-sitter | web-tree-sitter |
+|--------|-------------------|-----------------|
+| Native modules | 12 packages | 0 packages |
+| Platform support | ~85% (prebuilds) | 100% (WASM) |
+| Build tools needed | Sometimes | Never |
+| Install failures | Possible | None |
+
+**Result:** Reduces native dependencies from 13 packages to 1 (LanceDB only).
+
+### Language Support
+
+All 12 languages available via [tree-sitter-wasms](https://github.com/sourcegraph/tree-sitter-wasms) (Sourcegraph):
+
+| Language | WASM Size | Status |
+|----------|-----------|--------|
+| JavaScript | ~200KB | ✅ |
+| TypeScript | ~300KB | ✅ |
+| TSX | ~300KB | ✅ |
+| Python | ~200KB | ✅ |
+| Go | ~200KB | ✅ |
+| Rust | ~400KB | ✅ |
+| Java | ~300KB | ✅ |
+| C# | 3.98MB | ✅ |
+| Kotlin | 4.05MB | ✅ |
+| Swift | 3.15MB | ✅ |
+| Dart | 985KB | ✅ |
+| PHP | ~300KB | ✅ |
+
+### API Compatibility
+
+All APIs used in `chunker.ts` are available in web-tree-sitter:
+
+| API | Native | web-tree-sitter |
+|-----|--------|-----------------|
+| `node.type` | ✅ | ✅ |
+| `node.text` | ✅ | ✅ |
+| `node.children` | ✅ | ✅ |
+| `node.parent` | ✅ | ✅ |
+| `node.previousSibling` | ✅ | ✅ |
+| `node.childForFieldName()` | ✅ | ✅ |
+| `node.startPosition.row` | ✅ | ✅ |
+| `parser.setLanguage()` | ✅ | ✅ |
+| `parser.parse()` | ✅ | ✅ |
+
+**Key difference:** Initialization is async in web-tree-sitter:
+```typescript
+// Native (sync)
+const parser = new Parser();
+parser.setLanguage(JavaScript);
+
+// web-tree-sitter (async)
+await Parser.init();
+const JavaScript = await Parser.Language.load('tree-sitter-javascript.wasm');
+const parser = new Parser();
+parser.setLanguage(JavaScript);
+```
+
+### Migration Tasks
+
+1. Replace `tree-sitter` with `web-tree-sitter`
+2. Replace 12 native grammar packages with `tree-sitter-wasms`
+3. Update `Chunker` class for async initialization
+4. Update `Indexer` to await chunker init
+5. Test all 12 languages
+
+---
+
+## Embeddings Strategy
+
+### API Embeddings (Default)
+
+| Provider | Model | Dimensions | Cost |
+|----------|-------|------------|------|
+| Gemini | text-embedding-004 | 768 | Free tier |
+| Mistral | codestral-embed-2505 | 1024 | Paid |
+| OpenAI | text-embedding-3-large | 3072 | Paid |
+
+**Default:** Gemini (free tier, good quality)
+
+### Local Embeddings
+
+**Status:** ✅ Implemented
+
+Uses `jinaai/jina-embeddings-v2-base-code` via `@xenova/transformers`:
 
 ```typescript
-// source/common/types.ts
-export type EmbeddingProviderType =
-	| 'gemini' // gemini-embedding-001 (768d, free tier)
-	| 'mistral' // codestral-embed-2505 (1024d, best for code)
-	| 'openai'; // text-embedding-3-large (3072d, highest quality)
+import { pipeline } from '@xenova/transformers';
+
+const embedder = await pipeline('feature-extraction', 'jinaai/jina-embeddings-v2-base-code', {
+  quantized: true  // int8 for smaller size (~161MB)
+});
+const embedding = await embedder(text, { pooling: 'mean', normalize: true });
 ```
 
-### 1.5.3 Implement API Providers
+**Specs:**
+- 768 dimensions (same as Gemini)
+- 8K token context window
+- Trained on 150M+ code QA pairs
+- int8 quantized (~161MB model)
 
-```typescript
-// source/rag/embeddings/gemini.ts
-export class GeminiEmbeddingProvider implements EmbeddingProvider {
-	readonly dimensions = 768;
+**Benefits:**
+- Works completely offline
+- No API key required
+- No per-token costs
+- Data never leaves machine
 
-	async embed(texts: string[]): Promise<number[][]> {
-		const response = await fetch(
-			`https://generativelanguage.googleapis.com/v1/models/embedding-001:batchEmbedContents?key=${this.apiKey}`,
-			{
-				method: 'POST',
-				headers: {'Content-Type': 'application/json'},
-				body: JSON.stringify({
-					requests: texts.map(text => ({
-						model: 'models/embedding-001',
-						content: {parts: [{text}]},
-					})),
-				}),
-			},
-		);
-		const data = await response.json();
-		return data.embeddings.map((e: any) => e.values);
-	}
-}
+**Tradeoffs:**
+- First run downloads model (~161MB)
+- Slower than API for large batches
 
-// source/rag/embeddings/mistral.ts
-export class MistralEmbeddingProvider implements EmbeddingProvider {
-	readonly dimensions = 1024;
+---
 
-	async embed(texts: string[]): Promise<number[][]> {
-		const response = await fetch('https://api.mistral.ai/v1/embeddings', {
-			method: 'POST',
-			headers: {
-				'Content-Type': 'application/json',
-				Authorization: `Bearer ${this.apiKey}`,
-			},
-			body: JSON.stringify({
-				model: 'codestral-embed-2505',
-				input: texts,
-			}),
-		});
-		const data = await response.json();
-		return data.data.map((d: any) => d.embedding);
-	}
-}
+## Distribution Strategy
 
-// source/rag/embeddings/openai.ts
-export class OpenAIEmbeddingProvider implements EmbeddingProvider {
-	readonly dimensions = 3072;
+### Primary: npm Global
 
-	async embed(texts: string[]): Promise<number[][]> {
-		const response = await fetch('https://api.openai.com/v1/embeddings', {
-			method: 'POST',
-			headers: {
-				'Content-Type': 'application/json',
-				Authorization: `Bearer ${this.apiKey}`,
-			},
-			body: JSON.stringify({
-				model: 'text-embedding-3-large',
-				input: texts,
-			}),
-		});
-		const data = await response.json();
-		return data.data.map((d: any) => d.embedding);
-	}
-}
+```bash
+npm install -g viberag
 ```
 
-### 1.5.4 Update Init Wizard
-
-Update the init wizard to only show API options:
-
-```
-? Select embedding provider:
-  ❯ Gemini (Free tier, 768d) - Recommended for getting started
-    Mistral codestral-embed (1024d) - Best for code
-    OpenAI text-embedding-3-large (3072d) - Highest quality
-```
-
-### 1.5.5 API Key Configuration
-
-Store API keys in `.viberag/config.json`:
-
+**package.json configuration:**
 ```json
 {
-	"embeddingProvider": "gemini",
-	"apiKeys": {
-		"gemini": "AIza...",
-		"mistral": "...",
-		"openai": "sk-..."
-	}
+  "name": "viberag",
+  "bin": {
+    "viberag": "./dist/cli/index.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "files": [
+    "dist/",
+    "wasm/"
+  ]
 }
 ```
 
-Or via environment variables:
-
-- `GEMINI_API_KEY`
-- `MISTRAL_API_KEY`
-- `OPENAI_API_KEY`
-
----
-
-## Phase 2: CI/CD & Testing ✅ MOSTLY COMPLETE
-
-**Status:** CI workflows created, need updates for Bun
-
-### 2.1 Current Workflows
-
-- `.github/workflows/ci.yml` - Lint + test matrix (3 OS × 2 Node versions)
-- `.github/workflows/release.yml` - Build standalone executables
-
-### 2.2 Updates Needed
-
-- Update release.yml to use Bun compile instead of pkg
-- Add Bun installation step
-- Test Bun compile on all platforms
-
----
-
-## Phase 3: Standalone Executables
-
-**Goal:** Create self-contained executables.
-
-**Timeline:** 1-2 days
-
-### 3.1 Current Solution: Deno Compile
-
-Deno compile works today with our current dependencies:
-
-```bash
-# Build standalone executable
-deno compile --allow-all --no-check --include node_modules --output viberag dist/cli/index.js
-```
-
-**Result:** 642MB working binary
-
-### 3.2 Future Solution: Bun Compile (requires ink v6)
-
-| Factor               | Bun                | Deno     |
-| -------------------- | ------------------ | -------- |
-| tree-sitter support  | ✅ v1.1.34+        | ✅       |
-| Native addon loading | ✅ Node-API        | ✅       |
-| Anthropic backing    | ✅ Acquired        | ❌       |
-| Claude Code uses     | ✅ Yes             | ❌       |
-| Binary size          | 157MB              | 642MB    |
-| Startup time         | Fast               | Medium   |
-| ink v4 (current)     | ❌ yoga.wasm fails | ✅ Works |
-| ink v6 (needed)      | ✅ Would work      | ✅ Works |
-
-**Key insight:** [Anthropic acquired Bun](https://bun.com/blog/bun-joins-anthropic) and Claude Code ships as a Bun executable. However, Claude Code uses a custom renderer instead of ink to avoid the yoga.wasm issue.
-
-### 3.3 ink v6 Upgrade Path
-
-To enable Bun compile (157MB binaries instead of 642MB):
-
-```bash
-# These packages need React 19 compatible versions
-npm install react@19 @types/react@19 --legacy-peer-deps
-npm install ink@6 --legacy-peer-deps
-# May need to update or replace:
-# - ink-select-input (currently requires ink ^4)
-# - ink-big-text
-# - ink-gradient
-```
-
-### 3.4 Bun Compile Configuration (Future)
-
-```bash
-# Build standalone executable
-bun build ./dist/cli/index.js --compile --outfile viberag
-```
-
-### 3.5 Updated Release Workflow
-
-```yaml
-# .github/workflows/release.yml
-name: Release
-
-on:
-  push:
-    tags: ['v*']
-
-permissions:
-  contents: write
-
-jobs:
-  build:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            target: bun-linux-x64
-            artifact: viberag-linux-x64
-
-          - os: ubuntu-24.04-arm64
-            target: bun-linux-arm64
-            artifact: viberag-linux-arm64
-
-          - os: macos-13
-            target: bun-darwin-x64
-            artifact: viberag-darwin-x64
-
-          - os: macos-14
-            target: bun-darwin-arm64
-            artifact: viberag-darwin-arm64
-
-          - os: windows-latest
-            target: bun-windows-x64
-            artifact: viberag-win-x64.exe
-
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      - name: Install dependencies
-        run: bun install
-
-      - name: Build TypeScript
-        run: bun run build
-
-      - name: Build standalone executable
-        run: bun build dist/cli/index.js --compile --target ${{ matrix.target }} --outfile ${{ matrix.artifact }}
-
-      - name: Package (Unix)
-        if: runner.os != 'Windows'
-        run: |
-          chmod +x ${{ matrix.artifact }}
-          tar -czvf ${{ matrix.artifact }}.tar.gz ${{ matrix.artifact }}
-
-      - name: Package (Windows)
-        if: runner.os == 'Windows'
-        run: Compress-Archive -Path ${{ matrix.artifact }} -DestinationPath ${{ matrix.artifact }}.zip
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.artifact }}
-          path: |
-            *.tar.gz
-            *.zip
-
-  release:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts/
-          merge-multiple: true
-
-      - name: Create checksums
-        working-directory: artifacts
-        run: |
-          sha256sum *.tar.gz *.zip > checksums.sha256
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            artifacts/*.tar.gz
-            artifacts/*.zip
-            artifacts/checksums.sha256
-          generate_release_notes: true
-
-  publish-npm:
-    needs: release
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: oven-sh/setup-bun@v2
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          registry-url: 'https://registry.npmjs.org'
-
-      - run: bun install
-      - run: bun run build
-      - run: npm publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-```
-
-### 3.6 Actual Binary Sizes (Tested)
-
-After removing ML stack:
-
-| Bundler      | darwin-arm64 | Notes                   |
-| ------------ | ------------ | ----------------------- |
-| Deno compile | 642MB        | Works today             |
-| Bun compile  | 157MB        | Needs ink v6 + React 19 |
-
-**With ink v6 (projected):**
-
-| Platform     | Bun Size | Deno Size |
-| ------------ | -------- | --------- |
-| linux-x64    | ~160MB   | ~650MB    |
-| linux-arm64  | ~160MB   | ~650MB    |
-| darwin-x64   | ~160MB   | ~650MB    |
-| darwin-arm64 | 157MB    | 642MB     |
-| win-x64      | ~170MB   | ~700MB    |
-
-**Total release size with Bun:** ~850MB (5 platforms)
-**Total release size with Deno:** ~3.3GB (5 platforms)
-
----
-
-## Phase 4: Package Manager Distribution
-
-**Goal:** Distribute via Homebrew, apt, scoop, and install scripts.
-
-**Timeline:** 2-3 days
-
-### 4.1 Homebrew Tap
+### Secondary: Homebrew Tap
 
 ```ruby
 # homebrew-viberag/Formula/viberag.rb
 class Viberag < Formula
   desc "Local Code RAG MCP Server for AI coding assistants"
   homepage "https://github.com/YourOrg/viberag"
-  version "0.2.0"
-  license "AGPL-3.0"
 
-  on_macos do
-    on_arm do
-      url "https://github.com/YourOrg/viberag/releases/download/v#{version}/viberag-darwin-arm64.tar.gz"
-      sha256 "PLACEHOLDER"
-    end
-    on_intel do
-      url "https://github.com/YourOrg/viberag/releases/download/v#{version}/viberag-darwin-x64.tar.gz"
-      sha256 "PLACEHOLDER"
-    end
-  end
-
-  on_linux do
-    on_arm do
-      url "https://github.com/YourOrg/viberag/releases/download/v#{version}/viberag-linux-arm64.tar.gz"
-      sha256 "PLACEHOLDER"
-    end
-    on_intel do
-      url "https://github.com/YourOrg/viberag/releases/download/v#{version}/viberag-linux-x64.tar.gz"
-      sha256 "PLACEHOLDER"
-    end
-  end
+  depends_on "node@18"
 
   def install
-    bin.install "viberag"
+    system "npm", "install", "-g", "viberag", "--prefix", prefix
   end
 
   test do
@@ -483,129 +317,186 @@ class Viberag < Formula
 end
 ```
 
-### 4.2 Install Script
-
-```bash
-#!/bin/bash
-# install.sh - Universal installer for viberag
-set -e
-
-REPO="YourOrg/viberag"
-INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
-
-OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
-ARCH="$(uname -m)"
-
-case "$OS" in
-  linux*)  OS="linux" ;;
-  darwin*) OS="darwin" ;;
-  *) echo "Unsupported OS: $OS"; exit 1 ;;
-esac
-
-case "$ARCH" in
-  x86_64|amd64) ARCH="x64" ;;
-  arm64|aarch64) ARCH="arm64" ;;
-  *) echo "Unsupported architecture: $ARCH"; exit 1 ;;
-esac
-
-VERSION=$(curl -s "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name"' | cut -d'"' -f4)
-BINARY="viberag-${OS}-${ARCH}"
-
-echo "Installing viberag ${VERSION} for ${OS}-${ARCH}..."
-
-curl -fsSL "https://github.com/${REPO}/releases/download/${VERSION}/${BINARY}.tar.gz" | tar xz
-chmod +x "$BINARY"
-sudo mv "$BINARY" "${INSTALL_DIR}/viberag"
-
-echo "viberag installed successfully!"
-viberag --version
-```
-
 **Usage:**
-
 ```bash
-curl -fsSL https://viberag.dev/install.sh | sh
+brew tap yourorg/viberag
+brew install viberag
 ```
 
 ---
 
-## Phase 5: Language Support Matrix
+## Implementation Phases
 
-**Status:** Complete with native tree-sitter
+### Phase 1: web-tree-sitter Migration
 
-### Tier 1 Languages (Full Support)
+**Status:** ✅ Complete
 
-| Language   | Grammar Package        | Export Detection | Decorators    | Docstrings        |
-| ---------- | ---------------------- | ---------------- | ------------- | ----------------- |
-| JavaScript | tree-sitter-javascript | `export` keyword | `@decorator`  | `/** */`          |
-| TypeScript | tree-sitter-typescript | `export` keyword | `@decorator`  | `/** */`          |
-| TSX        | tree-sitter-typescript | `export` keyword | `@decorator`  | `/** */`          |
-| Python     | tree-sitter-python     | `_` prefix       | `@decorator`  | `"""docstring"""` |
-| Go         | tree-sitter-go         | Capitalization   | N/A           | `// comment`      |
-| Rust       | tree-sitter-rust       | `pub` keyword    | `#[attr]`     | `///` or `//!`    |
-| Java       | tree-sitter-java       | `public` keyword | `@Annotation` | `/** */`          |
+**Completed:**
+1. ✅ Removed 12 native tree-sitter packages from `package.json`
+2. ✅ Added `web-tree-sitter` and `tree-sitter-wasms` dependencies
+3. ✅ Refactored `Chunker` class with async `initialize()` method
+4. ✅ WASM grammar loading via `Parser.Language.load()`
+5. ✅ Memory cleanup via `parser.delete()` in `close()`
+6. ✅ `npm install` verified
+7. ✅ `npm run build` verified
+8. ✅ `npm run test:smoke` - 11/12 grammars working
 
-### Tier 2 Languages (Standard Support)
+**Known Issue:**
+- Dart grammar temporarily disabled due to tree-sitter version mismatch
+- tree-sitter-wasms Dart WASM is version 15
+- web-tree-sitter 0.24.7 supports versions 13-14
+- Will be re-enabled when web-tree-sitter updates
 
-| Language | Grammar Package          | Export Detection | Decorators    | Docstrings      |
-| -------- | ------------------------ | ---------------- | ------------- | --------------- |
-| C#       | tree-sitter-c-sharp      | `public` keyword | `[Attribute]` | `/// <summary>` |
-| Kotlin   | tree-sitter-kotlin       | default public   | `@Annotation` | `/** */`        |
-| Swift    | tree-sitter-swift        | `public` keyword | `@attribute`  | `///`           |
-| PHP      | tree-sitter-php          | `public` keyword | `#[Attr]`     | `/** */`        |
-| Dart     | @sengac/tree-sitter-dart | `_` prefix       | `@annotation` | `///`           |
+**Files Modified:**
+- `source/rag/indexer/chunker.ts` - Complete rewrite for web-tree-sitter
+- `source/rag/__tests__/grammar-smoke.test.ts` - Updated for WASM
+- `package.json` - Dependencies updated
+
+### Phase 2: npm Global Configuration
+
+**Status:** ✅ Complete
+
+**Completed:**
+1. ✅ `bin` field in package.json (viberag, viberag-mcp)
+2. ✅ Shebang in CLI entry point (`#!/usr/bin/env node`)
+3. ✅ `files` field configured (dist, scripts)
+4. ✅ `engines` field set to `>=18.0.0`
+
+**Pending:**
+- [ ] Test `npm link` locally
+- [ ] Test `npm pack` and install
+
+**Files:**
+- `package.json` ✅
+- `dist/cli/index.js` ✅
+
+### Phase 3: Local Embeddings
+
+**Status:** ✅ Complete
+
+**Completed:**
+1. ✅ Added `@xenova/transformers` as regular dependency
+2. ✅ Created `LocalEmbeddingProvider` class with jina-v2-code model
+3. ✅ Added 'local' to EmbeddingProviderType
+4. ✅ Updated factory methods in indexer and search
+5. ✅ Updated InitWizard with local as recommended option
+6. ✅ `npm run build` verified
+
+**Files Modified:**
+- `source/rag/embeddings/local.ts` (new)
+- `source/rag/embeddings/index.ts`
+- `source/common/types.ts`
+- `source/rag/config/index.ts`
+- `source/rag/indexer/indexer.ts`
+- `source/rag/search/index.ts`
+- `source/cli/components/InitWizard.tsx`
+- `package.json`
+
+### Phase 4: Homebrew Tap
+
+**Status:** Not started
+
+**Tasks:**
+1. Create `homebrew-viberag` repository
+2. Write Formula
+3. Test installation
+4. Document in README
+
+### Phase 5: CI/CD Updates
+
+**Status:** Partially complete
+
+**Tasks:**
+1. Remove Bun compile from release workflow
+2. Add npm publish step
+3. Add Homebrew formula update automation
+
+**Files:**
+- `.github/workflows/release.yml`
 
 ---
 
-## Implementation Order
+## Node.js Version Support
 
-1. **Phase 1.5:** Remove local embeddings, implement API providers
-2. **Phase 3:** Test Bun compile with reduced dependencies
-3. **Phase 2:** Update CI/CD for Bun
-4. **Phase 4:** Package manager distribution
-5. **Phase 5:** Already complete
+| Node.js | Status | Notes |
+|---------|--------|-------|
+| 18.x | ✅ Supported | Oldest LTS, minimum |
+| 20.x | ✅ Supported | Current LTS |
+| 22.x | ✅ Supported | Latest |
 
----
-
-## Success Metrics (Updated)
-
-| Metric                    | Target       | Notes                               |
-| ------------------------- | ------------ | ----------------------------------- |
-| Installation success rate | >99%         | No build tools needed               |
-| Platform coverage         | 5 platforms  | linux/darwin x64/arm64, win-x64     |
-| Language support          | 12 languages | All working with native tree-sitter |
-| Standalone binary size    | <150MB       | Down from ~900MB+ with ML stack     |
-| npm package size          | <50MB        | Just dist + scripts                 |
-| Startup time              | <2s          | Bun is fast                         |
+**Engines field:**
+```json
+{
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
+```
 
 ---
 
-## Risk Mitigation
+## Native Dependencies
 
-| Risk                                  | Mitigation                          |
-| ------------------------------------- | ----------------------------------- |
-| Bun compile issues with native addons | Test thoroughly, fallback to npm    |
-| API rate limits                       | Implement retry with backoff        |
-| API cost concerns                     | Default to Gemini (free tier)       |
-| LanceDB native issues                 | Already tested, works with Node-API |
+After web-tree-sitter migration, only ONE native dependency remains:
+
+| Package | Size | Prebuild Coverage |
+|---------|------|-------------------|
+| @lancedb/lancedb | 94MB | Excellent |
+
+**LanceDB prebuild platforms:**
+- ✅ darwin-x64
+- ✅ darwin-arm64
+- ✅ linux-x64-gnu
+- ✅ linux-arm64-gnu
+- ✅ linux-x64-musl
+- ✅ win32-x64
+
+**Fallback:** If no prebuild, requires Rust toolchain to compile.
+
+---
+
+## Success Metrics
+
+| Metric | Target |
+|--------|--------|
+| Installation success rate | >99% |
+| Platform coverage | All Node.js platforms |
+| Language support | 12 languages |
+| npm package size | <20MB (excluding optional deps) |
+| Startup time | <2s |
 
 ---
 
 ## Future Considerations
 
-### Optional Local Embeddings (Phase 6)
+### Ollama Integration
 
-If users strongly request local embeddings:
+For users who want local embeddings without bundled ONNX:
 
-- Document Ollama as external option
-- `viberag` just calls `http://localhost:11434/api/embed`
-- User manages Ollama separately
-- No native ML deps in our codebase
+```typescript
+// Use Ollama's embedding endpoint
+const response = await fetch('http://localhost:11434/api/embed', {
+  method: 'POST',
+  body: JSON.stringify({
+    model: 'nomic-embed-text',
+    input: texts
+  })
+});
+```
+
+User manages Ollama separately - no native deps in our codebase.
+
+### Standalone Binary (Future)
+
+If Bun fixes NAPI-RS module extraction:
+- Monitor [oven-sh/bun#11598](https://github.com/oven-sh/bun/issues/11598)
+- 157MB binaries would be possible
+- Could offer as alternative to npm
 
 ### Rust Rewrite (Long-term)
 
 For maximum performance and smallest binary:
-
 - tree-sitter has native Rust bindings
-- Single <20MB binary possible
+- LanceDB has Rust API
+- Single <30MB binary possible
 - No runtime dependencies

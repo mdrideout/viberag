@@ -11,7 +11,7 @@
 	},
 	"type": "module",
 	"engines": {
-		"node": ">=20 <24"
+		"node": ">=18.0.0"
 	},
 	"scripts": {
 		"preinstall": "node scripts/check-node-version.js",
@@ -20,9 +20,7 @@
 		"test": "prettier --check . && eslint . && vitest run",
 		"test:smoke": "vitest run --testNamePattern='Grammar Smoke'",
 		"lint": "eslint .",
-		"lint:fix": "eslint . --fix",
-		"bundle:cli": "esbuild dist/cli/index.js --bundle --platform=node --format=cjs --outfile=dist/cli-bundle.cjs --packages=external",
-		"pkg:build": "npm run build && npm run bundle:cli && yao-pkg dist/cli-bundle.cjs --compress GZip"
+		"lint:fix": "eslint . --fix"
 	},
 	"files": [
 		"dist",
@@ -30,8 +28,8 @@
 	],
 	"dependencies": {
 		"@lancedb/lancedb": "^0.23.0",
-		"@sengac/tree-sitter-dart": "^1.1.6",
-		"apache-arrow": "^21.1.0",
+		"@xenova/transformers": "^2.17.2",
+		"apache-arrow": "^18.1.0",
 		"chalk": "^5.6.2",
 		"chokidar": "^5.0.0",
 		"cli-highlight": "^2.1.11",
@@ -44,54 +42,26 @@
 		"meow": "^14.0.0",
 		"react": "^19.2.3",
 		"string-width": "^8.1.0",
-		"tree-sitter": "^0.25.0",
-		"tree-sitter-c-sharp": "^0.23.1",
-		"tree-sitter-go": "^0.25.0",
-		"tree-sitter-java": "^0.23.5",
-		"tree-sitter-javascript": "^0.25.0",
-		"tree-sitter-kotlin": "^0.3.8",
-		"tree-sitter-php": "^0.24.2",
-		"tree-sitter-python": "^0.25.0",
-		"tree-sitter-rust": "^0.24.0",
-		"tree-sitter-swift": "^0.7.1",
-		"tree-sitter-typescript": "^0.23.2",
+		"tree-sitter-wasms": "^0.1.13",
+		"web-tree-sitter": "^0.24.7",
 		"zod": "^4.2.1"
 	},
 	"devDependencies": {
-		"@appthreat/caxa": "^1.0.13",
 		"@eslint/js": "^9.39.2",
 		"@sindresorhus/tsconfig": "^3.0.1",
 		"@types/react": "^19.2.7",
 		"@vdemedes/prettier-config": "^2.0.1",
-		"@yao-pkg/pkg": "^6.11.0",
-		"esbuild": "^0.27.2",
 		"eslint": "^9.39.2",
 		"eslint-plugin-react": "^7.37.5",
 		"eslint-plugin-react-hooks": "^7.0.1",
 		"globals": "^16.5.0",
 		"ink-testing-library": "^3.0.0",
 		"prettier": "^3.7.4",
-		"react-devtools-core": "^7.0.1",
+		"react-devtools-core": "^6.1.2",
 		"ts-node": "^10.9.1",
 		"typescript": "^5.9.3",
 		"typescript-eslint": "^8.50.1",
 		"vitest": "^4.0.16"
-	},
-	"pkg": {
-		"assets": [
-			"node_modules/tree-sitter/**/*.node",
-			"node_modules/tree-sitter-*/**/*.node",
-			"node_modules/@sengac/**/*.node",
-			"node_modules/@lancedb/**/*.node",
-			"node_modules/onnxruntime-node/**/*"
-		],
-		"targets": [
-			"node22-linux-x64",
-			"node22-linux-arm64",
-			"node22-macos-x64",
-			"node22-macos-arm64",
-			"node22-win-x64"
-		]
 	},
 	"prettier": "@vdemedes/prettier-config"
 }

@@ -13,6 +13,7 @@ import type {Table} from '@lancedb/lancedb';
 import {loadConfig} from '../config/index.js';
 import {
 	GeminiEmbeddingProvider,
+	LocalEmbeddingProvider,
 	MistralEmbeddingProvider,
 	OpenAIEmbeddingProvider,
 	type EmbeddingProvider,
@@ -371,9 +372,11 @@ export class SearchEngine {
 	 * Create the appropriate embedding provider based on provider type.
 	 */
 	private createEmbeddingProvider(
-		providerType: 'gemini' | 'mistral' | 'openai',
+		providerType: 'local' | 'gemini' | 'mistral' | 'openai',
 	): EmbeddingProvider {
 		switch (providerType) {
+			case 'local':
+				return new LocalEmbeddingProvider();
 			case 'gemini':
 				return new GeminiEmbeddingProvider();
 			case 'mistral':

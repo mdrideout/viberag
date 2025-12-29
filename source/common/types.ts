@@ -62,12 +62,13 @@ export type IndexDisplayStats = {
 };
 
 /**
- * Embedding provider types (API-based only).
+ * Embedding provider types.
+ * - local: jina-embeddings-v2-base-code (768d) - Offline, no API key
  * - gemini: text-embedding-004 (768d) - Free tier available
  * - mistral: mistral-embed (1024d) - Good for code
  * - openai: text-embedding-3-large (3072d) - Highest quality
  */
-export type EmbeddingProviderType = 'gemini' | 'mistral' | 'openai';
+export type EmbeddingProviderType = 'local' | 'gemini' | 'mistral' | 'openai';
 
 /**
  * Configuration collected from the init wizard.
