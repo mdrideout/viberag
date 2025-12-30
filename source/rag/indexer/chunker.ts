@@ -172,25 +172,23 @@ export class Chunker {
 		const wasmPackagePath = require.resolve('tree-sitter-wasms/package.json');
 		this.wasmBasePath = path.join(path.dirname(wasmPackagePath), 'out');
 
-		// Load all language grammars (skip null entries like Dart)
-		const loadPromises = Object.entries(LANGUAGE_WASM_FILES).map(
-			async ([lang, wasmFile]) => {
-				if (!wasmFile) {
-					// Language temporarily disabled (e.g., Dart due to version mismatch)
-					return;
-				}
-				try {
-					const wasmPath = path.join(this.wasmBasePath!, wasmFile);
-					const language = await Parser.Language.load(wasmPath);
-					this.languages.set(lang as SupportedLanguage, language);
-				} catch (error) {
-					// Log but don't fail - we can still work with other languages
-					console.error(`Failed to load ${lang} grammar:`, error);
-				}
-			},
-		);
-
-		await Promise.all(loadPromises);
+		// Load all language grammars sequentially (skip null entries like Dart)
+		// IMPORTANT: Must be sequential - web-tree-sitter has global state that
+		// gets corrupted when loading multiple WASM modules in parallel.
+		for (const [lang, wasmFile] of Object.entries(LANGUAGE_WASM_FILES)) {
+			if (!wasmFile) {
+				// Language temporarily disabled (e.g., Dart due to version mismatch)
+				continue;
+			}
+			try {
+				const wasmPath = path.join(this.wasmBasePath!, wasmFile);
+				const language = await Parser.Language.load(wasmPath);
+				this.languages.set(lang as SupportedLanguage, language);
+			} catch (error) {
+				// Log but don't fail - we can still work with other languages
+				console.error(`Failed to load ${lang} grammar:`, error);
+			}
+		}
 		this.initialized = true;
 	}
 

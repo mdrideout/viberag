@@ -86,19 +86,19 @@ const PROVIDER_CONFIG: Record<
 // Simple provider options for selection
 const PROVIDER_ITEMS: SelectItem<EmbeddingProviderType>[] = [
 	{
-		label: 'Local   - jina-v2-code, offline, no API key (Recommended)',
+		label: 'Local   - jina-v2-code, offline, no API key',
 		value: 'local',
 	},
 	{
-		label: 'Gemini  - text-embedding-004, free tier',
-		value: 'gemini',
-	},
-	{
-		label: 'Mistral - mistral-embed, good for code',
+		label: 'Mistral - mistral-embed (Recommended)',
 		value: 'mistral',
 	},
 	{
-		label: 'OpenAI  - text-embedding-3-large, highest quality',
+		label: 'Gemini  - text-embedding-004',
+		value: 'gemini',
+	},
+	{
+		label: 'OpenAI  - text-embedding-3-large',
 		value: 'openai',
 	},
 ];
@@ -108,11 +108,18 @@ const PROVIDER_ITEMS: SelectItem<EmbeddingProviderType>[] = [
  */
 const COMPARISON_DATA = [
 	{
-		Provider: 'Local*',
+		Provider: 'Local',
 		Model: 'jina-v2',
 		Dims: '768',
 		Context: '8K',
 		Cost: 'Free',
+	},
+	{
+		Provider: 'Mistral*',
+		Model: 'embed',
+		Dims: '1024',
+		Context: '8K',
+		Cost: '$0.10/1M',
 	},
 	{
 		Provider: 'Gemini',
@@ -120,13 +127,6 @@ const COMPARISON_DATA = [
 		Dims: '768',
 		Context: '2K',
 		Cost: 'Free tier',
-	},
-	{
-		Provider: 'Mistral',
-		Model: 'embed',
-		Dims: '1024',
-		Context: '8K',
-		Cost: '$0.10/1M',
 	},
 	{
 		Provider: 'OpenAI',
