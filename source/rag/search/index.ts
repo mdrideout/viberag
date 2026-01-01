@@ -23,10 +23,16 @@ import {Storage} from '../storage/index.js';
 import {buildDefinitionFilter, buildFilterClause} from './filters.js';
 import {ftsSearch} from './fts.js';
 import {hybridRerank} from './hybrid.js';
-import type {SearchMode, SearchOptions, SearchResults} from './types.js';
+import type {
+	SearchDebugInfo,
+	SearchMode,
+	SearchOptions,
+	SearchResults,
+} from './types.js';
 import {vectorSearch} from './vector.js';
 
 export type {
+	SearchDebugInfo,
 	SearchFilters,
 	SearchMode,
 	SearchOptions,
@@ -131,6 +137,9 @@ export class SearchEngine {
 					options.bm25Weight ?? DEFAULT_BM25_WEIGHT,
 					filterClause,
 					options.minScore,
+					options.autoBoost ?? true,
+					options.autoBoostThreshold ?? 0.3,
+					options.returnDebug ?? false,
 				);
 				break;
 		}
@@ -198,6 +207,10 @@ export class SearchEngine {
 	/**
 	 * Hybrid search: Vector + BM25 with RRF reranking.
 	 * Good general-purpose search.
+	 *
+	 * @param autoBoost - When true, increase BM25 weight if vector scores are low
+	 * @param autoBoostThreshold - Vector score threshold below which auto-boost activates
+	 * @param returnDebug - Include debug info in results for AI evaluation
 	 */
 	private async searchHybrid(
 		table: Table,
@@ -206,6 +219,9 @@ export class SearchEngine {
 		bm25Weight: number,
 		filterClause?: string,
 		minScore?: number,
+		autoBoost: boolean = true,
+		autoBoostThreshold: number = 0.3,
+		returnDebug: boolean = false,
 	): Promise<SearchResults> {
 		const queryVector = await this.embeddings!.embedSingle(query);
 
@@ -221,8 +237,27 @@ export class SearchEngine {
 			}),
 		]);
 
-		// Combine with RRF
-		const vectorWeight = 1 - bm25Weight;
+		// Calculate confidence metrics
+		const maxVectorScore = Math.max(...vectorResults.map(r => r.score), 0);
+		const maxFtsScore = Math.max(
+			...ftsResults.map(r => r.ftsScore ?? r.score),
+			0,
+		);
+
+		// Auto-boost: increase BM25 weight when vector confidence is low
+		let effectiveBm25Weight = bm25Weight;
+		let autoBoostApplied = false;
+
+		if (autoBoost && maxVectorScore < autoBoostThreshold) {
+			// Calculate boost factor: higher boost when vector scores are lower
+			const boost = (autoBoostThreshold - maxVectorScore) / autoBoostThreshold;
+			// Increase BM25 weight by up to 0.5, capped at 0.9
+			effectiveBm25Weight = Math.min(0.9, bm25Weight + boost * 0.5);
+			autoBoostApplied = effectiveBm25Weight !== bm25Weight;
+		}
+
+		// Combine with RRF using effective weight
+		const vectorWeight = 1 - effectiveBm25Weight;
 		let results = hybridRerank(vectorResults, ftsResults, limit, vectorWeight);
 
 		// Apply minScore filter
@@ -230,11 +265,26 @@ export class SearchEngine {
 			results = results.filter(r => r.score >= minScore);
 		}
 
+		// Build debug info if requested
+		const debug: SearchDebugInfo | undefined = returnDebug
+			? {
+					maxVectorScore,
+					maxFtsScore,
+					requestedBm25Weight: bm25Weight,
+					effectiveBm25Weight,
+					autoBoostApplied,
+					autoBoostThreshold,
+					vectorResultCount: vectorResults.length,
+					ftsResultCount: ftsResults.length,
+				}
+			: undefined;
+
 		return {
 			results,
 			query,
 			searchType: 'hybrid',
 			elapsedMs: 0,
+			debug,
 		};
 	}
 

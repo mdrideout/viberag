@@ -11,6 +11,7 @@
  */
 
 import {createMcpServer} from './server.js';
+import {configExists, Indexer} from '../rag/index.js';
 
 // Use current working directory as project root (same behavior as CLI)
 const projectRoot = process.cwd();
@@ -32,15 +33,47 @@ server.start({
 	transportType: 'stdio',
 });
 
-// Start watcher after server is running
+// Start watcher and sync index after server is running
 // Use setImmediate to ensure server.start() completes first
 setImmediate(async () => {
 	try {
+		// Start watcher first (will queue any changes during sync)
 		await startWatcher();
 	} catch (error) {
 		// Watcher errors shouldn't crash the server
 		console.error(
 			'[viberag-mcp] Failed to start watcher:',
+			error instanceof Error ? error.message : error,
+		);
+	}
+
+	// Sync index on startup if project is initialized
+	// This catches any changes made while MCP server was offline
+	try {
+		if (await configExists(projectRoot)) {
+			console.error('[viberag-mcp] Running startup sync...');
+			const indexer = new Indexer(projectRoot);
+			try {
+				const stats = await indexer.index({force: false});
+				if (
+					stats.filesNew > 0 ||
+					stats.filesModified > 0 ||
+					stats.filesDeleted > 0
+				) {
+					console.error(
+						`[viberag-mcp] Startup sync complete: ${stats.filesNew} new, ${stats.filesModified} modified, ${stats.filesDeleted} deleted`,
+					);
+				} else {
+					console.error('[viberag-mcp] Startup sync: index up to date');
+				}
+			} finally {
+				indexer.close();
+			}
+		}
+	} catch (error) {
+		// Sync errors shouldn't crash the server
+		console.error(
+			'[viberag-mcp] Startup sync failed:',
 			error instanceof Error ? error.message : error,
 		);
 	}

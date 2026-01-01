@@ -45,6 +45,29 @@ export interface SearchResult {
 }
 
 /**
+ * Debug information for search quality evaluation.
+ * Helps AI agents understand search effectiveness and tune parameters.
+ */
+export interface SearchDebugInfo {
+	/** Maximum vector similarity score across results */
+	maxVectorScore: number;
+	/** Maximum FTS/BM25 score across results */
+	maxFtsScore: number;
+	/** BM25 weight requested by caller */
+	requestedBm25Weight: number;
+	/** Effective BM25 weight after auto-boost */
+	effectiveBm25Weight: number;
+	/** Whether auto-boost was applied */
+	autoBoostApplied: boolean;
+	/** Auto-boost threshold used */
+	autoBoostThreshold: number;
+	/** Number of results from vector search */
+	vectorResultCount: number;
+	/** Number of results from FTS search */
+	ftsResultCount: number;
+}
+
+/**
  * Collection of search results with metadata.
  */
 export interface SearchResults {
@@ -58,6 +81,8 @@ export interface SearchResults {
 	elapsedMs: number;
 	/** Total matches (when exhaustive=true) */
 	totalMatches?: number;
+	/** Debug info for hybrid search (when return_debug=true) */
+	debug?: SearchDebugInfo;
 }
 
 /**
@@ -108,4 +133,10 @@ export interface SearchOptions {
 	codeSnippet?: string;
 	/** Symbol name for 'definition' mode */
 	symbolName?: string;
+	/** Enable auto-boost of BM25 weight when vector scores are low (default: true) */
+	autoBoost?: boolean;
+	/** Vector score threshold below which auto-boost activates (default: 0.3) */
+	autoBoostThreshold?: number;
+	/** Include debug info in results (default: false) */
+	returnDebug?: boolean;
 }

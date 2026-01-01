@@ -16,8 +16,6 @@ export interface WatchConfig {
 	batchWindowMs: number;
 	/** Wait for file writes to complete before indexing (default: true) */
 	awaitWriteFinish: boolean;
-	/** Skip initial scan on watcher start (default: true) */
-	ignoreInitial: boolean;
 }
 
 export interface ViberagConfig {
@@ -46,7 +44,7 @@ export const PROVIDER_CONFIGS: Record<
 		dimensions: 768,
 	},
 	gemini: {
-		model: 'text-embedding-004',
+		model: 'gemini-embedding-001',
 		dimensions: 768,
 	},
 	mistral: {
@@ -82,7 +80,6 @@ export const DEFAULT_WATCH_CONFIG: WatchConfig = {
 	debounceMs: 500,
 	batchWindowMs: 2000,
 	awaitWriteFinish: true,
-	ignoreInitial: true,
 };
 
 export const DEFAULT_CONFIG: ViberagConfig = {
@@ -90,33 +87,12 @@ export const DEFAULT_CONFIG: ViberagConfig = {
 	embeddingProvider: 'gemini',
 	embeddingModel: PROVIDER_CONFIGS['gemini'].model,
 	embeddingDimensions: PROVIDER_CONFIGS['gemini'].dimensions,
-	extensions: [
-		'.py',
-		'.js',
-		'.ts',
-		'.tsx',
-		'.go',
-		'.rs',
-		'.java',
-		'.cs',
-		'.dart',
-		'.swift',
-		'.kt',
-		'.kts',
-		'.php',
-	],
-	excludePatterns: [
-		'node_modules',
-		'.git',
-		'__pycache__',
-		'venv',
-		'.venv',
-		'.viberag',
-		'dist',
-		'build',
-		'.next',
-		'coverage',
-	],
+	// Extensions to index. Empty array = index ALL text files (recommended).
+	// Binary files are automatically detected and skipped.
+	// Use .gitignore for exclusions.
+	extensions: [],
+	// DEPRECATED: Use .gitignore instead. This field is ignored.
+	excludePatterns: [],
 	chunkMaxSize: 2000,
 	watchDebounceMs: 500,
 	watch: DEFAULT_WATCH_CONFIG,

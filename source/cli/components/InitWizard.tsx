@@ -53,8 +53,8 @@ const PROVIDER_CONFIG: Record<
 	},
 	gemini: {
 		name: 'Gemini',
-		model: 'text-embedding-004',
-		modelFull: 'text-embedding-004',
+		model: 'gemini-embedding-001',
+		modelFull: 'gemini-embedding-001',
 		dims: '768',
 		context: '2K',
 		cost: 'Free tier',
@@ -94,7 +94,7 @@ const PROVIDER_ITEMS: SelectItem<EmbeddingProviderType>[] = [
 		value: 'mistral',
 	},
 	{
-		label: 'Gemini  - text-embedding-004',
+		label: 'Gemini  - gemini-embedding-001',
 		value: 'gemini',
 	},
 	{
@@ -123,7 +123,7 @@ const COMPARISON_DATA = [
 	},
 	{
 		Provider: 'Gemini',
-		Model: 'embed-004',
+		Model: 'gemini-embedding-001',
 		Dims: '768',
 		Context: '2K',
 		Cost: 'Free tier',
@@ -192,7 +192,7 @@ function SimpleTable({
 function ComparisonTable(): React.ReactElement {
 	const columns: TableColumn[] = [
 		{key: 'Provider', width: 10},
-		{key: 'Model', width: 14},
+		{key: 'Model', width: 21},
 		{key: 'Dims', width: 6},
 		{key: 'Context', width: 9},
 		{key: 'Cost', width: 10},

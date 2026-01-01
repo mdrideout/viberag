@@ -10,13 +10,18 @@ import {
 	Indexer,
 	loadConfig,
 	hasValidExtension,
-	shouldExclude,
+	loadGitignore,
 	createLogger,
 	getLogsDir,
 	type ViberagConfig,
 	type IndexStats,
 	type Logger,
 } from '../rag/index.js';
+
+// Simplified Ignore interface (subset of the ignore package)
+interface Ignore {
+	ignores(pathname: string): boolean;
+}
 
 /**
  * Watcher status for reporting.
@@ -56,6 +61,7 @@ export class FileWatcher {
 	private config: ViberagConfig | null = null;
 	private watcher: FSWatcher | null = null;
 	private logger: Logger | null = null;
+	private gitignore: Ignore | null = null;
 
 	// Batching state
 	private pendingChanges: Set<string> = new Set();
@@ -90,6 +96,9 @@ export class FileWatcher {
 			return;
 		}
 
+		// Load gitignore rules
+		this.gitignore = await loadGitignore(this.projectRoot);
+
 		// Initialize logger
 		try {
 			const logsDir = getLogsDir(this.projectRoot);
@@ -100,24 +109,38 @@ export class FileWatcher {
 
 		this.log('info', `Starting file watcher for ${this.projectRoot}`);
 
-		// Build glob patterns for extensions
-		const extensions = this.config.extensions;
-		const patterns = extensions.map(ext => `**/*${ext}`);
+		// Chokidar v5: watch directory '.' instead of glob '**/*'
+		// Paths are relative to cwd when cwd is set
+		// ignored must be a function (glob arrays removed in v4+)
+		const ignored = (filePath: string): boolean => {
+			// Normalize path separators for cross-platform
+			const normalized = filePath.replace(/\\/g, '/');
 
-		// Build ignore patterns
-		const ignored = [
-			...this.config.excludePatterns.map(p => `**/${p}/**`),
-			'**/node_modules/**',
-			'**/.git/**',
-			'**/.viberag/**',
-		];
+			// Check if path starts with or contains ignored directories
+			// Paths are relative to cwd, e.g.: '.git', 'src/index.ts', 'node_modules/pkg/...'
+			const ignoredDirs = ['.git', '.viberag', 'node_modules'];
 
-		// Create watcher
-		this.watcher = watch(patterns, {
+			for (const dir of ignoredDirs) {
+				if (
+					normalized === dir ||
+					normalized.startsWith(`${dir}/`) ||
+					normalized.includes(`/${dir}/`) ||
+					normalized.includes(`/${dir}`)
+				) {
+					return true;
+				}
+			}
+
+			return false;
+		};
+
+		// Create watcher - watch '.' (current directory) recursively
+		this.watcher = watch('.', {
 			cwd: this.projectRoot,
 			ignored,
 			persistent: true,
-			ignoreInitial: watchConfig.ignoreInitial,
+			// Emit events for existing files so we can count them
+			ignoreInitial: false,
 			awaitWriteFinish: watchConfig.awaitWriteFinish
 				? {
 						stabilityThreshold: 300,
@@ -127,29 +150,39 @@ export class FileWatcher {
 			depth: 20, // Reasonable depth limit
 		});
 
-		// Track file count
-		this.watcher.on('add', path => {
-			this.filesWatched++;
-			this.handleChange('add', path);
-		});
+		// Wait for initial scan to complete before returning
+		await new Promise<void>((resolve, reject) => {
+			if (!this.watcher) {
+				reject(new Error('Watcher not initialized'));
+				return;
+			}
 
-		this.watcher.on('change', path => {
-			this.handleChange('change', path);
-		});
+			// Track file count
+			this.watcher.on('add', path => {
+				this.filesWatched++;
+				this.handleChange('add', path);
+			});
 
-		this.watcher.on('unlink', path => {
-			this.filesWatched = Math.max(0, this.filesWatched - 1);
-			this.handleChange('unlink', path);
-		});
+			this.watcher.on('change', path => {
+				this.handleChange('change', path);
+			});
 
-		this.watcher.on('error', error => {
-			const message = error instanceof Error ? error.message : String(error);
-			this.lastError = message;
-			this.log('error', `Watcher error: ${message}`);
-		});
+			this.watcher.on('unlink', path => {
+				this.filesWatched = Math.max(0, this.filesWatched - 1);
+				this.handleChange('unlink', path);
+			});
 
-		this.watcher.on('ready', () => {
-			this.log('info', `Watcher ready, watching ${this.filesWatched} files`);
+			this.watcher.on('error', error => {
+				const message = error instanceof Error ? error.message : String(error);
+				this.lastError = message;
+				this.log('error', `Watcher error: ${message}`);
+				// Don't reject on error - watcher can continue with partial coverage
+			});
+
+			this.watcher.on('ready', () => {
+				this.log('info', `Watcher ready, watching ${this.filesWatched} files`);
+				resolve();
+			});
 		});
 	}
 
@@ -211,18 +244,20 @@ export class FileWatcher {
 	 * Handle a file change event.
 	 */
 	private handleChange(event: 'add' | 'change' | 'unlink', path: string): void {
-		if (!this.config) return;
+		if (!this.config || !this.gitignore) return;
 
-		// Skip if file doesn't match our extensions (shouldn't happen due to glob, but double-check)
-		if (
-			event !== 'unlink' &&
-			!hasValidExtension(path, this.config.extensions)
-		) {
+		// Skip if path is ignored by gitignore
+		if (this.gitignore.ignores(path)) {
 			return;
 		}
 
-		// Skip if path matches exclude patterns
-		if (shouldExclude(path, this.config.excludePatterns)) {
+		// If extensions configured, filter by extension
+		// Empty extensions array means watch all files
+		if (
+			event !== 'unlink' &&
+			this.config.extensions.length > 0 &&
+			!hasValidExtension(path, this.config.extensions)
+		) {
 			return;
 		}
 

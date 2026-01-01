@@ -55,14 +55,24 @@ async function ensureInitialized(projectRoot: string): Promise<void> {
 /**
  * Format search results for MCP response.
  */
-function formatSearchResults(results: SearchResults): string {
+function formatSearchResults(
+	results: SearchResults,
+	includeDebug: boolean = false,
+): string {
 	if (results.results.length === 0) {
-		return JSON.stringify({
+		const response: Record<string, unknown> = {
 			message: `No results found for "${results.query}"`,
 			mode: results.searchType,
 			elapsedMs: results.elapsedMs,
 			results: [],
-		});
+		};
+
+		// Include debug info even for empty results (helps diagnose issues)
+		if (includeDebug && results.debug) {
+			response['debug'] = formatDebugInfo(results.debug);
+		}
+
+		return JSON.stringify(response);
 	}
 
 	const response: Record<string, unknown> = {
@@ -77,6 +87,8 @@ function formatSearchResults(results: SearchResults): string {
 			startLine: r.startLine,
 			endLine: r.endLine,
 			score: Number(r.score.toFixed(4)),
+			vectorScore: r.vectorScore ? Number(r.vectorScore.toFixed(4)) : undefined,
+			ftsScore: r.ftsScore ? Number(r.ftsScore.toFixed(4)) : undefined,
 			signature: r.signature ?? undefined,
 			isExported: r.isExported ?? undefined,
 			text: r.text,
@@ -88,7 +100,45 @@ function formatSearchResults(results: SearchResults): string {
 		response['totalMatches'] = results.totalMatches;
 	}
 
+	// Add debug info for AI evaluation
+	if (includeDebug && results.debug) {
+		response['debug'] = formatDebugInfo(results.debug);
+	}
+
 	return JSON.stringify(response);
+}
+
+/**
+ * Format debug info with quality assessment and suggestions.
+ */
+function formatDebugInfo(
+	debug: NonNullable<SearchResults['debug']>,
+): Record<string, unknown> {
+	const searchQuality =
+		debug.maxVectorScore > 0.5
+			? 'high'
+			: debug.maxVectorScore > 0.3
+				? 'medium'
+				: 'low';
+
+	const result: Record<string, unknown> = {
+		maxVectorScore: Number(debug.maxVectorScore.toFixed(4)),
+		maxFtsScore: Number(debug.maxFtsScore.toFixed(4)),
+		requestedBm25Weight: Number(debug.requestedBm25Weight.toFixed(2)),
+		effectiveBm25Weight: Number(debug.effectiveBm25Weight.toFixed(2)),
+		autoBoostApplied: debug.autoBoostApplied,
+		vectorResultCount: debug.vectorResultCount,
+		ftsResultCount: debug.ftsResultCount,
+		searchQuality,
+	};
+
+	// Add suggestion if search quality is low but FTS found results
+	if (debug.maxVectorScore < 0.3 && debug.maxFtsScore > 1) {
+		result['suggestion'] =
+			'Consider exact mode or higher bm25_weight for this query';
+	}
+
+	return result;
 }
 
 /**
@@ -172,46 +222,60 @@ export function createMcpServer(projectRoot: string): McpServerWithWatcher {
 	// Tool: viberag_search
 	server.addTool({
 		name: 'viberag_search',
-		description: `Search code by meaning or keywords. Primary search tool.
+		description: `Search code by meaning or keywords. Supports iterative refinement.
 
 MODE SELECTION:
-- 'semantic': For conceptual queries ("how does auth work"). Finds code by meaning.
-- 'exact': For symbol names, specific strings ("handlePayment"). Keyword-based, fast.
-- 'hybrid' (default): Combines semantic + keyword. Good general purpose.
-- 'definition': For "where is X defined". Direct lookup, fastest.
-- 'similar': For "find code like this". Pass code_snippet parameter.
+- 'hybrid' (default): Combined semantic + keyword. Start here for most queries.
+- 'semantic': Pure meaning-based search. Best for conceptual queries.
+- 'exact': Pure keyword/BM25. Best for symbol names, specific strings.
+- 'definition': Direct symbol lookup. Fastest for "where is X defined?"
+- 'similar': Find code similar to a snippet. Pass code_snippet parameter.
 
-EXHAUSTIVE MODE:
-Set exhaustive=true for refactoring tasks that need ALL matches.
-Default (false) returns top results by relevance.
+WEIGHT TUNING (hybrid mode):
+The bm25_weight parameter (0-1) balances keyword vs semantic matching:
+- 0.2-0.3: Favor semantic (conceptual queries like "how does X work")
+- 0.5: Balanced (documentation, prose, mixed content)
+- 0.7-0.9: Favor keywords (symbol names, exact strings, specific terms)
+
+AUTO-BOOST:
+By default, auto_boost=true increases keyword weight when semantic scores are low.
+This helps find content that doesn't match code embeddings (docs, comments, prose).
+Set auto_boost=false for precise control or comparative searches.
+
+ITERATIVE STRATEGY:
+For thorough searches, consider:
+1. Start with hybrid mode, default weights
+2. Check debug info to evaluate search quality
+3. If maxVectorScore < 0.3, try exact mode or higher bm25_weight
+4. If results seem incomplete, try viberag_multi_search for comparison
+5. Use exhaustive=true for refactoring tasks needing ALL matches
+
+RESULT INTERPRETATION:
+- score: Combined relevance (higher = better)
+- vectorScore: Semantic similarity (0-1, may be missing for exact mode)
+- ftsScore: Keyword match strength (BM25 score)
+- debug.searchQuality: 'high', 'medium', or 'low' based on vector scores
+- debug.suggestion: Hints when different settings might work better
 
 FILTERS (transparent, you control what's excluded):
 Path filters:
 - path_prefix: Scope to directory (e.g., "src/api/")
-- path_contains: Path must contain ALL strings (AND logic) - e.g., ["services", "auth"]
-- path_not_contains: Exclude if path contains ANY string (OR logic) - e.g., ["test", "__tests__"]
+- path_contains: Path must contain ALL strings (AND logic)
+- path_not_contains: Exclude if path contains ANY string (OR logic)
 
 Code filters:
-- type: Match ANY of these types (OR logic) - ["function", "class", "method", "module"]
-- extension: Match ANY extension (OR logic) - [".ts", ".py", ".go"]
+- type: Match ANY of ["function", "class", "method", "module"]
+- extension: Match ANY extension (e.g., [".ts", ".py"])
 
 Metadata filters:
-- is_exported: Only public/exported symbols (Go: capitalized, Python: no underscore prefix, JS/TS: export keyword)
+- is_exported: Only public/exported symbols
 - has_docstring: Only code with documentation comments
-- decorator_contains: Has decorator/attribute matching string - Python: @route, @app.get; TS: @Controller; Java: @GetMapping; Rust: #[test]; C#: [HttpGet]
+- decorator_contains: Has decorator/attribute matching string
 
 COMMON PATTERNS:
-Exclude test files:
-  filters: { path_not_contains: ["test", "__tests__", "_test.", ".spec.", "mock", "fixture"] }
-
-Find API endpoints:
-  filters: { decorator_contains: "Get", is_exported: true }
-
-Production code only:
-  filters: { path_not_contains: ["test", "mock", "fixture", "example"], is_exported: true }
-
-Scope to specific area:
-  filters: { path_prefix: "src/services/", type: ["function", "method"] }`,
+Exclude tests: { path_not_contains: ["test", "__tests__", ".spec.", "mock"] }
+Find API endpoints: { decorator_contains: "Get", is_exported: true }
+Production code: { path_not_contains: ["test", "mock", "fixture"], is_exported: true }`,
 		parameters: z.object({
 			query: z.string().describe('The search query in natural language'),
 			mode: z
@@ -252,7 +316,36 @@ Scope to specific area:
 				.max(1)
 				.optional()
 				.describe(
-					'[Deprecated: use mode instead] Weight for keyword matching (0-1)',
+					'Balance between keyword (BM25) and semantic search in hybrid mode. ' +
+						'Higher values favor exact keyword matches, lower values favor semantic similarity. ' +
+						'Guidelines: 0.7-0.9 for symbol names/exact strings, 0.5 for documentation/prose, ' +
+						'0.2-0.3 for conceptual queries (default: 0.3). Ignored for non-hybrid modes.',
+				),
+			auto_boost: z
+				.boolean()
+				.optional()
+				.default(true)
+				.describe(
+					'When true (default), automatically boosts BM25 weight if semantic scores are low. ' +
+						'Set to false for precise control over weights or when running comparative searches.',
+				),
+			auto_boost_threshold: z
+				.number()
+				.min(0)
+				.max(1)
+				.optional()
+				.default(0.3)
+				.describe(
+					'Vector score threshold below which auto-boost activates (default: 0.3). ' +
+						'Lower values make auto-boost more aggressive. Only applies when auto_boost=true.',
+				),
+			return_debug: z
+				.boolean()
+				.optional()
+				.describe(
+					'Include search diagnostics: max_vector_score, max_fts_score, effective_bm25_weight. ' +
+						'Defaults to true for hybrid mode, false for other modes. ' +
+						'Useful for evaluating search quality and tuning parameters.',
 				),
 		}),
 		execute: async args => {
@@ -274,6 +367,10 @@ Scope to specific area:
 
 			const engine = new SearchEngine(projectRoot);
 			try {
+				// Determine if debug info should be returned
+				const returnDebug =
+					args.return_debug ?? (args.mode === 'hybrid' || args.mode === undefined);
+
 				const results = await engine.search(args.query, {
 					mode: args.mode,
 					limit: args.limit,
@@ -283,8 +380,11 @@ Scope to specific area:
 					codeSnippet: args.code_snippet,
 					symbolName: args.symbol_name,
 					bm25Weight: args.bm25_weight,
+					autoBoost: args.auto_boost,
+					autoBoostThreshold: args.auto_boost_threshold,
+					returnDebug,
 				});
-				return formatSearchResults(results);
+				return formatSearchResults(results, returnDebug);
 			} finally {
 				engine.close();
 			}
@@ -375,6 +475,249 @@ Scope to specific area:
 		execute: async () => {
 			const status = watcher.getStatus();
 			return JSON.stringify(status);
+		},
+	});
+
+	// Tool: viberag_multi_search
+	server.addTool({
+		name: 'viberag_multi_search',
+		description: `Run multiple searches in parallel and compare results.
+
+USE CASES:
+- Compare semantic vs keyword results for the same query
+- Run same query with different weights to find optimal settings
+- Search multiple related queries and aggregate results
+- Implement multi-phase search strategies
+
+RETURNS:
+- Individual results for each search configuration
+- Merged/deduped results with source tracking
+- Comparative metrics (overlap, unique results per config)
+
+EXAMPLE STRATEGIES:
+1. Mode comparison: [{mode:'semantic'}, {mode:'exact'}, {mode:'hybrid'}]
+2. Weight tuning: [{bm25_weight:0.2}, {bm25_weight:0.5}, {bm25_weight:0.8}]
+3. Multi-query: [{query:'auth'}, {query:'authentication'}, {query:'login'}]`,
+		parameters: z.object({
+			searches: z
+				.array(
+					z.object({
+						query: z.string().describe('Search query'),
+						mode: z
+							.enum(['semantic', 'exact', 'hybrid', 'definition', 'similar'])
+							.optional()
+							.describe('Search mode'),
+						bm25_weight: z
+							.number()
+							.min(0)
+							.max(1)
+							.optional()
+							.describe('BM25 weight for hybrid mode'),
+						auto_boost: z
+							.boolean()
+							.optional()
+							.describe('Enable auto-boost'),
+						limit: z
+							.number()
+							.min(1)
+							.max(50)
+							.optional()
+							.default(10)
+							.describe('Max results per search'),
+						filters: filtersSchema,
+					}),
+				)
+				.min(1)
+				.max(5)
+				.describe('Array of search configurations (1-5)'),
+			merge_results: z
+				.boolean()
+				.optional()
+				.default(true)
+				.describe('Combine and dedupe results across all searches'),
+			merge_strategy: z
+				.enum(['rrf', 'dedupe'])
+				.optional()
+				.default('rrf')
+				.describe(
+					'How to merge: "rrf" - Reciprocal Rank Fusion (results in multiple searches rank higher), ' +
+						'"dedupe" - Simple deduplication (keep highest score)',
+				),
+			merged_limit: z
+				.number()
+				.min(1)
+				.max(100)
+				.optional()
+				.default(20)
+				.describe('Max results in merged output'),
+		}),
+		execute: async args => {
+			await ensureInitialized(projectRoot);
+
+			const engine = new SearchEngine(projectRoot);
+			try {
+				// Run all searches in parallel
+				const searchPromises = args.searches.map(async (config, index) => {
+					const filters: SearchFilters | undefined = config.filters
+						? {
+								pathPrefix: config.filters.path_prefix,
+								pathContains: config.filters.path_contains,
+								pathNotContains: config.filters.path_not_contains,
+								type: config.filters.type,
+								extension: config.filters.extension,
+								isExported: config.filters.is_exported,
+								decoratorContains: config.filters.decorator_contains,
+								hasDocstring: config.filters.has_docstring,
+							}
+						: undefined;
+
+					const results = await engine.search(config.query, {
+						mode: config.mode,
+						limit: config.limit,
+						filters,
+						bm25Weight: config.bm25_weight,
+						autoBoost: config.auto_boost,
+						returnDebug: true,
+					});
+
+					return {
+						index,
+						config: {
+							query: config.query,
+							mode: config.mode ?? 'hybrid',
+							bm25Weight: config.bm25_weight,
+						},
+						results,
+					};
+				});
+
+				const searchResults = await Promise.all(searchPromises);
+
+				// Build individual results
+				const individual = searchResults.map(sr => ({
+					searchIndex: sr.index,
+					config: sr.config,
+					resultCount: sr.results.results.length,
+					results: sr.results.results.map(r => ({
+						id: r.id,
+						type: r.type,
+						name: r.name || '(anonymous)',
+						filepath: r.filepath,
+						startLine: r.startLine,
+						endLine: r.endLine,
+						score: Number(r.score.toFixed(4)),
+					})),
+					debug: sr.results.debug,
+				}));
+
+				// Build merged results if requested
+				let merged: Record<string, unknown> | undefined;
+
+				if (args.merge_results) {
+					// Collect all results with their sources
+					const allResults: Array<{
+						result: (typeof searchResults)[0]['results']['results'][0];
+						sources: number[];
+						ranks: number[];
+					}> = [];
+
+					// Group results by ID
+					const resultMap = new Map<
+						string,
+						{
+							result: (typeof searchResults)[0]['results']['results'][0];
+							sources: number[];
+							ranks: number[];
+						}
+					>();
+
+					for (const sr of searchResults) {
+						sr.results.results.forEach((result, rank) => {
+							const existing = resultMap.get(result.id);
+							if (existing) {
+								existing.sources.push(sr.index);
+								existing.ranks.push(rank);
+								// Keep highest score
+								if (result.score > existing.result.score) {
+									existing.result = result;
+								}
+							} else {
+								resultMap.set(result.id, {
+									result,
+									sources: [sr.index],
+									ranks: [rank],
+								});
+							}
+						});
+					}
+
+					// Convert to array for sorting
+					for (const [, value] of resultMap) {
+						allResults.push(value);
+					}
+
+					// Sort by merge strategy
+					if (args.merge_strategy === 'rrf') {
+						// RRF: Sum of 1/(rank+k) across all sources
+						const k = 60; // RRF constant
+						allResults.sort((a, b) => {
+							const rrfA = a.ranks.reduce((sum, r) => sum + 1 / (r + k), 0);
+							const rrfB = b.ranks.reduce((sum, r) => sum + 1 / (r + k), 0);
+							return rrfB - rrfA; // Higher RRF score first
+						});
+					} else {
+						// Dedupe: Sort by score, then by number of sources
+						allResults.sort((a, b) => {
+							if (b.sources.length !== a.sources.length) {
+								return b.sources.length - a.sources.length;
+							}
+							return b.result.score - a.result.score;
+						});
+					}
+
+					// Take top merged_limit results
+					const mergedResults = allResults
+						.slice(0, args.merged_limit)
+						.map(item => ({
+							id: item.result.id,
+							type: item.result.type,
+							name: item.result.name || '(anonymous)',
+							filepath: item.result.filepath,
+							startLine: item.result.startLine,
+							endLine: item.result.endLine,
+							score: Number(item.result.score.toFixed(4)),
+							sources: item.sources,
+							text: item.result.text,
+						}));
+
+					// Calculate overlap statistics
+					const uniqueToSearch = args.searches.map((_, i) =>
+						allResults.filter(
+							r => r.sources.length === 1 && r.sources[0] === i,
+						).length,
+					);
+					const overlapping = allResults.filter(
+						r => r.sources.length > 1,
+					).length;
+
+					merged = {
+						strategy: args.merge_strategy,
+						totalUnique: allResults.length,
+						resultCount: mergedResults.length,
+						overlap: overlapping,
+						uniquePerSearch: uniqueToSearch,
+						results: mergedResults,
+					};
+				}
+
+				return JSON.stringify({
+					searchCount: args.searches.length,
+					individual,
+					merged,
+				});
+			} finally {
+				engine.close();
+			}
 		},
 	});
 

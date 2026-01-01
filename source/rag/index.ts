@@ -125,3 +125,12 @@ export {
 	type SearchResult,
 	type SearchResults,
 } from './search/index.js';
+
+// Gitignore
+export {
+	loadGitignore,
+	shouldIgnore,
+	createGitignoreFilter,
+	clearGitignoreCache,
+	clearAllGitignoreCache,
+} from './gitignore/index.js';

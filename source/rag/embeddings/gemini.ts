@@ -1,7 +1,7 @@
 /**
  * Gemini embedding provider using Google's Generative AI API.
  *
- * Uses text-embedding-004 model (768 dimensions).
+ * Uses gemini-embedding-001 model (768 dimensions, supports up to 3072).
  * Free tier available with generous limits.
  */
 
@@ -9,12 +9,12 @@ import type {EmbeddingProvider} from './types.js';
 
 const GEMINI_API_BASE =
 	'https://generativelanguage.googleapis.com/v1beta/models';
-const MODEL = 'text-embedding-004';
+const MODEL = 'gemini-embedding-001';
 const BATCH_SIZE = 100; // Gemini supports up to 100 texts per request
 
 /**
  * Gemini embedding provider.
- * Uses text-embedding-004 model via Google's Generative AI API.
+ * Uses gemini-embedding-001 model via Google's Generative AI API.
  */
 export class GeminiEmbeddingProvider implements EmbeddingProvider {
 	readonly dimensions = 768;

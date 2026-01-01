@@ -64,7 +64,7 @@ export type IndexDisplayStats = {
 /**
  * Embedding provider types.
  * - local: jina-embeddings-v2-base-code (768d) - Offline, no API key
- * - gemini: text-embedding-004 (768d) - Free tier available
+ * - gemini: gemini-embedding-001 (768d) - Free tier available
  * - mistral: codestral-embed (1024d) - Optimized for code
  * - openai: text-embedding-3-large (3072d) - Highest quality
  */

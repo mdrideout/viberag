@@ -14,9 +14,9 @@ import {
 	computeFileHash,
 	hasValidExtension,
 	isBinaryFile,
-	shouldExclude,
 } from './hash.js';
 import {compareTrees, type TreeDiff} from './diff.js';
+import {loadGitignore} from '../gitignore/index.js';
 
 export * from './node.js';
 export * from './hash.js';
@@ -66,15 +66,19 @@ export class MerkleTree {
 	/**
 	 * Build a Merkle tree from the filesystem.
 	 *
+	 * Uses .gitignore for exclusions instead of hardcoded patterns.
+	 * If extensions is provided, only files with those extensions are included.
+	 * If extensions is empty/undefined, all text files are included.
+	 *
 	 * @param projectRoot - Absolute path to project root
-	 * @param extensions - File extensions to include (e.g., [".py", ".ts"])
-	 * @param excludePatterns - Patterns to exclude (e.g., ["node_modules", ".git"])
+	 * @param extensions - File extensions to include (e.g., [".py", ".ts"]), or empty for all
+	 * @param _excludePatterns - DEPRECATED: Use .gitignore instead. This parameter is ignored.
 	 * @param previousTree - Previous tree for mtime optimization
 	 */
 	static async build(
 		projectRoot: string,
 		extensions: string[],
-		excludePatterns: string[],
+		_excludePatterns: string[],
 		previousTree?: MerkleTree,
 	): Promise<MerkleTree> {
 		// Build a lookup map from the previous tree for mtime optimization
@@ -91,25 +95,31 @@ export class MerkleTree {
 			filesSkipped: 0,
 		};
 
-		// Find all files matching our criteria
+		// Load gitignore rules
+		const gitignore = await loadGitignore(projectRoot);
+
+		// Find all files (gitignore handles exclusions)
 		const pattern = '**/*';
 		const files = await fg(pattern, {
 			cwd: projectRoot,
 			dot: true,
 			onlyFiles: true,
 			followSymbolicLinks: false, // Skip symlinks
-			ignore: excludePatterns.map(p => `**/${p}/**`),
+			// Let gitignore handle exclusions, but always exclude .git and .viberag
+			ignore: ['**/.git/**', '**/.viberag/**'],
 		});
 
 		stats.filesScanned = files.length;
 
-		// Filter to valid extensions and non-excluded paths
+		// Filter using gitignore and optionally by extension
 		const validFiles = files.filter(relativePath => {
-			if (!hasValidExtension(relativePath, extensions)) {
+			// Apply gitignore rules
+			if (gitignore.ignores(relativePath)) {
 				return false;
 			}
 
-			if (shouldExclude(relativePath, excludePatterns)) {
+			// If extensions specified, filter by extension
+			if (extensions.length > 0 && !hasValidExtension(relativePath, extensions)) {
 				return false;
 			}
 
