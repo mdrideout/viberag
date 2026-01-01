@@ -25,9 +25,10 @@ Review the following files to understand the project, progress, and what's next.
 - @package.json - analyze packages in use
   - When working, use context7 to check library docs to ensure the latest syntax and use.
 
-## Important Library Documentation:
+## MCP Servers
 
-Use context7 to perform RAG on libraries and documentation to ensure you are using the LATEST and CORRECT syntax, and to get examples. You need to adhere to the patterns and opinions of the frameworks. Do not attempt to improvise. Find documentation to support your architecture decisions.
+- Use the **viberag** mcp server to assist with codebase search and RAG tasks
+- Use **context7** to perform RAG on libraries and documentation to ensure you are using the LATEST and CORRECT syntax, and to get examples. You need to adhere to the patterns and opinions of the frameworks. Do not attempt to improvise. Find documentation to support your architecture decisions.
 
 ## Libraries:
 
