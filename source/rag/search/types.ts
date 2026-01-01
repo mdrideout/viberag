@@ -65,6 +65,10 @@ export interface SearchDebugInfo {
 	vectorResultCount: number;
 	/** Number of results from FTS search */
 	ftsResultCount: number;
+	/** Oversample multiplier used (2-4x) */
+	oversampleMultiplier?: number;
+	/** Whether dynamic oversample boost was applied */
+	dynamicOversampleApplied?: boolean;
 }
 
 /**

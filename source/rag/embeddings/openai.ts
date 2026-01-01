@@ -1,22 +1,22 @@
 /**
  * OpenAI embedding provider using OpenAI API.
  *
- * Uses text-embedding-3-large model (3072 dimensions).
- * Highest quality embeddings, good for precision-critical use cases.
+ * Uses text-embedding-3-small model (1536 dimensions).
+ * Good quality with fast API responses and low cost ($0.02/1M tokens).
  */
 
-import type {EmbeddingProvider} from './types.js';
+import type {EmbeddingProvider, ModelProgressCallback} from './types.js';
 
 const OPENAI_API_BASE = 'https://api.openai.com/v1';
-const MODEL = 'text-embedding-3-large';
+const MODEL = 'text-embedding-3-small';
 const BATCH_SIZE = 2048; // OpenAI supports up to 2048 texts per request
 
 /**
  * OpenAI embedding provider.
- * Uses text-embedding-3-large model via OpenAI API.
+ * Uses text-embedding-3-small model via OpenAI API.
  */
 export class OpenAIEmbeddingProvider implements EmbeddingProvider {
-	readonly dimensions = 3072;
+	readonly dimensions = 1536;
 	private apiKey: string;
 	private initialized = false;
 
@@ -24,7 +24,7 @@ export class OpenAIEmbeddingProvider implements EmbeddingProvider {
 		this.apiKey = apiKey || process.env['OPENAI_API_KEY'] || '';
 	}
 
-	async initialize(): Promise<void> {
+	async initialize(_onProgress?: ModelProgressCallback): Promise<void> {
 		if (!this.apiKey) {
 			throw new Error(
 				'OpenAI API key required. Set OPENAI_API_KEY environment variable or pass to constructor.',

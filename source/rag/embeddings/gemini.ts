@@ -5,7 +5,7 @@
  * Free tier available with generous limits.
  */
 
-import type {EmbeddingProvider} from './types.js';
+import type {EmbeddingProvider, ModelProgressCallback} from './types.js';
 
 const GEMINI_API_BASE =
 	'https://generativelanguage.googleapis.com/v1beta/models';
@@ -25,7 +25,7 @@ export class GeminiEmbeddingProvider implements EmbeddingProvider {
 		this.apiKey = apiKey || process.env['GEMINI_API_KEY'] || '';
 	}
 
-	async initialize(): Promise<void> {
+	async initialize(_onProgress?: ModelProgressCallback): Promise<void> {
 		if (!this.apiKey) {
 			throw new Error(
 				'Gemini API key required. Set GEMINI_API_KEY environment variable or pass to constructor.',

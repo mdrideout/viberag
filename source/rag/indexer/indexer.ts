@@ -18,6 +18,7 @@ import path from 'node:path';
 import {loadConfig, type ViberagConfig} from '../config/index.js';
 import {
 	GeminiEmbeddingProvider,
+	Local4BEmbeddingProvider,
 	LocalEmbeddingProvider,
 	MistralEmbeddingProvider,
 	OpenAIEmbeddingProvider,
@@ -76,7 +77,7 @@ export class Indexer {
 
 		try {
 			// Initialize components
-			await this.initialize();
+			await this.initialize(progressCallback);
 
 			const config = this.config!;
 			const storage = this.storage!;
@@ -341,26 +342,74 @@ export class Indexer {
 	}
 
 	/**
+	 * Get a friendly name for the embedding provider.
+	 */
+	private getProviderDisplayName(provider: string): string {
+		switch (provider) {
+			case 'local':
+				return 'Qwen3-0.6B';
+			case 'gemini':
+				return 'Gemini';
+			case 'mistral':
+				return 'Mistral';
+			case 'openai':
+				return 'OpenAI';
+			default:
+				return provider;
+		}
+	}
+
+	/**
 	 * Initialize all components.
 	 */
-	private async initialize(): Promise<void> {
+	private async initialize(
+		progressCallback?: ProgressCallback,
+	): Promise<void> {
 		// Load config
 		this.config = await loadConfig(this.projectRoot);
+		const providerName = this.getProviderDisplayName(
+			this.config.embeddingProvider,
+		);
 
 		// Initialize storage
+		progressCallback?.(0, 0, 'Connecting to database');
 		this.storage = new Storage(
 			this.projectRoot,
 			this.config.embeddingDimensions,
 		);
 		await this.storage.connect();
 
-		// Initialize chunker
+		// Initialize chunker (loads tree-sitter parsers)
+		progressCallback?.(0, 0, 'Loading parsers');
 		this.chunker = new Chunker();
 		await this.chunker.initialize();
 
 		// Initialize embeddings based on provider type
+		// For local models, this may download the model on first run
+		const isLocal = this.config.embeddingProvider === 'local';
+		progressCallback?.(
+			0,
+			0,
+			isLocal ? `Loading ${providerName} model` : `Connecting to ${providerName}`,
+		);
 		this.embeddings = this.createEmbeddingProvider(this.config);
-		await this.embeddings.initialize();
+
+		// Pass model progress to the UI for local models
+		await this.embeddings.initialize(
+			isLocal && progressCallback
+				? (status, progress, _message) => {
+						if (status === 'downloading') {
+							progressCallback(
+								progress ?? 0,
+								100,
+								`Downloading ${providerName} (${progress}%)`,
+							);
+						} else if (status === 'loading') {
+							progressCallback(0, 0, `Loading ${providerName} model`);
+						}
+					}
+				: undefined,
+		);
 
 		this.log('info', 'Indexer initialized');
 	}
@@ -372,6 +421,8 @@ export class Indexer {
 		switch (config.embeddingProvider) {
 			case 'local':
 				return new LocalEmbeddingProvider();
+			case 'local-4b':
+				return new Local4BEmbeddingProvider();
 			case 'gemini':
 				return new GeminiEmbeddingProvider();
 			case 'mistral':

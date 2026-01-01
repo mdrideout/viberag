@@ -1,11 +1,11 @@
 /**
- * Local embedding provider using Jina AI's code embedding model.
+ * Local embedding provider using Qwen3-Embedding-0.6B.
  *
- * Uses jinaai/jina-embeddings-v2-base-code via @huggingface/transformers (ONNX Runtime).
- * - 768 dimensions (matches Gemini)
- * - 8K token context window
- * - Trained on 150M+ code QA pairs
- * - q8 (int8) quantized for smaller size (~161MB) and faster inference
+ * Uses Qwen3-Embedding-0.6B Q8 via @huggingface/transformers (ONNX Runtime).
+ * - 1024 dimensions
+ * - ~700MB download (Q8 quantized)
+ * - ~10GB RAM usage
+ * - 32K context window
  *
  * Benefits:
  * - Works completely offline
@@ -15,28 +15,51 @@
  */
 
 import {pipeline} from '@huggingface/transformers';
-import type {EmbeddingProvider} from './types.js';
+import type {EmbeddingProvider, ModelProgressCallback} from './types.js';
 
-const MODEL_NAME = 'jinaai/jina-embeddings-v2-base-code';
-const BATCH_SIZE = 8; // Memory-efficient batch size
+const MODEL_NAME = 'onnx-community/Qwen3-Embedding-0.6B-ONNX';
+const DIMENSIONS = 1024;
+const BATCH_SIZE = 8;
 
 /**
- * Local embedding provider using Jina's code embedding model.
+ * Local embedding provider using Qwen3-Embedding-0.6B Q8.
  */
 export class LocalEmbeddingProvider implements EmbeddingProvider {
-	readonly dimensions = 768;
+	readonly dimensions = DIMENSIONS;
 	private extractor: any = null;
 	private initialized = false;
 
-	async initialize(): Promise<void> {
+	async initialize(onProgress?: ModelProgressCallback): Promise<void> {
 		if (this.initialized) return;
 
+		// Track download progress for the model files
+		let lastProgress = 0;
+		const progressCallback = onProgress
+			? (progress: {status: string; file?: string; progress?: number}) => {
+					if (progress.status === 'progress' && progress.progress !== undefined) {
+						// Round to avoid too many updates
+						const pct = Math.round(progress.progress);
+						if (pct !== lastProgress) {
+							lastProgress = pct;
+							onProgress('downloading', pct, progress.file);
+						}
+					} else if (progress.status === 'ready') {
+						onProgress('loading');
+					}
+				}
+			: undefined;
+
+		// Notify loading is starting
+		onProgress?.('loading');
+
 		// Load the model with q8 (int8) quantization for smaller size and faster inference
-		// First load will download the model (~161MB)
+		// First load will download the model (~700MB)
 		this.extractor = await pipeline('feature-extraction', MODEL_NAME, {
 			dtype: 'q8', // int8 quantization
+			progress_callback: progressCallback,
 		});
 
+		onProgress?.('ready');
 		this.initialized = true;
 	}
 

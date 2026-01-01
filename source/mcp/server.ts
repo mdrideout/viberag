@@ -53,11 +53,76 @@ async function ensureInitialized(projectRoot: string): Promise<void> {
 }
 
 /**
+ * Default maximum response size in bytes (100KB).
+ * Reduces result count to fit; does NOT truncate text.
+ */
+const DEFAULT_MAX_RESPONSE_SIZE = 100 * 1024;
+
+/**
+ * Maximum allowed response size (500KB).
+ */
+const MAX_RESPONSE_SIZE = 500 * 1024;
+
+/**
+ * Overhead per result in JSON (metadata fields, formatting).
+ */
+const RESULT_OVERHEAD_BYTES = 200;
+
+/**
+ * Estimate JSON response size for a set of results.
+ */
+function estimateResponseSize(
+	results: SearchResults['results'],
+): number {
+	const textSize = results.reduce((sum, r) => sum + r.text.length, 0);
+	const overhead = results.length * RESULT_OVERHEAD_BYTES + 500; // Base JSON overhead
+	return textSize + overhead;
+}
+
+/**
+ * Cap results to fit within max response size.
+ * Removes results from the end (lowest relevance) until size fits.
+ */
+function capResultsToSize(
+	results: SearchResults['results'],
+	maxSize: number,
+): SearchResults['results'] {
+	if (results.length === 0) return results;
+
+	// Quick check: if current size is within limit, return as-is
+	const currentSize = estimateResponseSize(results);
+	if (currentSize <= maxSize) return results;
+
+	// Binary search for optimal result count
+	let low = 1;
+	let high = results.length;
+	let bestCount = 1;
+
+	while (low <= high) {
+		const mid = Math.floor((low + high) / 2);
+		const subset = results.slice(0, mid);
+		const size = estimateResponseSize(subset);
+
+		if (size <= maxSize) {
+			bestCount = mid;
+			low = mid + 1;
+		} else {
+			high = mid - 1;
+		}
+	}
+
+	return results.slice(0, bestCount);
+}
+
+/**
  * Format search results for MCP response.
+ *
+ * @param maxResponseSize - Maximum response size in bytes. Reduces result count to fit.
  */
 function formatSearchResults(
 	results: SearchResults,
 	includeDebug: boolean = false,
+	maxResponseSize: number = DEFAULT_MAX_RESPONSE_SIZE,
 ): string {
 	if (results.results.length === 0) {
 		const response: Record<string, unknown> = {
@@ -75,12 +140,16 @@ function formatSearchResults(
 		return JSON.stringify(response);
 	}
 
+	// Cap results to fit within max response size
+	const cappedResults = capResultsToSize(results.results, maxResponseSize);
+	const wasReduced = cappedResults.length < results.results.length;
+
 	const response: Record<string, unknown> = {
 		query: results.query,
 		mode: results.searchType,
 		elapsedMs: results.elapsedMs,
-		resultCount: results.results.length,
-		results: results.results.map(r => ({
+		resultCount: cappedResults.length,
+		results: cappedResults.map(r => ({
 			type: r.type,
 			name: r.name || '(anonymous)',
 			filepath: r.filepath,
@@ -94,6 +163,12 @@ function formatSearchResults(
 			text: r.text,
 		})),
 	};
+
+	// Add indicator if results were reduced due to size
+	if (wasReduced) {
+		response['originalResultCount'] = results.results.length;
+		response['reducedForSize'] = true;
+	}
 
 	// Add totalMatches for exhaustive mode
 	if (results.totalMatches !== undefined) {
@@ -131,6 +206,16 @@ function formatDebugInfo(
 		ftsResultCount: debug.ftsResultCount,
 		searchQuality,
 	};
+
+	// Add oversample info if present
+	if (debug.oversampleMultiplier !== undefined) {
+		result['oversampleMultiplier'] = Number(
+			debug.oversampleMultiplier.toFixed(2),
+		);
+	}
+	if (debug.dynamicOversampleApplied !== undefined) {
+		result['dynamicOversampleApplied'] = debug.dynamicOversampleApplied;
+	}
 
 	// Add suggestion if search quality is low but FTS found results
 	if (debug.maxVectorScore < 0.3 && debug.maxFtsScore > 1) {
@@ -347,6 +432,17 @@ Production code: { path_not_contains: ["test", "mock", "fixture"], is_exported: 
 						'Defaults to true for hybrid mode, false for other modes. ' +
 						'Useful for evaluating search quality and tuning parameters.',
 				),
+			max_response_size: z
+				.number()
+				.min(1024)
+				.max(MAX_RESPONSE_SIZE)
+				.optional()
+				.default(DEFAULT_MAX_RESPONSE_SIZE)
+				.describe(
+					'Maximum response size in bytes (default: 100KB, max: 500KB). ' +
+						'Reduces result count to fit within limit; does NOT truncate text content. ' +
+						'Use a larger value for exhaustive searches.',
+				),
 		}),
 		execute: async args => {
 			await ensureInitialized(projectRoot);
@@ -384,7 +480,11 @@ Production code: { path_not_contains: ["test", "mock", "fixture"], is_exported: 
 					autoBoostThreshold: args.auto_boost_threshold,
 					returnDebug,
 				});
-				return formatSearchResults(results, returnDebug);
+				return formatSearchResults(
+					results,
+					returnDebug,
+					args.max_response_size,
+				);
 			} finally {
 				engine.close();
 			}
@@ -550,6 +650,16 @@ EXAMPLE STRATEGIES:
 				.optional()
 				.default(20)
 				.describe('Max results in merged output'),
+			max_response_size: z
+				.number()
+				.min(1024)
+				.max(MAX_RESPONSE_SIZE)
+				.optional()
+				.default(DEFAULT_MAX_RESPONSE_SIZE)
+				.describe(
+					'Maximum response size in bytes (default: 100KB). ' +
+						'Reduces merged result count to fit; does NOT truncate text.',
+				),
 		}),
 		execute: async args => {
 			await ensureInitialized(projectRoot);
@@ -676,7 +786,7 @@ EXAMPLE STRATEGIES:
 					}
 
 					// Take top merged_limit results
-					const mergedResults = allResults
+					let mergedResults = allResults
 						.slice(0, args.merged_limit)
 						.map(item => ({
 							id: item.result.id,
@@ -689,6 +799,25 @@ EXAMPLE STRATEGIES:
 							sources: item.sources,
 							text: item.result.text,
 						}));
+
+					// Apply size capping to merged results
+					const cappedMerged = capResultsToSize(
+						mergedResults.map(r => ({
+							...r,
+							id: r.id,
+							filename: '',
+							vectorScore: undefined,
+							ftsScore: undefined,
+							signature: undefined,
+							isExported: undefined,
+						})),
+						args.max_response_size,
+					);
+
+					// Reduce to capped length if needed
+					if (cappedMerged.length < mergedResults.length) {
+						mergedResults = mergedResults.slice(0, cappedMerged.length);
+					}
 
 					// Calculate overlap statistics
 					const uniqueToSearch = args.searches.map((_, i) =>

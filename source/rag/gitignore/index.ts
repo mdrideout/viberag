@@ -114,3 +114,106 @@ export function clearGitignoreCache(projectRoot: string): void {
 export function clearAllGitignoreCache(): void {
 	ignoreCache.clear();
 }
+
+/**
+ * Convert gitignore patterns to fast-glob ignore patterns.
+ * This allows fast-glob to skip directories upfront instead of
+ * scanning them and filtering later.
+ *
+ * @param projectRoot - Project root directory
+ * @returns Array of fast-glob compatible ignore patterns
+ */
+export async function getGlobIgnorePatterns(
+	projectRoot: string,
+): Promise<string[]> {
+	const patterns: string[] = [];
+
+	// Always exclude these (same as ALWAYS_IGNORED)
+	patterns.push('**/.git/**', '**/.viberag/**', '**/node_modules/**');
+
+	// Try to load .gitignore
+	const gitignorePath = path.join(projectRoot, '.gitignore');
+	try {
+		const content = await fs.readFile(gitignorePath, 'utf-8');
+		const lines = content.split('\n');
+
+		for (const line of lines) {
+			const trimmed = line.trim();
+
+			// Skip empty lines and comments
+			if (!trimmed || trimmed.startsWith('#')) {
+				continue;
+			}
+
+			// Skip negation patterns (fast-glob handles these differently)
+			if (trimmed.startsWith('!')) {
+				continue;
+			}
+
+			// Convert gitignore pattern to fast-glob pattern
+			const globPattern = gitignoreToGlob(trimmed);
+			if (globPattern) {
+				patterns.push(globPattern);
+			}
+		}
+	} catch {
+		// .gitignore doesn't exist, that's fine
+	}
+
+	return patterns;
+}
+
+/**
+ * Convert a single gitignore pattern to a fast-glob pattern.
+ *
+ * Gitignore patterns:
+ * - `foo` matches `foo` anywhere
+ * - `foo/` matches directory `foo` anywhere
+ * - `/foo` matches `foo` only at root
+ * - `*.log` matches `*.log` anywhere
+ *
+ * Fast-glob patterns:
+ * - Need `**/` prefix to match anywhere
+ * - Need `/**` suffix to match directory contents
+ */
+function gitignoreToGlob(pattern: string): string | null {
+	let result = pattern;
+
+	// Handle rooted patterns (start with /)
+	const isRooted = result.startsWith('/');
+	if (isRooted) {
+		result = result.slice(1);
+	}
+
+	// Handle directory patterns (end with /)
+	const isDirectory = result.endsWith('/');
+	if (isDirectory) {
+		result = result.slice(0, -1);
+	}
+
+	// Skip patterns that are already glob-like with **
+	const hasDoublestar = result.includes('**');
+
+	// Build the glob pattern
+	if (isRooted) {
+		// Rooted: match only at project root
+		result = isDirectory ? `${result}/**` : result;
+	} else if (!hasDoublestar) {
+		// Non-rooted: match anywhere in tree
+		result = isDirectory ? `**/${result}/**` : `**/${result}`;
+
+		// If it doesn't look like a directory name (has extension or glob),
+		// don't add trailing /**
+		if (
+			!isDirectory &&
+			(result.includes('.') || result.includes('*') || result.includes('?'))
+		) {
+			// Keep as-is, it's likely a file pattern
+		} else if (!isDirectory) {
+			// Bare name like "node_modules" - treat as directory
+			result = `**/${pattern}/**`;
+		}
+	}
+
+	return result;
+}

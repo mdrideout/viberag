@@ -16,7 +16,7 @@ import {
 	isBinaryFile,
 } from './hash.js';
 import {compareTrees, type TreeDiff} from './diff.js';
-import {loadGitignore} from '../gitignore/index.js';
+import {loadGitignore, getGlobIgnorePatterns} from '../gitignore/index.js';
 
 export * from './node.js';
 export * from './hash.js';
@@ -95,18 +95,21 @@ export class MerkleTree {
 			filesSkipped: 0,
 		};
 
-		// Load gitignore rules
-		const gitignore = await loadGitignore(projectRoot);
+		// Load gitignore rules for both fast-glob (upfront filtering) and post-filtering
+		const [gitignore, globIgnorePatterns] = await Promise.all([
+			loadGitignore(projectRoot),
+			getGlobIgnorePatterns(projectRoot),
+		]);
 
-		// Find all files (gitignore handles exclusions)
+		// Find all files - use gitignore patterns upfront to avoid scanning excluded dirs
 		const pattern = '**/*';
 		const files = await fg(pattern, {
 			cwd: projectRoot,
 			dot: true,
 			onlyFiles: true,
 			followSymbolicLinks: false, // Skip symlinks
-			// Let gitignore handle exclusions, but always exclude .git and .viberag
-			ignore: ['**/.git/**', '**/.viberag/**'],
+			// Apply gitignore patterns upfront so fast-glob skips excluded directories
+			ignore: globIgnorePatterns,
 		});
 
 		stats.filesScanned = files.length;

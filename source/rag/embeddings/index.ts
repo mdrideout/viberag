@@ -4,8 +4,9 @@
  */
 
 export {GeminiEmbeddingProvider} from './gemini.js';
+export {Local4BEmbeddingProvider} from './local-4b.js';
 export {LocalEmbeddingProvider} from './local.js';
 export {MistralEmbeddingProvider} from './mistral.js';
 export {OpenAIEmbeddingProvider} from './openai.js';
 
-export type {EmbeddingProvider} from './types.js';
+export type {EmbeddingProvider, ModelProgressCallback} from './types.js';

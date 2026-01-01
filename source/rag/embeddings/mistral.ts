@@ -5,7 +5,7 @@
  * Optimized for code and technical content.
  */
 
-import type {EmbeddingProvider} from './types.js';
+import type {EmbeddingProvider, ModelProgressCallback} from './types.js';
 
 const MISTRAL_API_BASE = 'https://api.mistral.ai/v1';
 const MODEL = 'codestral-embed';
@@ -24,7 +24,7 @@ export class MistralEmbeddingProvider implements EmbeddingProvider {
 		this.apiKey = apiKey || process.env['MISTRAL_API_KEY'] || '';
 	}
 
-	async initialize(): Promise<void> {
+	async initialize(_onProgress?: ModelProgressCallback): Promise<void> {
 		if (!this.apiKey) {
 			throw new Error(
 				'Mistral API key required. Set MISTRAL_API_KEY environment variable or pass to constructor.',

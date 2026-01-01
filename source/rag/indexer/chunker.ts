@@ -142,6 +142,28 @@ const DEFAULT_MAX_CHUNK_SIZE = 2000;
 const MIN_CHUNK_SIZE = 100;
 
 /**
+ * Default overlap in lines for non-AST chunks (unsupported languages).
+ * Provides context continuity for embeddings at chunk boundaries.
+ */
+const DEFAULT_OVERLAP_LINES = 5;
+
+/**
+ * Overlap in lines for markdown chunks.
+ * Slightly higher than code for better natural language context.
+ */
+const MARKDOWN_OVERLAP_LINES = 7;
+
+/**
+ * Target chunk size in lines for markdown files.
+ */
+const MARKDOWN_TARGET_LINES = 60;
+
+/**
+ * Markdown file extensions.
+ */
+const MARKDOWN_EXTENSIONS = new Set(['.md', '.mdx', '.markdown']);
+
+/**
  * Chunker that uses web-tree-sitter (WASM) to extract semantic code chunks.
  * Provides 100% platform compatibility - no native compilation required.
  */
@@ -207,6 +229,14 @@ export class Chunker {
 	}
 
 	/**
+	 * Check if a file is a markdown file.
+	 */
+	private isMarkdownFile(filepath: string): boolean {
+		const ext = path.extname(filepath).toLowerCase();
+		return MARKDOWN_EXTENSIONS.has(ext);
+	}
+
+	/**
 	 * Extract chunks from a file.
 	 *
 	 * @param filepath - Path to the file (used for extension detection and context headers)
@@ -229,9 +259,22 @@ export class Chunker {
 		const ext = path.extname(filepath);
 		const lang = this.getLanguageForExtension(ext);
 
+		// Handle markdown files with heading-aware chunking
+		if (this.isMarkdownFile(filepath)) {
+			return this.chunkMarkdown(filepath, content, maxChunkSize);
+		}
+
 		if (!lang || !this.languages.has(lang)) {
-			// Unsupported language - return module-level chunk
-			return [this.createModuleChunk(filepath, content)];
+			// Unsupported language - return module-level chunk (with size enforcement + overlap)
+			const moduleChunk = this.createModuleChunk(filepath, content);
+			return this.enforceSizeLimits(
+				[moduleChunk],
+				maxChunkSize,
+				content,
+				lang ?? 'javascript', // Use any lang for splitting (line-based)
+				filepath,
+				DEFAULT_OVERLAP_LINES, // Add overlap for context continuity
+			);
 		}
 
 		// Set parser language
@@ -241,17 +284,33 @@ export class Chunker {
 		// Parse the content
 		const tree = this.parser.parse(content);
 
-		// If parsing failed, fall back to module chunk
+		// If parsing failed, fall back to module chunk (with size enforcement + overlap)
 		if (!tree) {
-			return [this.createModuleChunk(filepath, content)];
+			const moduleChunk = this.createModuleChunk(filepath, content);
+			return this.enforceSizeLimits(
+				[moduleChunk],
+				maxChunkSize,
+				content,
+				lang,
+				filepath,
+				DEFAULT_OVERLAP_LINES, // Add overlap for context continuity
+			);
 		}
 
 		// Extract chunks based on language with context tracking
 		const chunks = this.extractChunks(tree.rootNode, content, lang, filepath);
 
-		// If no chunks found, fall back to module chunk
+		// If no chunks found, fall back to module chunk (with size enforcement + overlap)
 		if (chunks.length === 0) {
-			return [this.createModuleChunk(filepath, content)];
+			const moduleChunk = this.createModuleChunk(filepath, content);
+			return this.enforceSizeLimits(
+				[moduleChunk],
+				maxChunkSize,
+				content,
+				lang,
+				filepath,
+				DEFAULT_OVERLAP_LINES, // Add overlap for context continuity
+			);
 		}
 
 		// Split oversized chunks and merge tiny ones
@@ -1238,7 +1297,171 @@ export class Chunker {
 	}
 
 	/**
+	 * Chunk markdown files with heading-aware splitting and overlap.
+	 *
+	 * Strategy:
+	 * 1. Try to split at heading boundaries (# lines)
+	 * 2. Use sliding window with overlap between chunks
+	 * 3. Merge small final chunks to avoid orphans
+	 */
+	private chunkMarkdown(
+		filepath: string,
+		content: string,
+		maxChunkSize: number,
+	): Chunk[] {
+		const lines = content.split('\n');
+
+		// If file is small enough, return as single module chunk
+		if (
+			content.length <= maxChunkSize &&
+			lines.length <= MARKDOWN_TARGET_LINES * 1.5
+		) {
+			return [this.createModuleChunk(filepath, content)];
+		}
+
+		const chunks: Chunk[] = [];
+		let currentStartLine = 0; // 0-indexed for array access
+		let chunkIndex = 0;
+
+		while (currentStartLine < lines.length) {
+			// Calculate target end (before overlap)
+			const targetEnd = Math.min(
+				currentStartLine + MARKDOWN_TARGET_LINES,
+				lines.length,
+			);
+
+			// Look for a heading boundary near the target to split cleanly
+			let actualEnd = targetEnd;
+			const searchStart = Math.max(
+				targetEnd - 15,
+				currentStartLine + Math.floor(MARKDOWN_TARGET_LINES / 3),
+			);
+
+			// Search backwards from target for a heading
+			for (let i = targetEnd; i >= searchStart && i > currentStartLine; i--) {
+				const line = lines[i];
+				if (line && /^#{1,6}\s/.test(line)) {
+					// Found a heading - split before it
+					actualEnd = i;
+					break;
+				}
+			}
+
+			// If no heading found and we're at the end, take remaining lines
+			if (actualEnd >= lines.length) {
+				actualEnd = lines.length;
+			}
+
+			// Extract chunk lines
+			const chunkLines = lines.slice(currentStartLine, actualEnd);
+			const chunkText = chunkLines.join('\n');
+
+			// Skip if chunk is too small and not at the end (will merge later)
+			if (
+				chunkText.trim().length < MIN_CHUNK_SIZE &&
+				chunks.length > 0 &&
+				actualEnd < lines.length
+			) {
+				// Move forward and let the next iteration include these lines
+				currentStartLine = actualEnd;
+				continue;
+			}
+
+			const chunk = this.createMarkdownChunk(
+				filepath,
+				chunkText,
+				currentStartLine + 1, // 1-indexed
+				currentStartLine + chunkLines.length, // 1-indexed
+				chunkIndex > 0,
+			);
+
+			chunks.push(chunk);
+			chunkIndex++;
+
+			// Calculate next start with overlap
+			const nextStart = actualEnd - MARKDOWN_OVERLAP_LINES;
+
+			// Ensure we make progress
+			if (nextStart <= currentStartLine) {
+				currentStartLine = actualEnd;
+			} else {
+				currentStartLine = nextStart;
+			}
+
+			// Check if we've reached the end
+			if (actualEnd >= lines.length) {
+				break;
+			}
+		}
+
+		// If final chunk is too small, merge with previous
+		if (chunks.length >= 2) {
+			const lastChunk = chunks[chunks.length - 1]!;
+			if (lastChunk.text.length < MIN_CHUNK_SIZE) {
+				const prevChunk = chunks[chunks.length - 2]!;
+				// Merge last into previous
+				const mergedText = prevChunk.text + '\n' + lastChunk.text;
+				if (mergedText.length <= maxChunkSize * 1.5) {
+					// Allow some overflow for merging
+					const contextHeader = this.buildContextHeader(
+						filepath,
+						null,
+						null,
+						false,
+					);
+					const fullText = `${contextHeader}\n${mergedText}`;
+					chunks[chunks.length - 2] = {
+						...prevChunk,
+						text: mergedText,
+						endLine: lastChunk.endLine,
+						contentHash: computeStringHash(fullText),
+					};
+					chunks.pop();
+				}
+			}
+		}
+
+		return chunks;
+	}
+
+	/**
+	 * Create a chunk from markdown content.
+	 */
+	private createMarkdownChunk(
+		filepath: string,
+		text: string,
+		startLine: number,
+		endLine: number,
+		isContinuation: boolean,
+	): Chunk {
+		const contextHeader = this.buildContextHeader(
+			filepath,
+			null,
+			null,
+			isContinuation,
+		);
+
+		const fullText = `${contextHeader}\n${text}`;
+
+		return {
+			text,
+			contextHeader,
+			type: 'module',
+			name: '',
+			startLine,
+			endLine,
+			contentHash: computeStringHash(fullText),
+			signature: null,
+			docstring: null,
+			isExported: true,
+			decoratorNames: null,
+		};
+	}
+
+	/**
 	 * Enforce size limits: split oversized chunks and merge tiny ones.
+	 *
+	 * @param overlapLines - Number of lines to overlap between chunks (for context continuity)
 	 */
 	private enforceSizeLimits(
 		chunks: Chunk[],
@@ -1246,6 +1469,7 @@ export class Chunker {
 		content: string,
 		_lang: SupportedLanguage, // Reserved for future AST-based splitting
 		filepath: string,
+		overlapLines: number = 0,
 	): Chunk[] {
 		const lines = content.split('\n');
 		const result: Chunk[] = [];
@@ -1260,6 +1484,7 @@ export class Chunker {
 					maxSize,
 					lines,
 					filepath,
+					overlapLines,
 				);
 				result.push(...splitChunks);
 			}
@@ -1272,12 +1497,15 @@ export class Chunker {
 	/**
 	 * Split an oversized chunk by lines.
 	 * Tries to split at natural boundaries (empty lines, statement ends).
+	 *
+	 * @param overlapLines - Number of lines from previous chunk to include for context
 	 */
 	private splitChunkByLines(
 		chunk: Chunk,
 		maxSize: number,
 		allLines: string[],
 		filepath: string,
+		overlapLines: number = 0,
 	): Chunk[] {
 		const chunkLines = allLines.slice(chunk.startLine - 1, chunk.endLine);
 		const result: Chunk[] = [];
@@ -1294,20 +1522,35 @@ export class Chunker {
 			// Check if adding this line would exceed max size
 			if (currentSize + lineSize > maxSize && currentLines.length > 0) {
 				// Flush current chunk
+				const chunkEndLine = currentStartLine + currentLines.length - 1;
 				result.push(
 					this.createSplitChunk(
 						chunk,
 						currentLines,
 						currentStartLine,
-						currentStartLine + currentLines.length - 1,
+						chunkEndLine,
 						filepath,
 						partIndex > 0,
 					),
 				);
 				partIndex++;
-				currentLines = [];
-				currentStartLine = chunk.startLine + i;
-				currentSize = 0;
+
+				// Start next chunk with overlap from the end of previous chunk
+				if (overlapLines > 0 && currentLines.length > overlapLines) {
+					// Include last N lines from previous chunk as overlap
+					const overlapStart = currentLines.length - overlapLines;
+					currentLines = currentLines.slice(overlapStart);
+					currentStartLine = chunkEndLine - overlapLines + 1;
+					currentSize = currentLines.reduce(
+						(sum, l) => sum + l.length + 1,
+						0,
+					);
+				} else {
+					// No overlap or previous chunk too small
+					currentLines = [];
+					currentStartLine = chunk.startLine + i;
+					currentSize = 0;
+				}
 			}
 
 			currentLines.push(line);

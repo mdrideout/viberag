@@ -43,13 +43,23 @@ const PROVIDER_CONFIG: Record<
 > = {
 	local: {
 		name: 'Local',
-		model: 'jina-v2-code',
-		modelFull: 'jina-embeddings-v2-base-code',
-		dims: '768',
-		context: '8K',
+		model: 'Qwen3-0.6B Q8',
+		modelFull: 'Qwen/Qwen3-Embedding-0.6B',
+		dims: '1024',
+		context: '32K',
 		cost: 'Free',
-		note: 'No API key needed',
-		description: 'Offline, private, no costs',
+		note: '~700MB download, ~1.2GB RAM',
+		description: 'Offline, no API key needed',
+	},
+	'local-4b': {
+		name: 'Local 4B',
+		model: 'Qwen3-4B FP32',
+		modelFull: 'Qwen/Qwen3-Embedding-4B',
+		dims: '2560',
+		context: '32K',
+		cost: 'Free',
+		note: '~8GB download, ~8GB RAM',
+		description: 'Offline, better quality (+5 MTEB)',
 	},
 	gemini: {
 		name: 'Gemini',
@@ -58,8 +68,8 @@ const PROVIDER_CONFIG: Record<
 		dims: '768',
 		context: '2K',
 		cost: 'Free tier',
-		note: 'Free tier available',
-		description: 'Google Cloud, fast API',
+		note: 'GEMINI_API_KEY required',
+		description: 'Fast API, free tier available',
 	},
 	mistral: {
 		name: 'Mistral',
@@ -68,73 +78,46 @@ const PROVIDER_CONFIG: Record<
 		dims: '1024',
 		context: '8K',
 		cost: '$0.10/1M',
-		note: 'Optimized for code',
+		note: 'MISTRAL_API_KEY required',
 		description: 'Code-optimized embeddings',
 	},
 	openai: {
 		name: 'OpenAI',
-		model: 'text-embedding-3-large',
-		modelFull: 'text-embedding-3-large',
-		dims: '3072',
+		model: 'text-embed-3-sm',
+		modelFull: 'text-embedding-3-small',
+		dims: '1536',
 		context: '8K',
-		cost: '$0.13/1M',
-		note: 'Highest quality',
-		description: 'Best quality embeddings',
+		cost: '$0.02/1M',
+		note: 'OPENAI_API_KEY required',
+		description: 'Fast and reliable API',
 	},
 };
 
 // Simple provider options for selection
+// Note: local-4b exists in code but hidden from UI - no transformers.js-compatible ONNX available yet
 const PROVIDER_ITEMS: SelectItem<EmbeddingProviderType>[] = [
-	{
-		label: 'Local   - jina-v2-code, offline, no API key',
-		value: 'local',
-	},
-	{
-		label: 'Mistral - codestral-embed (Recommended)',
-		value: 'mistral',
-	},
-	{
-		label: 'Gemini  - gemini-embedding-001',
-		value: 'gemini',
-	},
-	{
-		label: 'OpenAI  - text-embedding-3-large',
-		value: 'openai',
-	},
+	{label: 'Local     - Qwen3-0.6B Q8 (~700MB, ~1.2GB RAM)', value: 'local'},
+	// {label: 'Local 4B  - Qwen3-4B FP32 (~8GB, ~8GB RAM)', value: 'local-4b'}, // No ONNX available
+	{label: 'Gemini    - gemini-embedding-001 (Free tier)', value: 'gemini'},
+	{label: 'Mistral   - codestral-embed', value: 'mistral'},
+	{label: 'OpenAI    - text-embedding-3-small', value: 'openai'},
 ];
 
 /**
- * Comparison table data.
+ * Local model info.
+ * Note: 4B not shown - no transformers.js-compatible ONNX available yet
  */
-const COMPARISON_DATA = [
-	{
-		Provider: 'Local',
-		Model: 'jina-v2',
-		Dims: '768',
-		Context: '8K',
-		Cost: 'Free',
-	},
-	{
-		Provider: 'Mistral*',
-		Model: 'codestral',
-		Dims: '1024',
-		Context: '8K',
-		Cost: '$0.10/1M',
-	},
-	{
-		Provider: 'Gemini',
-		Model: 'gemini-embedding-001',
-		Dims: '768',
-		Context: '2K',
-		Cost: 'Free tier',
-	},
-	{
-		Provider: 'OpenAI',
-		Model: 'embed-3-lg',
-		Dims: '3072',
-		Context: '8K',
-		Cost: '$0.13/1M',
-	},
+const LOCAL_MODELS_DATA = [
+	{Model: 'Qwen3-0.6B', Quant: 'Q8', Download: '~700MB', RAM: '~1.2GB'},
+];
+
+/**
+ * Frontier/API models - fastest, best quality.
+ */
+const FRONTIER_MODELS_DATA = [
+	{Provider: 'Gemini', Model: 'gemini-embedding-001', Dims: '768', Cost: 'Free tier'},
+	{Provider: 'Mistral', Model: 'codestral-embed', Dims: '1024', Cost: '$0.10/1M'},
+	{Provider: 'OpenAI', Model: 'text-embed-3-small', Dims: '1536', Cost: '$0.02/1M'},
 ];
 
 /**
@@ -187,18 +170,45 @@ function SimpleTable({
 }
 
 /**
- * Comparison table component showing all provider stats.
+ * Comparison table component showing local and frontier models.
  */
 function ComparisonTable(): React.ReactElement {
-	const columns: TableColumn[] = [
-		{key: 'Provider', width: 10},
-		{key: 'Model', width: 21},
-		{key: 'Dims', width: 6},
-		{key: 'Context', width: 9},
-		{key: 'Cost', width: 10},
+	const localColumns: TableColumn[] = [
+		{key: 'Model', width: 12},
+		{key: 'Quant', width: 6},
+		{key: 'Download', width: 10},
+		{key: 'RAM', width: 8},
 	];
 
-	return <SimpleTable data={COMPARISON_DATA} columns={columns} />;
+	const frontierColumns: TableColumn[] = [
+		{key: 'Provider', width: 10},
+		{key: 'Model', width: 20},
+		{key: 'Dims', width: 6},
+		{key: 'Cost', width: 11},
+	];
+
+	return (
+		<Box flexDirection="column">
+			<Box marginTop={1}>
+				<Text bold color="yellow">
+					Local Models
+				</Text>
+				<Text dimColor> - Offline, Slower, Free</Text>
+			</Box>
+			<SimpleTable data={LOCAL_MODELS_DATA} columns={localColumns} />
+			<Text dimColor italic>
+				* Initial indexing may take time. Future updates are incremental.
+			</Text>
+
+			<Box marginTop={1}>
+				<Text bold color="green">
+					Frontier Models
+				</Text>
+				<Text dimColor> - Fastest, Best Quality</Text>
+			</Box>
+			<SimpleTable data={FRONTIER_MODELS_DATA} columns={frontierColumns} />
+		</Box>
+	);
 }
 
 // Reinit confirmation options

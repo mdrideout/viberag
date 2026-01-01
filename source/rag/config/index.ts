@@ -40,8 +40,12 @@ export const PROVIDER_CONFIGS: Record<
 	{model: string; dimensions: number}
 > = {
 	local: {
-		model: 'jinaai/jina-embeddings-v2-base-code',
-		dimensions: 768,
+		model: 'Qwen/Qwen3-Embedding-0.6B',
+		dimensions: 1024,
+	},
+	'local-4b': {
+		model: 'Qwen/Qwen3-Embedding-4B',
+		dimensions: 2560,
 	},
 	gemini: {
 		model: 'gemini-embedding-001',
@@ -52,8 +56,8 @@ export const PROVIDER_CONFIGS: Record<
 		dimensions: 1024,
 	},
 	openai: {
-		model: 'text-embedding-3-large',
-		dimensions: 3072,
+		model: 'text-embedding-3-small',
+		dimensions: 1536,
 	},
 };
 

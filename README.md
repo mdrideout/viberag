@@ -84,17 +84,26 @@ For global configs, merge the viberag entry into your existing configuration.
 
 Choose your embedding provider during `/init`:
 
-| Provider  | Model        | Dims | Context | Cost     |
-| --------- | ------------ | ---- | ------- | -------- |
-| Local     | jina-v2-code | 768  | 8K      | Free     |
-| Gemini    | gemini-embedding-001 | 768  | 2K      | $0.15/1M |
-| Mistral\* | codestral    | 1024 | 8K      | $0.15/1M |
+### Local Model - Offline, Free
 
-\*Recommended for best code retrieval quality.
+| Model      | Quant | Download | RAM    |
+| ---------- | ----- | -------- | ------ |
+| Qwen3-0.6B | Q8    | ~700MB   | ~10GB  |
 
-- **Local** - No API key required, ~161MB model download, works offline
-- **Gemini** - Requires `GEMINI_API_KEY`, free tier available
-- **Mistral** - Requires `MISTRAL_API_KEY`, code-optimized embeddings
+- Works completely offline, no API key required
+- Initial indexing may take time; future updates are incremental
+
+### Frontier Models - Fastest, Best Quality
+
+| Provider | Model                  | Dims | Cost      |
+| -------- | ---------------------- | ---- | --------- |
+| Gemini   | gemini-embedding-001   | 768  | Free tier |
+| Mistral  | codestral-embed        | 1024 | $0.10/1M  |
+| OpenAI   | text-embedding-3-small | 1536 | $0.02/1M  |
+
+- **Gemini** - Free tier available with `GEMINI_API_KEY`
+- **Mistral** - Code-optimized embeddings. Requires `MISTRAL_API_KEY`
+- **OpenAI** - Fast and reliable. Requires `OPENAI_API_KEY`
 
 ## How It Works
 
@@ -103,6 +112,7 @@ Choose your embedding provider during `/init`:
 3. **Storage** - Vectors stored in LanceDB (local, no server required)
 4. **Search** - Hybrid search combines vector similarity + full-text search
 5. **MCP** - AI tools query the index via the MCP protocol
+
 
 ## TODO: Benefits
 
@@ -115,64 +125,6 @@ Choose your embedding provider during `/init`:
 - Token consumption comparisons
 - Speed comparisons
 - Number of requests comparisons.
-
-## TODO:
-- Change local model to Qwen options
-  - Larger option (slow / more ram / best)
-  - Smaller option (fast / less ram / lower quality)
-
-Comprehensive Embedding Model Comparison (January 2026)
-
-  Current VibeRAG Providers
-
-  | Provider | Model                                            | Type            | Dims             | Context | Code   | Docs/NL | Price    | MTEB Score        |
-  |----------|--------------------------------------------------|-----------------|------------------|---------|--------|---------|----------|-------------------|
-  | Mistral  | https://mistral.ai/news/codestral-embed          | Code-optimized  | 1024 (256-3072)  | 8K      | ⭐⭐⭐ | ⭐⭐    | $0.15/1M | SWE-Bench SOTA    |
-  | Gemini   | https://ai.google.dev/gemini-api/docs/embeddings | General-purpose | 768 (up to 3072) | 2K      | ⭐⭐⭐ | ⭐⭐⭐  | $0.15/1M | MTEB Multi #1     |
-  | OpenAI   | text-embedding-3-large                           | General-purpose | 3072             | 8K      | ⭐⭐⭐ | ⭐⭐⭐  | $0.13/1M | Cross-domain best |
-  | Local    | jina-v2-code                                     | Code-specific   | 768              | 8K      | ⭐⭐   | ⭐      | Free     | -                 |
-
-  State-of-the-Art Local Models (January 2026)
-
-  | Model                                                                | Params             | Dims | Context | Code   | Docs/NL | License       | Notes                         |
-  |----------------------------------------------------------------------|--------------------|------|---------|--------|---------|---------------|-------------------------------|
-  | https://qwenlm.github.io/blog/qwen3-embedding/                       | 8B                 | 4096 | 8K      | ⭐⭐⭐ | ⭐⭐⭐  | Apache 2.0    | MTEB Code: 80.68, 100+ langs  |
-  | https://huggingface.co/Qwen/Qwen3-Embedding-0.6B                     | 0.6B               | 1024 | 8K      | ⭐⭐⭐ | ⭐⭐⭐  | Apache 2.0    | MTEB Code: 75.41, lightweight |
-  | https://www.qodo.ai/blog/qodo-embed-1-code-embedding-code-retrieval/ | 1.5B               | -    | 8K      | ⭐⭐⭐ | ⭐⭐    | OpenRAIL++    | CoIR: 68.53, beats 7B models  |
-  | https://huggingface.co/nomic-ai/nomic-embed-code                     | 7B                 | 768  | -       | ⭐⭐⭐ | ⭐⭐    | Apache 2.0    | CodeSearchNet SOTA, Go: 93.8% |
-  | https://huggingface.co/nomic-ai/nomic-embed-text-v2-moe              | 475M (305M active) | 768  | 512     | ⭐⭐   | ⭐⭐⭐  | Apache 2.0    | MoE, 100 languages            |
-  | https://ai.google.dev/gemma/docs/embeddinggemma/model_card           | 308M               | 768  | 2K      | ⭐⭐⭐ | ⭐⭐⭐  | Gemma license | <200MB RAM, 22ms EdgeTPU      |
-  | https://huggingface.co/BAAI/bge-m3                                   | -                  | 1024 | 8K      | ⭐⭐   | ⭐⭐⭐  | MIT           | 100+ langs, hybrid retrieval  |
-
-  ---
-  Key Findings for Code + Natural Language
-
-  Would have the same "hair dye" problem:
-  - ❌ codestral-embed - Code-optimized, "code-to-text ratio tuned" but code-focused
-  - ❌ jina-v2-code - Code-specific embeddings
-
-  Would work for code + docs/prompts:
-  - ✅ gemini-embedding-001 - General-purpose, 100+ languages, excellent cross-domain
-  - ✅ OpenAI text-embedding-3-large - "Superior cross-domain performance"
-  - ✅ Qwen3-Embedding - Explicitly supports 100+ natural + programming languages
-
-  ---
-  Recommendation for VibeRAG
-
-  Best Local Model for Code + Natural Language: https://huggingface.co/Qwen/Qwen3-Embedding-0.6B
-
-  | Advantage     | Details                                                              |
-  |---------------|----------------------------------------------------------------------|
-  | Balanced      | MTEB Code: 75.41, explicitly supports both code and natural language |
-  | Lightweight   | Only 0.6B params vs 7-8B for alternatives                            |
-  | Performance   | Outperforms jina-v2 (58.98) by 16+ points on code                    |
-  | Multilingual  | 100+ languages including programming languages                       |
-  | License       | Apache 2.0 (fully open commercial use)                               |
-  | Flexible dims | 1024 default, can be reduced                                         |
-
-  Alternative: https://developers.googleblog.com/en/introducing-embeddinggemma/ - If you need ultra-lightweight (308M params, <200MB RAM).
-
-  ---
 
 ## TODO: Check
 

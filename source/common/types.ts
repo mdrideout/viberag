@@ -63,12 +63,22 @@ export type IndexDisplayStats = {
 
 /**
  * Embedding provider types.
- * - local: jina-embeddings-v2-base-code (768d) - Offline, no API key
- * - gemini: gemini-embedding-001 (768d) - Free tier available
- * - mistral: codestral-embed (1024d) - Optimized for code
- * - openai: text-embedding-3-large (3072d) - Highest quality
+ *
+ * Local providers (no API key required):
+ * - local: Qwen3-Embedding-0.6B Q8 (1024d) - ~700MB download, ~1.2GB RAM
+ * - local-4b: Qwen3-Embedding-4B FP32 (2560d) - ~8GB download, ~8GB RAM
+ *
+ * API providers:
+ * - gemini: gemini-embedding-001 (768d) - Free tier
+ * - mistral: codestral-embed (1024d) - Code-optimized
+ * - openai: text-embedding-3-small (1536d) - Fast API
  */
-export type EmbeddingProviderType = 'local' | 'gemini' | 'mistral' | 'openai';
+export type EmbeddingProviderType =
+	| 'local'
+	| 'local-4b'
+	| 'gemini'
+	| 'mistral'
+	| 'openai';
 
 /**
  * Configuration collected from the init wizard.

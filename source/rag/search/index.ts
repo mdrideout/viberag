@@ -10,9 +10,10 @@
  */
 
 import type {Table} from '@lancedb/lancedb';
-import {loadConfig} from '../config/index.js';
+import {loadConfig, type EmbeddingProviderType} from '../config/index.js';
 import {
 	GeminiEmbeddingProvider,
+	Local4BEmbeddingProvider,
 	LocalEmbeddingProvider,
 	MistralEmbeddingProvider,
 	OpenAIEmbeddingProvider,
@@ -51,6 +52,12 @@ const EXHAUSTIVE_LIMIT = 500;
 
 /** Default BM25 weight for hybrid search */
 const DEFAULT_BM25_WEIGHT = 0.3;
+
+/** Default oversample multiplier for hybrid search */
+const DEFAULT_OVERSAMPLE_MULTIPLIER = 2;
+
+/** Maximum oversample multiplier (for low vector confidence) */
+const MAX_OVERSAMPLE_MULTIPLIER = 4;
 
 /**
  * Search engine for code search.
@@ -208,7 +215,7 @@ export class SearchEngine {
 	 * Hybrid search: Vector + BM25 with RRF reranking.
 	 * Good general-purpose search.
 	 *
-	 * @param autoBoost - When true, increase BM25 weight if vector scores are low
+	 * @param autoBoost - When true, increase BM25 weight and oversample if vector scores are low
 	 * @param autoBoostThreshold - Vector score threshold below which auto-boost activates
 	 * @param returnDebug - Include debug info in results for AI evaluation
 	 */
@@ -225,24 +232,63 @@ export class SearchEngine {
 	): Promise<SearchResults> {
 		const queryVector = await this.embeddings!.embedSingle(query);
 
-		// Run vector and FTS search in parallel
-		const [vectorResults, ftsResults] = await Promise.all([
+		// Initial search with default oversample to assess vector confidence
+		const initialOversample = limit * DEFAULT_OVERSAMPLE_MULTIPLIER;
+		const [initialVectorResults, initialFtsResults] = await Promise.all([
 			vectorSearch(table, queryVector, {
-				limit: limit * 2,
+				limit: initialOversample,
 				filterClause,
 			}),
 			ftsSearch(table, query, {
-				limit: limit * 2,
+				limit: initialOversample,
 				filterClause,
 			}),
 		]);
 
 		// Calculate confidence metrics
-		const maxVectorScore = Math.max(...vectorResults.map(r => r.score), 0);
-		const maxFtsScore = Math.max(
-			...ftsResults.map(r => r.ftsScore ?? r.score),
+		const maxVectorScore = Math.max(
+			...initialVectorResults.map(r => r.score),
 			0,
 		);
+		const maxFtsScore = Math.max(
+			...initialFtsResults.map(r => r.ftsScore ?? r.score),
+			0,
+		);
+
+		// Dynamic oversample: increase when vector confidence is low
+		let oversampleMultiplier = DEFAULT_OVERSAMPLE_MULTIPLIER;
+		let dynamicOversampleApplied = false;
+
+		if (autoBoost && maxVectorScore < autoBoostThreshold) {
+			// Linear scale from 2x to 4x based on how low vector scores are
+			// At threshold (0.3): 2x, at 0: 4x
+			const boost = 1 - maxVectorScore / autoBoostThreshold;
+			oversampleMultiplier =
+				DEFAULT_OVERSAMPLE_MULTIPLIER +
+				boost * (MAX_OVERSAMPLE_MULTIPLIER - DEFAULT_OVERSAMPLE_MULTIPLIER);
+			dynamicOversampleApplied =
+				oversampleMultiplier > DEFAULT_OVERSAMPLE_MULTIPLIER;
+		}
+
+		const effectiveOversample = Math.round(limit * oversampleMultiplier);
+
+		// If we need more results due to dynamic oversample, fetch additional
+		let vectorResults = initialVectorResults;
+		let ftsResults = initialFtsResults;
+
+		if (effectiveOversample > initialOversample) {
+			// Re-fetch with higher limit
+			[vectorResults, ftsResults] = await Promise.all([
+				vectorSearch(table, queryVector, {
+					limit: effectiveOversample,
+					filterClause,
+				}),
+				ftsSearch(table, query, {
+					limit: effectiveOversample,
+					filterClause,
+				}),
+			]);
+		}
 
 		// Auto-boost: increase BM25 weight when vector confidence is low
 		let effectiveBm25Weight = bm25Weight;
@@ -276,6 +322,8 @@ export class SearchEngine {
 					autoBoostThreshold,
 					vectorResultCount: vectorResults.length,
 					ftsResultCount: ftsResults.length,
+					oversampleMultiplier,
+					dynamicOversampleApplied,
 				}
 			: undefined;
 
@@ -422,11 +470,13 @@ export class SearchEngine {
 	 * Create the appropriate embedding provider based on provider type.
 	 */
 	private createEmbeddingProvider(
-		providerType: 'local' | 'gemini' | 'mistral' | 'openai',
+		providerType: EmbeddingProviderType,
 	): EmbeddingProvider {
 		switch (providerType) {
 			case 'local':
 				return new LocalEmbeddingProvider();
+			case 'local-4b':
+				return new Local4BEmbeddingProvider();
 			case 'gemini':
 				return new GeminiEmbeddingProvider();
 			case 'mistral':

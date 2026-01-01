@@ -1,4 +1,16 @@
 /**
+ * Progress callback for model loading/downloading.
+ * @param status - Current status: 'downloading', 'loading', 'ready'
+ * @param progress - Download progress 0-100 (only for 'downloading')
+ * @param message - Optional message (e.g., file being downloaded)
+ */
+export type ModelProgressCallback = (
+	status: 'downloading' | 'loading' | 'ready',
+	progress?: number,
+	message?: string,
+) => void;
+
+/**
  * Embedding provider interface for generating vector embeddings.
  */
 export interface EmbeddingProvider {
@@ -8,8 +20,9 @@ export interface EmbeddingProvider {
 	/**
 	 * Initialize the provider (load model, etc.)
 	 * Must be called before using embed() or embedSingle().
+	 * @param onProgress - Optional callback for download/loading progress
 	 */
-	initialize(): Promise<void>;
+	initialize(onProgress?: ModelProgressCallback): Promise<void>;
 
 	/**
 	 * Generate embeddings for multiple texts.
