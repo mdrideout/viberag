@@ -23,7 +23,7 @@ We support three embedding providers, selectable during `/init`:
 | --------- | ---------------------------- | ---------- | --------- | -------------------- | ----------- |
 | Local\*   | jina-embeddings-v2-base-code | 768        | 8K tokens | Free                 | Implemented |
 | Gemini    | text-embedding-004           | 768        | 2K tokens | Free tier            | Implemented |
-| Mistral   | mistral-embed                | 1024       | 8K tokens | $0.10/1M             | Implemented |
+| Mistral   | codestral-embed              | 1024       | 8K tokens | $0.10/1M             | Implemented |
 | OpenAI    | text-embedding-3-large       | 3072       | 8K tokens | $0.13/1M             | Implemented |
 
 \*Recommended for offline use and code-optimized embeddings.
@@ -61,15 +61,16 @@ We support three embedding providers, selectable during `/init`:
 - Not specifically optimized for code
 - Requires API key
 
-### Mistral (Implemented)
+### Mistral (Implemented, Recommended)
 
-**Model**: `mistral-embed`
+**Model**: `codestral-embed`
 
 **Strengths**:
 
-- Good balance of quality and cost
+- Code-optimized embedding model from Mistral AI
 - 1024 dimensions capture more semantic nuance
 - 8K token context matches local model
+- Good balance of quality and cost
 
 **Trade-offs**:
 
@@ -135,7 +136,7 @@ export const PROVIDER_CONFIGS = {
 		dimensions: 768,
 	},
 	mistral: {
-		model: 'mistral-embed',
+		model: 'codestral-embed',
 		dimensions: 1024,
 	},
 	openai: {

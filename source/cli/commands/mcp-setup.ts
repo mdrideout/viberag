@@ -8,6 +8,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {
+	EDITORS,
 	type EditorConfig,
 	type EditorId,
 	getConfigPath,
@@ -350,4 +351,222 @@ export async function isAlreadyConfigured(
 	} catch {
 		return false;
 	}
+}
+
+/**
+ * Remove viberag from an existing config object.
+ * Returns the modified config, or null if nothing to remove.
+ */
+export function removeViberagFromConfig(
+	existing: object,
+	editor: EditorConfig,
+): object | null {
+	const jsonKey = editor.jsonKey;
+	const servers = (existing as Record<string, unknown>)[jsonKey];
+
+	if (!servers || typeof servers !== 'object') {
+		return null;
+	}
+
+	if (!('viberag' in (servers as object))) {
+		return null;
+	}
+
+	// Remove viberag from servers
+	const {viberag: _, ...remainingServers} = servers as Record<string, unknown>;
+
+	return {
+		...existing,
+		[jsonKey]: remainingServers,
+	};
+}
+
+/**
+ * Result of an MCP removal operation.
+ */
+export interface McpRemovalResult {
+	success: boolean;
+	editor: EditorId;
+	configPath?: string;
+	fileDeleted?: boolean;
+	error?: string;
+}
+
+/**
+ * Remove viberag from an editor's MCP config.
+ * Always keeps the config file, even if it becomes empty (no other servers).
+ */
+export async function removeViberagConfig(
+	editor: EditorConfig,
+	projectRoot: string,
+): Promise<McpRemovalResult> {
+	try {
+		// Get the config path
+		let configPath: string;
+		if (editor.id === 'zed') {
+			configPath = getZedSettingsPath();
+		} else if (editor.id === 'windsurf') {
+			configPath = getWindsurfConfigPath();
+		} else {
+			const p = getConfigPath(editor, projectRoot);
+			if (!p) {
+				return {
+					success: false,
+					editor: editor.id,
+					error: 'No config path for this editor',
+				};
+			}
+			configPath = p;
+		}
+
+		// Check if file exists
+		const exists = await configExists(configPath);
+		if (!exists) {
+			return {
+				success: false,
+				editor: editor.id,
+				error: 'Config file does not exist',
+			};
+		}
+
+		// Read existing config
+		const existing = await readJsonConfig(configPath);
+		if (!existing) {
+			return {
+				success: false,
+				editor: editor.id,
+				configPath,
+				error: 'Could not parse config file',
+			};
+		}
+
+		// Check if viberag is configured
+		if (!hasViberagConfig(existing, editor)) {
+			return {
+				success: false,
+				editor: editor.id,
+				configPath,
+				error: 'Viberag not configured in this file',
+			};
+		}
+
+		// Remove viberag
+		const modified = removeViberagFromConfig(existing, editor);
+		if (!modified) {
+			return {
+				success: false,
+				editor: editor.id,
+				configPath,
+				error: 'Failed to remove viberag from config',
+			};
+		}
+
+		// Write modified config back (keep file even if servers is empty)
+		await fs.writeFile(configPath, JSON.stringify(modified, null, 2) + '\n');
+
+		return {
+			success: true,
+			editor: editor.id,
+			configPath,
+		};
+	} catch (error) {
+		return {
+			success: false,
+			editor: editor.id,
+			error: error instanceof Error ? error.message : String(error),
+		};
+	}
+}
+
+/**
+ * Find all editors that have viberag configured.
+ * Returns both project-scope and global-scope editors.
+ */
+export async function findConfiguredEditors(
+	projectRoot: string,
+): Promise<{projectScope: EditorConfig[]; globalScope: EditorConfig[]}> {
+	const projectScope: EditorConfig[] = [];
+	const globalScope: EditorConfig[] = [];
+
+	for (const editor of EDITORS) {
+		const isConfigured = await isAlreadyConfigured(editor, projectRoot);
+		if (isConfigured) {
+			if (editor.scope === 'project') {
+				projectScope.push(editor);
+			} else if (editor.scope === 'global') {
+				globalScope.push(editor);
+			}
+		}
+	}
+
+	return {projectScope, globalScope};
+}
+
+/**
+ * Add an entry to .gitignore if not already present.
+ */
+export async function addToGitignore(
+	projectRoot: string,
+	entry: string,
+): Promise<boolean> {
+	const gitignorePath = path.join(projectRoot, '.gitignore');
+
+	try {
+		let content = '';
+		try {
+			content = await fs.readFile(gitignorePath, 'utf-8');
+		} catch {
+			// .gitignore doesn't exist, will create
+		}
+
+		// Check if entry already exists (exact line match)
+		const lines = content.split('\n');
+		if (lines.some(line => line.trim() === entry)) {
+			return true; // Already present
+		}
+
+		// Add entry with a comment
+		const addition = content.endsWith('\n') || content === ''
+			? `# MCP config (local, not committed)\n${entry}\n`
+			: `\n# MCP config (local, not committed)\n${entry}\n`;
+
+		await fs.appendFile(gitignorePath, addition);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * Get all project-scope config paths that were created.
+ * Used for gitignore prompt.
+ */
+export function getProjectConfigPaths(results: McpSetupResult[]): string[] {
+	const paths: string[] = [];
+
+	for (const result of results) {
+		if (
+			result.success &&
+			(result.method === 'file-created' || result.method === 'file-merged') &&
+			result.configPath
+		) {
+			// Check if it's a project-scope path (doesn't start with ~ or /)
+			const configPath = result.configPath;
+			if (!configPath.startsWith('/') && !configPath.startsWith('~')) {
+				// It's a relative path, so project-scope
+				paths.push(configPath);
+			} else if (configPath.includes('.mcp.json') ||
+				configPath.includes('.cursor/') ||
+				configPath.includes('.vscode/') ||
+				configPath.includes('.roo/')) {
+				// Extract relative path from absolute path
+				const projectDir = process.cwd();
+				if (configPath.startsWith(projectDir)) {
+					paths.push(configPath.slice(projectDir.length + 1));
+				}
+			}
+		}
+	}
+
+	return paths;
 }

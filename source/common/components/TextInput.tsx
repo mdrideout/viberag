@@ -2,20 +2,21 @@ import React, {useState, useMemo, useRef} from 'react';
 import {Box, Text, useInput} from 'ink';
 import {useTextBuffer} from '../hooks/useTextBuffer.js';
 import CommandSuggestions from './CommandSuggestions.js';
+import type {CommandInfo} from '../types.js';
 
 type Props = {
 	onSubmit: (text: string) => void;
 	onCtrlC: () => void;
-	commands?: string[];
+	commands?: CommandInfo[];
 	navigateHistoryUp?: () => string | null;
 	navigateHistoryDown?: () => string | null;
 	resetHistoryIndex?: () => void;
 };
 
-function filterCommands(input: string, commands: string[]): string[] {
+function filterCommands(input: string, commands: CommandInfo[]): CommandInfo[] {
 	if (!input.startsWith('/')) return [];
 	const lower = input.toLowerCase();
-	return commands.filter(cmd => cmd.toLowerCase().startsWith(lower));
+	return commands.filter(cmd => cmd.command.toLowerCase().startsWith(lower));
 }
 
 export default function TextInput({
@@ -120,7 +121,7 @@ export default function TextInput({
 		if (key.tab && suggestionsVisible) {
 			const selected = suggestions[selectedSuggestionIndex];
 			if (selected) {
-				setText(selected);
+				setText(selected.command);
 				setSelectedSuggestionIndex(0);
 			}
 			return;
@@ -154,7 +155,7 @@ export default function TextInput({
 			if (suggestionsVisible) {
 				const selected = suggestions[selectedSuggestionIndex];
 				if (selected) {
-					text = selected;
+					text = selected.command;
 				}
 			}
 

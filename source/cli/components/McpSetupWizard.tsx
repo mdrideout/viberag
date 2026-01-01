@@ -13,6 +13,8 @@ import {
 	writeMcpConfig,
 	getManualInstructions,
 	isAlreadyConfigured,
+	addToGitignore,
+	getProjectConfigPaths,
 	type McpSetupResult,
 } from '../commands/mcp-setup.js';
 
@@ -66,7 +68,7 @@ const PROMPT_ITEMS: SelectItem<'yes' | 'skip'>[] = [
  * Action items for each editor.
  */
 const PROJECT_ACTION_ITEMS: SelectItem<'auto' | 'manual' | 'skip'>[] = [
-	{label: 'Create config file (Recommended)', value: 'auto'},
+	{label: 'Auto-configure (Recommended)', value: 'auto'},
 	{label: 'Show manual instructions', value: 'manual'},
 	{label: 'Skip this editor', value: 'skip'},
 ];
@@ -174,6 +176,10 @@ export function McpSetupWizard({
 		config.results ?? [],
 	);
 	const [isProcessing, setIsProcessing] = useState(false);
+
+	// Gitignore prompt state
+	const [gitignoreHandled, setGitignoreHandled] = useState(false);
+	const [gitignoreAdded, setGitignoreAdded] = useState<string[]>([]);
 
 	// Check which editors are already configured
 	useEffect(() => {
@@ -285,6 +291,34 @@ export function McpSetupWizard({
 		description: editor.description,
 	}));
 
+	// Get project-scope configs for gitignore prompt (computed from results)
+	// NOTE: This must be before early returns to maintain consistent hook order
+	const projectConfigs = getProjectConfigPaths(results);
+
+	// Handle gitignore action
+	const handleGitignore = useCallback(
+		async (action: 'yes' | 'no') => {
+			if (action === 'yes') {
+				const added: string[] = [];
+				for (const configPath of projectConfigs) {
+					const success = await addToGitignore(projectRoot, configPath);
+					if (success) {
+						added.push(configPath);
+					}
+				}
+				setGitignoreAdded(added);
+			}
+			setGitignoreHandled(true);
+		},
+		[projectConfigs, projectRoot],
+	);
+
+	// Gitignore action items
+	const gitignoreItems: SelectItem<'yes' | 'no'>[] = [
+		{label: 'Yes, add to .gitignore (Recommended)', value: 'yes'},
+		{label: 'No, keep in version control', value: 'no'},
+	];
+
 	// Step: Prompt (post-init)
 	if (step === 'prompt' && showPrompt) {
 		return (
@@ -388,8 +422,8 @@ export function McpSetupWizard({
 				<Box marginTop={1} flexDirection="column">
 					{currentEditor.scope === 'project' ? (
 						<Text>
-							VibeRAG can create <Text color="cyan">{configPathDisplay}</Text>{' '}
-							automatically.
+							VibeRAG can create or update{' '}
+							<Text color="cyan">{configPathDisplay}</Text> automatically.
 						</Text>
 					) : currentEditor.scope === 'global' ? (
 						<Text>
@@ -424,6 +458,38 @@ export function McpSetupWizard({
 			r => r.success && r.method === 'instructions-shown',
 		);
 		const skippedResults = results.filter(r => !r.success);
+
+		// Show gitignore prompt if we have project configs and haven't handled yet
+		if (projectConfigs.length > 0 && !gitignoreHandled) {
+			return (
+				<Box flexDirection="column" borderStyle="round" paddingX={2} paddingY={1}>
+					<Text bold color="yellow">
+						Add MCP configs to .gitignore?
+					</Text>
+					<Box marginTop={1} flexDirection="column">
+						<Text>
+							These project-local MCP config files were created:
+						</Text>
+						{projectConfigs.map(p => (
+							<Text key={p} dimColor>
+								{'  '}{p}
+							</Text>
+						))}
+					</Box>
+					<Box marginTop={1}>
+						<Text dimColor>
+							MCP configs are typically machine-specific and should not be committed.
+						</Text>
+					</Box>
+					<Box marginTop={1}>
+						<SelectInput
+							items={gitignoreItems}
+							onSelect={item => handleGitignore(item.value)}
+						/>
+					</Box>
+				</Box>
+			);
+		}
 
 		return (
 			<Box flexDirection="column" borderStyle="round" paddingX={2} paddingY={1}>
@@ -466,11 +532,35 @@ export function McpSetupWizard({
 						);
 					})}
 				</Box>
+				{gitignoreAdded.length > 0 && (
+					<Box marginTop={1}>
+						<Text color="green">✓</Text>
+						<Text dimColor> Added to .gitignore: {gitignoreAdded.join(', ')}</Text>
+					</Box>
+				)}
+				{successResults.length > 0 && (
+					<Box marginTop={1} flexDirection="column">
+						<Text bold>Verify setup:</Text>
+						{successResults.map(r => {
+							const editor = EDITORS.find(e => e.id === r.editor);
+							if (!editor) return null;
+							return (
+								<Box key={r.editor} flexDirection="column">
+									<Text>
+										<Text color="cyan">{editor.name}:</Text>{' '}
+										{editor.verificationSteps[0]}
+									</Text>
+								</Box>
+							);
+						})}
+					</Box>
+				)}
 				{successResults.length > 0 && (
 					<Box marginTop={1} flexDirection="column">
 						<Text bold>Next steps:</Text>
 						<Text>1. Restart your editor(s) to load the MCP server</Text>
-						<Text>2. Test with a semantic search query</Text>
+						<Text>2. Verify using the steps above</Text>
+						<Text>3. Test viberag_search with a code query</Text>
 					</Box>
 				)}
 				<Box marginTop={1}>

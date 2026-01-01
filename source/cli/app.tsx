@@ -17,6 +17,7 @@ import type {
 	InitWizardConfig,
 	McpSetupWizardConfig,
 	McpSetupStep,
+	CommandInfo,
 } from '../common/types.js';
 
 // CLI-specific components and commands
@@ -24,6 +25,7 @@ import WelcomeBanner from './components/WelcomeBanner.js';
 import SearchResultsDisplay from './components/SearchResultsDisplay.js';
 import InitWizard from './components/InitWizard.js';
 import McpSetupWizard from './components/McpSetupWizard.js';
+import CleanWizard from './components/CleanWizard.js';
 import {useRagCommands} from './commands/useRagCommands.js';
 import {
 	checkInitialized,
@@ -32,26 +34,26 @@ import {
 	runIndex,
 	formatIndexStats,
 } from './commands/handlers.js';
+import {getViberagDir} from '../rag/constants.js';
 import type {SearchResultsData} from '../common/types.js';
 
 const require = createRequire(import.meta.url);
 // Path is relative from dist/ after compilation
 const {version} = require('../../package.json') as {version: string};
 
-// Available slash commands for autocomplete
-const COMMANDS = [
-	'/help',
-	'/clear',
-	'/terminal-setup',
-	'/init',
-	'/index',
-	'/reindex',
-	'/search',
-	'/status',
-	'/mcp-setup',
-	'/quit',
-	'/exit',
-	'/q',
+// Available slash commands for autocomplete with descriptions
+const COMMANDS: CommandInfo[] = [
+	{command: '/help', description: 'Show available commands'},
+	{command: '/clear', description: 'Clear the screen'},
+	{command: '/terminal-setup', description: 'Configure Shift+Enter for VS Code'},
+	{command: '/init', description: 'Initialize Viberag (provider wizard)'},
+	{command: '/index', description: 'Index the codebase'},
+	{command: '/reindex', description: 'Force full reindex'},
+	{command: '/search', description: 'Search codebase semantically'},
+	{command: '/status', description: 'Show index statistics'},
+	{command: '/mcp-setup', description: 'Configure MCP for AI tools'},
+	{command: '/clean', description: 'Remove Viberag from project'},
+	{command: '/quit', description: 'Exit the application'},
 ];
 
 // Module-level counter for unique IDs
@@ -124,6 +126,19 @@ export default function App() {
 			config: {},
 			showPrompt,
 		});
+	}, []);
+
+	// Start the clean wizard
+	const startCleanWizard = useCallback(() => {
+		setWizardMode({active: true, type: 'clean'});
+	}, []);
+
+	// Handle clean wizard completion
+	const handleCleanWizardComplete = useCallback(() => {
+		setWizardMode({active: false});
+		// Reset app state to uninitialized after cleaning
+		setIndexStats(null);
+		setIsInitialized(false);
 	}, []);
 
 	// Handle init wizard step changes
@@ -243,6 +258,7 @@ export default function App() {
 		stdout,
 		startInitWizard,
 		startMcpSetupWizard,
+		startCleanWizard,
 		isInitialized: isInitialized ?? false,
 	});
 
@@ -330,6 +346,14 @@ export default function App() {
 					showPrompt={wizardMode.showPrompt}
 					onStepChange={handleMcpWizardStep}
 					onComplete={handleMcpWizardComplete}
+					onCancel={handleWizardCancel}
+					addOutput={addOutput}
+				/>
+			) : wizardMode.active && wizardMode.type === 'clean' ? (
+				<CleanWizard
+					projectRoot={projectRoot}
+					viberagDir={getViberagDir(projectRoot)}
+					onComplete={handleCleanWizardComplete}
 					onCancel={handleWizardCancel}
 					addOutput={addOutput}
 				/>

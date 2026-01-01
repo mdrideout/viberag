@@ -77,6 +77,7 @@ For global configs, merge the viberag entry into your existing configuration.
 | `/search <query>` | Semantic search                                           |
 | `/status`         | Show index status                                         |
 | `/mcp-setup`      | Configure MCP server for AI tools                         |
+| `/clean`          | Remove VibeRAG from project                               |
 | `/help`           | Show all commands                                         |
 
 ## Embedding Providers
@@ -98,11 +99,7 @@ Choose your embedding provider during `/init`:
 ## How It Works
 
 1. **Parsing** - Tree-sitter extracts functions, classes, and semantic chunks
-2. **Embedding** - Code chunks are embedded locally using Jina's code model
-3. **Storage** - Vectors stored in local SQLite with vec0 extension
+2. **Embedding** - Code chunks are embedded using local or API-based models
+3. **Storage** - Vectors stored in LanceDB (local, no server required)
 4. **Search** - Hybrid search combines vector similarity + full-text search
 5. **MCP** - AI tools query the index via the MCP protocol
-
-## License
-
-MIT

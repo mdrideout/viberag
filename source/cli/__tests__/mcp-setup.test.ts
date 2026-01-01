@@ -18,6 +18,9 @@ import {
 	hasViberagConfig,
 	isAlreadyConfigured,
 	configExists,
+	removeViberagConfig,
+	removeViberagFromConfig,
+	findConfiguredEditors,
 } from '../commands/mcp-setup.js';
 import {EDITORS, getEditor} from '../data/mcp-editors.js';
 
@@ -485,5 +488,235 @@ describe('Editor Configuration Data', () => {
 		const ids = EDITORS.map(e => e.id);
 		const uniqueIds = new Set(ids);
 		expect(uniqueIds.size).toBe(ids.length);
+	});
+});
+
+// =============================================================================
+// Config Removal Tests
+// =============================================================================
+
+describe('Config Removal', () => {
+	let ctx: TempContext;
+
+	beforeEach(async () => {
+		ctx = await createTempDir();
+	});
+
+	afterEach(async () => {
+		await ctx.cleanup();
+	});
+
+	it('removes viberag while preserving other servers', async () => {
+		// Setup: config with viberag and another server
+		await writeTestConfig(ctx.dir, '.mcp.json', {
+			mcpServers: {
+				viberag: {command: 'npx', args: ['viberag-mcp']},
+				github: {command: 'npx', args: ['github-mcp']},
+			},
+		});
+
+		const editor = getEditor('claude-code')!;
+		const result = await removeViberagConfig(editor, ctx.dir);
+
+		expect(result.success).toBe(true);
+		expect(result.editor).toBe('claude-code');
+
+		// File should still exist with github server preserved
+		const config = (await readTestConfig(ctx.dir, '.mcp.json')) as {
+			mcpServers: Record<string, unknown>;
+		};
+		expect(config.mcpServers['github']).toBeDefined();
+		expect(config.mcpServers['viberag']).toBeUndefined();
+	});
+
+	it('removes viberag and keeps file with empty servers', async () => {
+		// Setup: config with only viberag
+		await writeTestConfig(ctx.dir, '.mcp.json', {
+			mcpServers: {
+				viberag: {command: 'npx', args: ['viberag-mcp']},
+			},
+		});
+
+		const editor = getEditor('claude-code')!;
+		const result = await removeViberagConfig(editor, ctx.dir);
+
+		expect(result.success).toBe(true);
+
+		// File should still exist with empty mcpServers
+		const config = (await readTestConfig(ctx.dir, '.mcp.json')) as {
+			mcpServers: Record<string, unknown>;
+		};
+		expect(config.mcpServers).toBeDefined();
+		expect(Object.keys(config.mcpServers)).toHaveLength(0);
+	});
+
+	it('returns error when viberag not configured', async () => {
+		// Setup: config without viberag
+		await writeTestConfig(ctx.dir, '.mcp.json', {
+			mcpServers: {
+				github: {command: 'npx', args: ['github-mcp']},
+			},
+		});
+
+		const editor = getEditor('claude-code')!;
+		const result = await removeViberagConfig(editor, ctx.dir);
+
+		expect(result.success).toBe(false);
+		expect(result.error).toContain('not configured');
+	});
+
+	it('returns error when config file does not exist', async () => {
+		const editor = getEditor('claude-code')!;
+		const result = await removeViberagConfig(editor, ctx.dir);
+
+		expect(result.success).toBe(false);
+		expect(result.error).toContain('does not exist');
+	});
+
+	it('handles VS Code config with servers key', async () => {
+		await writeTestConfig(ctx.dir, '.vscode/mcp.json', {
+			servers: {
+				viberag: {command: 'npx', args: ['viberag-mcp']},
+				other: {command: 'other'},
+			},
+		});
+
+		const editor = getEditor('vscode')!;
+		const result = await removeViberagConfig(editor, ctx.dir);
+
+		expect(result.success).toBe(true);
+
+		const config = (await readTestConfig(ctx.dir, '.vscode/mcp.json')) as {
+			servers: Record<string, unknown>;
+		};
+		expect(config.servers['other']).toBeDefined();
+		expect(config.servers['viberag']).toBeUndefined();
+	});
+});
+
+// =============================================================================
+// removeViberagFromConfig Helper Tests
+// =============================================================================
+
+describe('removeViberagFromConfig helper', () => {
+	it('returns null when servers key is missing', () => {
+		const existing = {otherKey: 'value'};
+		const editor = getEditor('claude-code')!;
+		const result = removeViberagFromConfig(existing, editor);
+
+		expect(result).toBeNull();
+	});
+
+	it('returns null when servers is not an object', () => {
+		const existing = {mcpServers: 'not-an-object'};
+		const editor = getEditor('claude-code')!;
+		const result = removeViberagFromConfig(existing, editor);
+
+		expect(result).toBeNull();
+	});
+
+	it('returns null when viberag not in servers', () => {
+		const existing = {
+			mcpServers: {
+				github: {command: 'github'},
+			},
+		};
+		const editor = getEditor('claude-code')!;
+		const result = removeViberagFromConfig(existing, editor);
+
+		expect(result).toBeNull();
+	});
+
+	it('returns modified config with viberag removed', () => {
+		const existing = {
+			mcpServers: {
+				viberag: {command: 'npx'},
+				github: {command: 'github'},
+			},
+			otherKey: 'preserved',
+		};
+		const editor = getEditor('claude-code')!;
+		const result = removeViberagFromConfig(existing, editor) as {
+			mcpServers: Record<string, unknown>;
+			otherKey: string;
+		};
+
+		expect(result).not.toBeNull();
+		expect(result.mcpServers['viberag']).toBeUndefined();
+		expect(result.mcpServers['github']).toBeDefined();
+		expect(result.otherKey).toBe('preserved');
+	});
+
+	it('works with VS Code servers key', () => {
+		const existing = {
+			servers: {
+				viberag: {command: 'npx'},
+				other: {command: 'other'},
+			},
+		};
+		const editor = getEditor('vscode')!;
+		const result = removeViberagFromConfig(existing, editor) as {
+			servers: Record<string, unknown>;
+		};
+
+		expect(result).not.toBeNull();
+		expect(result.servers['viberag']).toBeUndefined();
+		expect(result.servers['other']).toBeDefined();
+	});
+});
+
+// =============================================================================
+// findConfiguredEditors Tests
+// =============================================================================
+
+describe('findConfiguredEditors', () => {
+	let ctx: TempContext;
+
+	beforeEach(async () => {
+		ctx = await createTempDir();
+	});
+
+	afterEach(async () => {
+		await ctx.cleanup();
+	});
+
+	it('finds project-scope editors with viberag configured', async () => {
+		// Setup: Claude Code and Cursor both configured
+		await writeTestConfig(ctx.dir, '.mcp.json', {
+			mcpServers: {viberag: {command: 'npx'}},
+		});
+		await writeTestConfig(ctx.dir, '.cursor/mcp.json', {
+			mcpServers: {viberag: {command: 'npx'}},
+		});
+
+		const result = await findConfiguredEditors(ctx.dir);
+
+		expect(result.projectScope.length).toBeGreaterThanOrEqual(2);
+		const ids = result.projectScope.map(e => e.id);
+		expect(ids).toContain('claude-code');
+		expect(ids).toContain('cursor');
+	});
+
+	it('returns empty arrays when no configs exist', async () => {
+		const result = await findConfiguredEditors(ctx.dir);
+
+		expect(result.projectScope).toHaveLength(0);
+		expect(result.globalScope).toHaveLength(0);
+	});
+
+	it('does not include editors without viberag', async () => {
+		// Setup: Claude Code has viberag, Cursor has different server
+		await writeTestConfig(ctx.dir, '.mcp.json', {
+			mcpServers: {viberag: {command: 'npx'}},
+		});
+		await writeTestConfig(ctx.dir, '.cursor/mcp.json', {
+			mcpServers: {github: {command: 'npx'}},
+		});
+
+		const result = await findConfiguredEditors(ctx.dir);
+
+		const ids = result.projectScope.map(e => e.id);
+		expect(ids).toContain('claude-code');
+		expect(ids).not.toContain('cursor');
 	});
 });

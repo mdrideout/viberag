@@ -69,8 +69,8 @@ export const EDITORS: EditorConfig[] = [
 		restartInstructions:
 			'Restart Claude Code or run: claude mcp restart viberag',
 		verificationSteps: [
-			'Run: claude mcp list',
-			'Verify "viberag" appears in the server list',
+			'Run /mcp in Claude Code',
+			'Look for "viberag: connected"',
 		],
 	},
 	{
@@ -88,8 +88,8 @@ export const EDITORS: EditorConfig[] = [
 		restartInstructions:
 			'Reload VS Code window (Cmd/Ctrl+Shift+P → "Reload Window")',
 		verificationSteps: [
-			'Open Command Palette → "MCP: List Servers"',
-			'Verify "viberag" appears in the list',
+			'Cmd/Ctrl+Shift+P → "MCP: List Servers"',
+			'Verify "viberag" appears with status',
 		],
 	},
 	{
@@ -105,8 +105,8 @@ export const EDITORS: EditorConfig[] = [
 		description: 'auto-setup',
 		restartInstructions: 'Restart Cursor or reload window',
 		verificationSteps: [
-			'Open Settings → Developer → MCP',
-			'Verify "viberag" appears in the server list',
+			'Settings → Cursor Settings → MCP',
+			'Verify "viberag" shows with toggle enabled',
 		],
 	},
 	{
@@ -122,8 +122,8 @@ export const EDITORS: EditorConfig[] = [
 		description: 'auto-setup',
 		restartInstructions: 'Reload VS Code window',
 		verificationSteps: [
-			'Open Roo Code settings → MCP',
-			'Verify "viberag" appears in the server list',
+			'Click MCP icon in Roo Code pane header',
+			'Verify "viberag" appears in server list',
 		],
 	},
 	{
@@ -138,10 +138,10 @@ export const EDITORS: EditorConfig[] = [
 		jsonKey: 'mcpServers',
 		description: 'global config',
 		restartInstructions:
-			'Click refresh button in Windsurf MCP settings, then restart IDE',
+			'Click refresh in Cascade Plugins panel, then restart',
 		verificationSteps: [
-			'Open Windsurf Settings → Cascade → MCP',
-			'Verify "viberag" appears in the server list',
+			'Click Plugins icon in Cascade panel',
+			'Verify "viberag" shows in plugin list',
 		],
 	},
 	{
@@ -157,8 +157,8 @@ export const EDITORS: EditorConfig[] = [
 		description: 'global config',
 		restartInstructions: 'Restart Zed',
 		verificationSteps: [
-			'Open Agent Panel → Settings',
-			'Verify "viberag" shows green status indicator',
+			'Open Agent Panel settings',
+			'Verify "viberag" shows green indicator',
 		],
 	},
 	{
@@ -174,8 +174,8 @@ export const EDITORS: EditorConfig[] = [
 		description: 'CLI command',
 		restartInstructions: 'Restart Gemini CLI session',
 		verificationSteps: [
-			'Run: gemini mcp list',
-			'Verify "viberag" appears in the server list',
+			'Run /mcp in Gemini CLI',
+			'Look for "viberag" in server list',
 		],
 	},
 	{
@@ -189,10 +189,10 @@ export const EDITORS: EditorConfig[] = [
 		docsUrl: 'https://developers.openai.com/codex/mcp/',
 		jsonKey: 'mcp_servers', // TOML section name
 		description: 'CLI command',
-		restartInstructions: 'Restart Codex CLI session',
+		restartInstructions: 'Restart Codex session',
 		verificationSteps: [
-			'Run: codex mcp list',
-			'Verify "viberag" appears in the server list',
+			'Run /mcp in Codex TUI',
+			'Look for "viberag" in server list',
 		],
 	},
 	{
@@ -208,8 +208,8 @@ export const EDITORS: EditorConfig[] = [
 		description: 'manual setup',
 		restartInstructions: 'No restart needed - changes apply immediately',
 		verificationSteps: [
-			'Open Settings → Tools → AI Assistant → MCP',
-			'Verify "viberag" appears in the server list',
+			'Settings → Tools → AI Assistant → MCP',
+			'Verify "viberag" shows green in Status column',
 		],
 	},
 ];

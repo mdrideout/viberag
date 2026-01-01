@@ -138,34 +138,34 @@ export function createMcpServer(projectRoot: string): McpServerWithWatcher {
 			path_prefix: z
 				.string()
 				.optional()
-				.describe('Scope to files starting with this path (e.g., "src/api/")'),
+				.describe('Scope to directory (e.g., "src/api/")'),
 			path_contains: z
 				.array(z.string())
 				.optional()
-				.describe('Must contain ALL of these strings in path'),
+				.describe('Path must contain ALL strings - AND logic (e.g., ["services", "user"])'),
 			path_not_contains: z
 				.array(z.string())
 				.optional()
 				.describe(
-					'Exclude paths containing ANY of these (e.g., ["test", "__tests__", ".spec."])',
+					'Exclude if path contains ANY string - OR logic (e.g., ["test", "__tests__", "_test.", ".spec."])',
 				),
 			type: z
 				.array(z.enum(['function', 'class', 'method', 'module']))
 				.optional()
-				.describe('Filter by code structure type'),
+				.describe('Match ANY type - OR logic (e.g., ["function", "method"])'),
 			extension: z
 				.array(z.string())
 				.optional()
-				.describe('Filter by file extension (e.g., [".ts", ".tsx"])'),
+				.describe('Match ANY extension - OR logic (e.g., [".ts", ".py"])'),
 			is_exported: z
 				.boolean()
 				.optional()
-				.describe('Only exported/public symbols'),
+				.describe('Only public/exported symbols (Go: Capitalized, Python: no _ prefix, JS/TS: export)'),
 			decorator_contains: z
 				.string()
 				.optional()
-				.describe('Has decorator matching string (e.g., "Get", "route")'),
-			has_docstring: z.boolean().optional().describe('Has documentation'),
+				.describe('Has decorator/attribute containing string (Python: @route, Java: @GetMapping, Rust: #[test])'),
+			has_docstring: z.boolean().optional().describe('Only code with doc comments'),
 		})
 		.optional();
 
@@ -186,19 +186,32 @@ Set exhaustive=true for refactoring tasks that need ALL matches.
 Default (false) returns top results by relevance.
 
 FILTERS (transparent, you control what's excluded):
+Path filters:
 - path_prefix: Scope to directory (e.g., "src/api/")
-- path_contains: Must contain strings (e.g., ["auth"])
-- path_not_contains: Exclude paths (e.g., ["test", "__tests__", ".spec."])
-- type: Code structure (["function", "class", "method"])
-- extension: File types ([".ts", ".py"])
-- is_exported: Only public/exported symbols
-- decorator_contains: Has decorator matching string (e.g., "Get", "route")
+- path_contains: Path must contain ALL strings (AND logic) - e.g., ["services", "auth"]
+- path_not_contains: Exclude if path contains ANY string (OR logic) - e.g., ["test", "__tests__"]
 
-MULTI-STAGE PATTERN:
-For complex queries, call multiple times with progressive filtering:
-1. Broad search to discover area
-2. Narrow with path filters from results
-3. Refine with specific terms`,
+Code filters:
+- type: Match ANY of these types (OR logic) - ["function", "class", "method", "module"]
+- extension: Match ANY extension (OR logic) - [".ts", ".py", ".go"]
+
+Metadata filters:
+- is_exported: Only public/exported symbols (Go: capitalized, Python: no underscore prefix, JS/TS: export keyword)
+- has_docstring: Only code with documentation comments
+- decorator_contains: Has decorator/attribute matching string - Python: @route, @app.get; TS: @Controller; Java: @GetMapping; Rust: #[test]; C#: [HttpGet]
+
+COMMON PATTERNS:
+Exclude test files:
+  filters: { path_not_contains: ["test", "__tests__", "_test.", ".spec.", "mock", "fixture"] }
+
+Find API endpoints:
+  filters: { decorator_contains: "Get", is_exported: true }
+
+Production code only:
+  filters: { path_not_contains: ["test", "mock", "fixture", "example"], is_exported: true }
+
+Scope to specific area:
+  filters: { path_prefix: "src/services/", type: ["function", "method"] }`,
 		parameters: z.object({
 			query: z.string().describe('The search query in natural language'),
 			mode: z

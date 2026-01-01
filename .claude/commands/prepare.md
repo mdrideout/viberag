@@ -1,6 +1,7 @@
 # VibeRAG - Local Code RAG MCP Server
 
 Check the current date and time.
+License: AGPL-3.0 license
 
 VibeRAG is a React Ink / Typescript CLI and MCP server for local codebase RAG. 
 
@@ -90,3 +91,7 @@ Examples: use naked functions over unnecessary classes and abstractions.
 ## Agent Chat Style
 
 - The chat window width is limited, when consturcting tables and diagrams, assume a maximum width of 180 characters. 
+
+## Documentation Updates
+
+When making changes to the CLI / wizard / MCP tools - ensure we keep user documentation and the @README.md updated with what we've implemented in the code. 

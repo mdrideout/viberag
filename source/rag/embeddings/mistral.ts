@@ -1,19 +1,19 @@
 /**
  * Mistral embedding provider using Mistral AI API.
  *
- * Uses mistral-embed model (1024 dimensions).
+ * Uses codestral-embed model (1024 dimensions).
  * Optimized for code and technical content.
  */
 
 import type {EmbeddingProvider} from './types.js';
 
 const MISTRAL_API_BASE = 'https://api.mistral.ai/v1';
-const MODEL = 'mistral-embed';
+const MODEL = 'codestral-embed';
 const BATCH_SIZE = 64; // Mistral supports batching
 
 /**
  * Mistral embedding provider.
- * Uses mistral-embed model via Mistral AI API.
+ * Uses codestral-embed model via Mistral AI API.
  */
 export class MistralEmbeddingProvider implements EmbeddingProvider {
 	readonly dimensions = 1024;

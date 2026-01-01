@@ -65,7 +65,7 @@ export type IndexDisplayStats = {
  * Embedding provider types.
  * - local: jina-embeddings-v2-base-code (768d) - Offline, no API key
  * - gemini: text-embedding-004 (768d) - Free tier available
- * - mistral: mistral-embed (1024d) - Good for code
+ * - mistral: codestral-embed (1024d) - Optimized for code
  * - openai: text-embedding-3-large (3072d) - Highest quality
  */
 export type EmbeddingProviderType = 'local' | 'gemini' | 'mistral' | 'openai';
@@ -133,6 +133,10 @@ export type WizardMode =
 			step: McpSetupStep;
 			config: Partial<McpSetupWizardConfig>;
 			showPrompt: boolean;
+	  }
+	| {
+			active: true;
+			type: 'clean';
 	  };
 
 /**
@@ -145,5 +149,13 @@ export type ProviderConfig = {
 	context: string;
 	performance: string;
 	pricing: string;
+	description: string;
+};
+
+/**
+ * Command info for autocomplete with descriptions.
+ */
+export type CommandInfo = {
+	command: string;
 	description: string;
 };

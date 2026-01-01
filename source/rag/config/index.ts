@@ -50,7 +50,7 @@ export const PROVIDER_CONFIGS: Record<
 		dimensions: 768,
 	},
 	mistral: {
-		model: 'mistral-embed',
+		model: 'codestral-embed',
 		dimensions: 1024,
 	},
 	openai: {

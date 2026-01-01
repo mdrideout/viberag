@@ -25,6 +25,7 @@ type RagCommandContext = {
 	stdout: NodeJS.WriteStream;
 	startInitWizard: (isReinit: boolean) => void;
 	startMcpSetupWizard: (showPrompt?: boolean) => void;
+	startCleanWizard: () => void;
 	isInitialized: boolean;
 };
 
@@ -37,6 +38,7 @@ export function useRagCommands({
 	stdout,
 	startInitWizard,
 	startMcpSetupWizard,
+	startCleanWizard,
 	isInitialized,
 }: RagCommandContext) {
 	const {exit} = useApp();
@@ -55,6 +57,7 @@ export function useRagCommands({
   /search <query> - Search the codebase
   /status         - Show index status
   /mcp-setup      - Configure MCP server for AI coding tools
+  /clean          - Remove Viberag from project (delete .viberag/)
   /quit           - Exit
 
 Multi-line input:
@@ -153,6 +156,10 @@ Tips:
 		startMcpSetupWizard(false); // showPrompt = false for direct /mcp-setup command
 	}, [startMcpSetupWizard]);
 
+	const handleClean = useCallback(() => {
+		startCleanWizard();
+	}, [startCleanWizard]);
+
 	const handleUnknown = useCallback(
 		(command: string) => {
 			addOutput(
@@ -210,6 +217,10 @@ Tips:
 				case '/mcp-setup':
 					handleMcpSetup();
 					break;
+				case '/clean':
+				case '/uninstall':
+					handleClean();
+					break;
 				case '/quit':
 				case '/exit':
 				case '/q':
@@ -230,6 +241,7 @@ Tips:
 			handleSearch,
 			handleStatus,
 			handleMcpSetup,
+			handleClean,
 			handleUnknown,
 		],
 	);

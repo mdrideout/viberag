@@ -248,6 +248,22 @@ export async function getStatus(projectRoot: string): Promise<string> {
 }
 
 /**
+ * Clean/uninstall Viberag from a project.
+ * Removes the entire .viberag/ directory.
+ */
+export async function runClean(projectRoot: string): Promise<string> {
+	const viberagDir = getViberagDir(projectRoot);
+	const exists = await configExists(projectRoot);
+
+	if (!exists) {
+		return 'Viberag is not initialized in this project. Nothing to clean.';
+	}
+
+	await fs.rm(viberagDir, {recursive: true, force: true});
+	return `Removed ${viberagDir}\nViberag has been uninstalled from this project.\nRun /init to reinitialize.`;
+}
+
+/**
  * Get MCP setup instructions for Claude Code.
  */
 export function getMcpSetupInstructions(): string {

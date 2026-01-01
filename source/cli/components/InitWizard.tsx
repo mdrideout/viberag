@@ -63,13 +63,13 @@ const PROVIDER_CONFIG: Record<
 	},
 	mistral: {
 		name: 'Mistral',
-		model: 'mistral-embed',
-		modelFull: 'mistral-embed',
+		model: 'codestral-embed',
+		modelFull: 'codestral-embed',
 		dims: '1024',
 		context: '8K',
 		cost: '$0.10/1M',
-		note: 'Good for code',
-		description: 'Fast and affordable',
+		note: 'Optimized for code',
+		description: 'Code-optimized embeddings',
 	},
 	openai: {
 		name: 'OpenAI',
@@ -90,7 +90,7 @@ const PROVIDER_ITEMS: SelectItem<EmbeddingProviderType>[] = [
 		value: 'local',
 	},
 	{
-		label: 'Mistral - mistral-embed (Recommended)',
+		label: 'Mistral - codestral-embed (Recommended)',
 		value: 'mistral',
 	},
 	{
@@ -116,7 +116,7 @@ const COMPARISON_DATA = [
 	},
 	{
 		Provider: 'Mistral*',
-		Model: 'embed',
+		Model: 'codestral',
 		Dims: '1024',
 		Context: '8K',
 		Cost: '$0.10/1M',

@@ -4,3 +4,5 @@ dist
 .viberag/
 # Embedding model cache
 local_cache/
+# MCP config (local, not committed)
+.mcp.json
