@@ -25,7 +25,7 @@ npm install -g viberag
 cd your-project
 viberag
 
-# Run /init to configure and index
+# Run the initialization wizard to configure embeddings, run initial indexing, and automatically configure MCP server integration.
 /init
 
 # In addition to allowing Agents to search via the MCP server, 
@@ -78,7 +78,7 @@ VibeRAG includes an MCP server that integrates with AI coding tools.
 
 ### Setup Wizard
 
-Run `/mcp-setup` in the VibeRAG CLI for interactive setup:
+Run `/mcp-setup` in the VibeRAG CLI for interactive setup. This wizard will attempt to automatically configure your coding agents / editors with viberags MCP server settings.
 
 ```bash
 # Start viberag
@@ -113,7 +113,11 @@ The wizard can auto-configure project-level configs and merge into global config
 
 ---
 
-### Project-Specific Configs
+### Manual Setup Instructions
+
+The following sections describe manual MCP server setup configurations for various editors, and agent CLI commands if applicable.
+
+#### Project-Specific Configs
 
 These editors use per-project config files that VibeRAG can auto-create.
 
@@ -373,7 +377,7 @@ Choose your embedding provider during `/init`:
 
 | Model      | Quant | Download | RAM   |
 | ---------- | ----- | -------- | ----- |
-| Qwen3-0.6B | Q8    | ~700MB   | ~10GB |
+| Qwen3-0.6B | Q8    | ~700MB   | ~1.5GB |
 
 - Works completely offline, no API key required
 - Initial indexing may take time; future updates are incremental
