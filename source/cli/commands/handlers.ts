@@ -107,12 +107,31 @@ export async function runInit(
 
 /**
  * Run the indexer and return stats.
+ * When force=true, also updates config dimensions to match current PROVIDER_CONFIGS
+ * (handles dimension changes after viberag upgrades).
  */
 export async function runIndex(
 	projectRoot: string,
 	force: boolean = false,
 	onProgress?: (current: number, total: number, stage: string) => void,
 ): Promise<IndexStats> {
+	// When forcing reindex, sync config dimensions with current provider settings
+	// This handles cases where PROVIDER_CONFIGS dimensions changed (e.g., Gemini 768→1536)
+	if (force) {
+		const {loadConfig} = await import('../../rag/config/index.js');
+		const config = await loadConfig(projectRoot);
+		const currentDimensions = PROVIDER_CONFIGS[config.embeddingProvider]?.dimensions;
+
+		if (currentDimensions && config.embeddingDimensions !== currentDimensions) {
+			const updatedConfig = {
+				...config,
+				embeddingDimensions: currentDimensions,
+				embeddingModel: PROVIDER_CONFIGS[config.embeddingProvider].model,
+			};
+			await saveConfig(projectRoot, updatedConfig);
+		}
+	}
+
 	const indexer = new Indexer(projectRoot);
 
 	try {

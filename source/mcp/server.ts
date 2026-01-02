@@ -17,6 +17,8 @@ import {
 	loadManifest,
 	manifestExists,
 	loadConfig,
+	saveConfig,
+	PROVIDER_CONFIGS,
 	getSchemaVersionInfo,
 	type SearchResults,
 	type IndexStats,
@@ -553,6 +555,26 @@ Production code: { path_not_contains: ["test", "mock", "fixture"], is_exported: 
 		}),
 		execute: async args => {
 			await ensureInitialized(projectRoot);
+
+			// When forcing reindex, sync config dimensions with current provider settings
+			// This handles cases where PROVIDER_CONFIGS dimensions changed (e.g., Gemini 768→1536)
+			if (args.force) {
+				const config = await loadConfig(projectRoot);
+				const currentDimensions =
+					PROVIDER_CONFIGS[config.embeddingProvider]?.dimensions;
+
+				if (
+					currentDimensions &&
+					config.embeddingDimensions !== currentDimensions
+				) {
+					const updatedConfig = {
+						...config,
+						embeddingDimensions: currentDimensions,
+						embeddingModel: PROVIDER_CONFIGS[config.embeddingProvider].model,
+					};
+					await saveConfig(projectRoot, updatedConfig);
+				}
+			}
 
 			const indexer = new Indexer(projectRoot);
 			try {
