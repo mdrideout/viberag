@@ -2,16 +2,15 @@
 
 # VIBERAG
 
-An MCP server for local codebase semantic, keyword, and hybrid search. Automatic codebase indexing and mcp search tools for AI coding assistants.
+**Free, Open Source, Local / Offline Capable, Container-Free Semantic Search For Your Codebase**
 
-## Features
+Viberag is fully local, offline capable MCP server for local codebase search.
 
-- **CLI based setup** - CLI commands and wizards for setup, editor integration, and configuration
-- **Semantic code search** - Find code by meaning, not just keywords
-- **Flexible embeddings** - Local model (offline, free) or cloud providers (Gemini, Mistral, OpenAI)
-- **MCP server** - Works with Claude Code, Cursor, VS Code Copilot, and more
-- **Incremental indexing** - Only re-embeds changed files
-- **Multi-language support** - TypeScript, JavaScript, Python, Go, Rust, and more
+- Semantic codebase search
+- Keyboard codebase search
+- Hybrid codebase search (with tunable parameters)
+
+VibeRAG automatically indexes your codebase into a local container-free vector database ([lancedb](https://lancedb.com/)). Every time you make a change, the indexes are automatically updated.
 
 ## Install
 
@@ -29,47 +28,329 @@ viberag
 # Run /init to configure and index
 /init
 
-# Search your codebase
+# In addition to allowing Agents to search via the MCP server, 
+# you can search yourself via the CLI.
 /search authentication handler
 ```
 
+### Example
+
+When using a coding agent like [Claude Code](https://claude.ai/code), add `use viberag` to your prompt.
+
+```bash
+────────────────────────────────────────────────────────────────────
+> How is authentication handled in this repo? use viberag
+────────────────────────────────────────────────────────────────────
+```
+
+> **Tip:** include "`use viberag`" in your prompt to ensure your agent will use viberag's codebase search features. Most agents will select MCP tools as appropriate, but sometimes they need a little help with explicit prompting.
+
+
+## Features
+
+- **CLI based setup** - CLI commands and wizards for setup, editor integration, and configuration
+- **Semantic code search** - Find code by meaning, not just keywords
+- **Flexible embeddings** - Local model (offline, free) or cloud providers (Gemini, Mistral, OpenAI)
+- **MCP server** - Works with Claude Code, Cursor, VS Code Copilot, and more
+- **Incremental indexing** - Only re-embeds changed files
+- **Multi-language support** - TypeScript, JavaScript, Python, Go, Rust, and more
+
+### How It Works:
+Your coding agent would normally use Search / Grep / Find and guess search terms that are relevant. VibeRAG indexes the codebase into a local vector database (based on [lancedb](https://lancedb.com/)) and can use semantic search to find all relevant code snippets even if the search terms are not exact. 
+
+When searching for "authentication", VibeRAG will find all code snippets that are relevant to authentication, such as "login", "logout", "register", and names of functions and classes like `AuthDependency`, `APIKeyCache`, etc.
+
+This ensures a more exhaustive search of your codebase so you don't miss important files and features that are relevant to your changes or refactor.
+
+### Great for Monorepos
+
+Semantic search is especially useful in monorepos, where you may be trying to understand how different parts of the codebase interact with each other. Viberag can find all the pieces with fewer searches, fewer tokens used, and a shorter amount of time spent searching.
+
+### Embedding Models
+- You can use a locally run embedding model ([Qwen3-Embedding-0.6B](https://huggingface.co/Qwen/Qwen3-Embedding-0.6B)) so that nothing leaves your machine. 
+
+- SOTA API based embeddings from [Gemini](https://ai.google.dev/gemini-api/docs/embeddings), [OpenAI](https://platform.openai.com/docs/guides/embeddings), and [Mistral](https://docs.mistral.ai/capabilities/embeddings) are also supported.
+
+
 ## MCP Server Setup
 
-VibeRAG includes an MCP server that integrates with AI coding tools. Run `/mcp-setup` in the CLI to configure automatically, or set up manually:
+VibeRAG includes an MCP server that integrates with AI coding tools.
 
-### Supported Editors
+### Setup Wizard
 
-| Editor              | Config Location                                    | Setup                                               |
-| ------------------- | -------------------------------------------------- | --------------------------------------------------- |
-| **Claude Code**     | `.mcp.json`                                        | Auto or `claude mcp add viberag -- npx viberag-mcp` |
-| **Cursor**          | `.cursor/mcp.json`                                 | Auto                                                |
-| **Gemini CLI**      | `~/.gemini/settings.json`                          | `gemini mcp add viberag -- npx viberag-mcp`         |
-| **JetBrains IDEs**  | Settings UI                                        | Manual in Settings → AI Assistant → MCP             |
-| **OpenAI Codex**    | `~/.codex/config.toml`                             | `codex mcp add viberag -- npx viberag-mcp`          |
-| **OpenCode**        | `~/.config/opencode/opencode.json`                 | Manual merge                                        |
-| **Roo Code**        | `.roo/mcp.json`                                    | Auto                                                |
-| **VS Code Copilot** | `.vscode/mcp.json`                                 | Auto                                                |
-| **Windsurf**        | `~/.codeium/windsurf/mcp_config.json`              | Manual merge                                        |
-| **Zed**             | `~/Library/Application Support/Zed/settings.json` | Manual merge                                        |
+Run `/mcp-setup` in the VibeRAG CLI for interactive setup:
 
-### Manual Configuration
+```bash
+# Start viberag
+$ viberag
 
-For project-level configs (Claude Code, VS Code, Cursor, Roo Code), add to the appropriate file:
+# Run the setup wizard (after having initialized with /init)
+$ /mcp-setup
 
+# Automatic configuration wizard
+╭───────────────────────────────────────────────────────────────╮
+│ MCP Setup Wizard                                              │
+│                                                               │
+│ Select AI coding tool(s) to configure:                        │
+│ (Space to toggle, Enter to confirm)                           │
+│                                                               │
+│ > [x] Claude Code (auto-setup)                                │
+│   [ ] Cursor (auto-setup)                                     │
+│   [ ] Gemini CLI (global config)                              │
+│   [ ] JetBrains IDEs (manual setup)                           │
+│   [ ] OpenAI Codex (global config)                            │
+│   [ ] OpenCode (global config)                                │
+│   [ ] Roo Code (auto-setup)                                   │
+│   [ ] VS Code Copilot (auto-setup)                            │
+│   [ ] Windsurf (global config)                                │
+│   [ ] Zed (global config)                                     │
+│                                                               │
+│ 1 selected | ↑/↓ move, Space toggle, Enter confirm, Esc cancel│
+╰───────────────────────────────────────────────────────────────╯
+```
+
+The wizard can auto-configure project-level configs and merge into global configs.
+
+---
+
+### Project-Specific Configs
+
+These editors use per-project config files that VibeRAG can auto-create.
+
+<details>
+<summary><strong>Claude Code</strong> — <code>.mcp.json</code></summary>
+
+**CLI Command:**
+```bash
+claude mcp add viberag -- npx viberag-mcp
+```
+
+**Manual Setup:**
 ```json
 {
-	"mcpServers": {
-		"viberag": {
-			"command": "npx",
-			"args": ["viberag-mcp"]
-		}
-	}
+  "mcpServers": {
+    "viberag": {
+      "command": "npx",
+      "args": ["viberag-mcp"]
+    }
+  }
 }
 ```
 
-> **Note:** VS Code uses `"servers"` instead of `"mcpServers"`. Zed uses `"context_servers"`.
+**Verify:** Run `/mcp` in Claude Code, look for "viberag: connected"
 
-For global configs, merge the viberag entry into your existing configuration.
+[Documentation](https://docs.anthropic.com/en/docs/claude-code/mcp)
+
+</details>
+
+<details>
+<summary><strong>Cursor</strong> — <code>.cursor/mcp.json</code></summary>
+
+**Manual Setup:**
+```json
+{
+  "mcpServers": {
+    "viberag": {
+      "command": "npx",
+      "args": ["viberag-mcp"]
+    }
+  }
+}
+```
+
+**Verify:** Settings → Cursor Settings → MCP, verify "viberag" shows with toggle enabled
+
+[Documentation](https://docs.cursor.com/context/model-context-protocol)
+
+</details>
+
+<details>
+<summary><strong>Roo Code</strong> — <code>.roo/mcp.json</code></summary>
+
+**Manual Setup:**
+```json
+{
+  "mcpServers": {
+    "viberag": {
+      "command": "npx",
+      "args": ["viberag-mcp"]
+    }
+  }
+}
+```
+
+**Verify:** Click MCP icon in Roo Code pane header, verify "viberag" appears in server list
+
+[Documentation](https://docs.roocode.com/features/mcp/using-mcp-in-roo)
+
+</details>
+
+<details>
+<summary><strong>VS Code Copilot</strong> — <code>.vscode/mcp.json</code></summary>
+
+**Manual Setup:**
+```json
+{
+  "servers": {
+    "viberag": {
+      "command": "npx",
+      "args": ["viberag-mcp"]
+    }
+  }
+}
+```
+
+> **Note:** VS Code uses `"servers"` instead of `"mcpServers"`
+
+**Verify:** Cmd/Ctrl+Shift+P → "MCP: List Servers", verify "viberag" appears
+
+[Documentation](https://code.visualstudio.com/docs/copilot/chat/mcp-servers)
+
+</details>
+
+---
+
+### Global Configs
+
+These editors use global config files. VibeRAG can merge into existing configs.
+
+<details>
+<summary><strong>Gemini CLI</strong> — <code>~/.gemini/settings.json</code></summary>
+
+**CLI Command:**
+```bash
+gemini mcp add viberag -- npx viberag-mcp
+```
+
+**Manual Setup:** Add to your existing settings.json:
+```json
+{
+  "mcpServers": {
+    "viberag": {
+      "command": "npx",
+      "args": ["viberag-mcp"]
+    }
+  }
+}
+```
+
+**Verify:** Run `/mcp` in Gemini CLI, look for "viberag" in server list
+
+[Documentation](https://googlegemini.io/gemini-cli/docs/mcp)
+
+</details>
+
+<details>
+<summary><strong>OpenAI Codex</strong> — <code>~/.codex/config.toml</code></summary>
+
+**CLI Command:**
+```bash
+codex mcp add viberag -- npx viberag-mcp
+```
+
+**Manual Setup:** Add to your config.toml:
+```toml
+[mcp_servers.viberag]
+command = "npx"
+args = ["viberag-mcp"]
+```
+
+**Verify:** Run `/mcp` in Codex TUI, look for "viberag" in server list
+
+[Documentation](https://codex.openai.com/docs/tools/mcp-servers)
+
+</details>
+
+<details>
+<summary><strong>OpenCode</strong> — <code>~/.config/opencode/opencode.json</code></summary>
+
+**Config:** `~/.config/opencode/opencode.json` (Linux/macOS) or `%APPDATA%/opencode/opencode.json` (Windows)
+
+**Manual Setup:** Add to your existing opencode.json:
+```json
+{
+  "mcp": {
+    "viberag": {
+      "type": "local",
+      "command": ["npx", "-y", "viberag-mcp"]
+    }
+  }
+}
+```
+
+> **Note:** OpenCode uses `"mcp"` key and requires `"type": "local"` with command as an array
+
+**Verify:** Check MCP servers list in OpenCode, verify "viberag" appears and is enabled
+
+[Documentation](https://opencode.ai/docs/tools/mcp)
+
+</details>
+
+<details>
+<summary><strong>Windsurf</strong> — <code>~/.codeium/windsurf/mcp_config.json</code></summary>
+
+**Manual Setup:** Merge into your existing mcp_config.json:
+```json
+{
+  "mcpServers": {
+    "viberag": {
+      "command": "npx",
+      "args": ["viberag-mcp"]
+    }
+  }
+}
+```
+
+**Verify:** Click Plugins icon in Cascade panel, verify "viberag" shows in plugin list
+
+[Documentation](https://docs.windsurf.com/windsurf/cascade/mcp)
+
+</details>
+
+<details>
+<summary><strong>Zed</strong> — <code>~/Library/Application Support/Zed/settings.json</code></summary>
+
+**Config:** `~/Library/Application Support/Zed/settings.json` (macOS) or `~/.config/zed/settings.json` (Linux)
+
+**Manual Setup:** Merge into your existing settings.json:
+```json
+{
+  "context_servers": {
+    "viberag": {
+      "command": "npx",
+      "args": ["viberag-mcp"]
+    }
+  }
+}
+```
+
+> **Note:** Zed uses `"context_servers"` instead of `"mcpServers"`
+
+**Verify:** Open Agent Panel settings, verify "viberag" shows green indicator
+
+[Documentation](https://zed.dev/docs/ai/mcp)
+
+</details>
+
+---
+
+### UI-Based Setup
+
+<details>
+<summary><strong>JetBrains IDEs</strong> — Settings UI</summary>
+
+**Manual Setup:**
+1. Open Settings → Tools → AI Assistant → MCP
+2. Click "Add Server"
+3. Set name: `viberag`
+4. Set command: `npx`
+5. Set args: `viberag-mcp`
+
+**Verify:** Settings → Tools → AI Assistant → MCP, verify "viberag" shows green in Status column
+
+[Documentation](https://www.jetbrains.com/help/ai-assistant/mcp.html)
+
+</details>
 
 ## CLI Commands
 
