@@ -1,4 +1,4 @@
-![VibeRAG Banner](viberag-banner-opt.png)
+![VibeRAG Banner](https://github.com/mdrideout/viberag/blob/master/viberag-banner-opt.png?raw=true)
 
 # VIBERAG
 
@@ -6,6 +6,7 @@ An MCP server for local codebase semantic, keyword, and hybrid search. Automatic
 
 ## Features
 
+- **CLI based setup** - CLI commands and wizards for setup, editor integration, and configuration
 - **Semantic code search** - Find code by meaning, not just keywords
 - **Flexible embeddings** - Local model (offline, free) or cloud providers (Gemini, Mistral, OpenAI)
 - **MCP server** - Works with Claude Code, Cursor, VS Code Copilot, and more
