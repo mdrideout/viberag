@@ -1,10 +1,10 @@
 ![VibeRAG Banner](https://github.com/mdrideout/viberag/blob/master/viberag-banner-opt.png?raw=true)
 
-# VIBERAG
+# VIBERAG MCP Server
 
 **Free, Open Source, Local / Offline Capable, Container-Free Semantic Search For Your Codebase**
 
-Viberag is fully local, offline capable MCP server for local codebase search.
+VibeRAG is fully local, offline capable MCP server for local codebase search.
 
 - Semantic codebase search
 - Keyword codebase search (BM25)
@@ -28,7 +28,7 @@ viberag
 # Run the initialization wizard to configure embeddings, run initial indexing, and automatically configure MCP server integration.
 /init
 
-# In addition to allowing Agents to search via the MCP server, 
+# In addition to allowing Agents to search via the MCP server,
 # you can search yourself via the CLI.
 /search authentication handler
 ```
@@ -45,18 +45,18 @@ When using a coding agent like [Claude Code](https://claude.ai/code), add `use v
 
 > **Tip:** include "`use viberag`" in your prompt to ensure your agent will use viberag's codebase search features. Most agents will select MCP tools as appropriate, but sometimes they need a little help with explicit prompting.
 
-
 ## Features
 
 - **CLI based setup** - CLI commands and wizards for setup, editor integration, and configuration
 - **Semantic code search** - Find code by meaning, not just keywords
 - **Flexible embeddings** - Local model (offline, free) or cloud providers (Gemini, Mistral, OpenAI)
 - **MCP server** - Works with Claude Code, Cursor, VS Code Copilot, and more
-- **Incremental indexing** - Only re-embeds changed files
+- **Automatic Incremental indexing** - Watches for file changes and reindexes only what has changed in real time
 - **Multi-language support** - TypeScript, JavaScript, Python, Go, Rust, and more
 
 ### How It Works:
-Your coding agent would normally use Search / Grep / Find and guess search terms that are relevant. VibeRAG indexes the codebase into a local vector database (based on [lancedb](https://lancedb.com/)) and can use semantic search to find all relevant code snippets even if the search terms are not exact. 
+
+Your coding agent would normally use Search / Grep / Find and guess search terms that are relevant. VibeRAG indexes the codebase into a local vector database (based on [lancedb](https://lancedb.com/)) and can use semantic search to find all relevant code snippets even if the search terms are not exact.
 
 When searching for "authentication", VibeRAG will find all code snippets that are relevant to authentication, such as "login", "logout", "register", and names of functions and classes like `AuthDependency`, `APIKeyCache`, etc.
 
@@ -67,14 +67,19 @@ This ensures a more exhaustive search of your codebase so you don't miss importa
 Semantic search is especially useful in monorepos, where you may be trying to understand how different parts of the codebase interact with each other. Viberag can find all the pieces with fewer searches, fewer tokens used, and a shorter amount of time spent searching.
 
 ### Embedding Models
-- You can use a locally run embedding model ([Qwen3-Embedding-0.6B](https://huggingface.co/Qwen/Qwen3-Embedding-0.6B)) so that nothing leaves your machine. 
+
+- You can use a locally run embedding model ([Qwen3-Embedding-0.6B](https://huggingface.co/Qwen/Qwen3-Embedding-0.6B)) so that nothing leaves your machine.
 
 - SOTA API based embeddings from [Gemini](https://ai.google.dev/gemini-api/docs/embeddings), [OpenAI](https://platform.openai.com/docs/guides/embeddings), and [Mistral](https://docs.mistral.ai/capabilities/embeddings) are also supported.
-
 
 ## MCP Server Setup
 
 VibeRAG includes an MCP server that integrates with AI coding tools.
+
+### Exposed MCP Tools
+
+- `codebase_search` - Semantic search for code
+- `codebase_parallel_search` - Run multiple search strategies in parallel
 
 ### Setup Wizard
 
@@ -125,19 +130,21 @@ These editors use per-project config files that VibeRAG can auto-create.
 <summary><strong>Claude Code</strong> — <code>.mcp.json</code></summary>
 
 **CLI Command:**
+
 ```bash
 claude mcp add viberag -- npx viberag-mcp
 ```
 
 **Manual Setup:**
+
 ```json
 {
-  "mcpServers": {
-    "viberag": {
-      "command": "npx",
-      "args": ["viberag-mcp"]
-    }
-  }
+	"mcpServers": {
+		"viberag": {
+			"command": "npx",
+			"args": ["viberag-mcp"]
+		}
+	}
 }
 ```
 
@@ -151,14 +158,15 @@ claude mcp add viberag -- npx viberag-mcp
 <summary><strong>Cursor</strong> — <code>.cursor/mcp.json</code></summary>
 
 **Manual Setup:**
+
 ```json
 {
-  "mcpServers": {
-    "viberag": {
-      "command": "npx",
-      "args": ["viberag-mcp"]
-    }
-  }
+	"mcpServers": {
+		"viberag": {
+			"command": "npx",
+			"args": ["viberag-mcp"]
+		}
+	}
 }
 ```
 
@@ -172,14 +180,15 @@ claude mcp add viberag -- npx viberag-mcp
 <summary><strong>Roo Code</strong> — <code>.roo/mcp.json</code></summary>
 
 **Manual Setup:**
+
 ```json
 {
-  "mcpServers": {
-    "viberag": {
-      "command": "npx",
-      "args": ["viberag-mcp"]
-    }
-  }
+	"mcpServers": {
+		"viberag": {
+			"command": "npx",
+			"args": ["viberag-mcp"]
+		}
+	}
 }
 ```
 
@@ -193,14 +202,15 @@ claude mcp add viberag -- npx viberag-mcp
 <summary><strong>VS Code Copilot</strong> — <code>.vscode/mcp.json</code></summary>
 
 **Manual Setup:**
+
 ```json
 {
-  "servers": {
-    "viberag": {
-      "command": "npx",
-      "args": ["viberag-mcp"]
-    }
-  }
+	"servers": {
+		"viberag": {
+			"command": "npx",
+			"args": ["viberag-mcp"]
+		}
+	}
 }
 ```
 
@@ -222,19 +232,21 @@ These editors use global config files. VibeRAG can merge into existing configs.
 <summary><strong>Gemini CLI</strong> — <code>~/.gemini/settings.json</code></summary>
 
 **CLI Command:**
+
 ```bash
 gemini mcp add viberag -- npx viberag-mcp
 ```
 
 **Manual Setup:** Add to your existing settings.json:
+
 ```json
 {
-  "mcpServers": {
-    "viberag": {
-      "command": "npx",
-      "args": ["viberag-mcp"]
-    }
-  }
+	"mcpServers": {
+		"viberag": {
+			"command": "npx",
+			"args": ["viberag-mcp"]
+		}
+	}
 }
 ```
 
@@ -248,11 +260,13 @@ gemini mcp add viberag -- npx viberag-mcp
 <summary><strong>OpenAI Codex</strong> — <code>~/.codex/config.toml</code></summary>
 
 **CLI Command:**
+
 ```bash
 codex mcp add viberag -- npx viberag-mcp
 ```
 
 **Manual Setup:** Add to your config.toml:
+
 ```toml
 [mcp_servers.viberag]
 command = "npx"
@@ -271,14 +285,15 @@ args = ["viberag-mcp"]
 **Config:** `~/.config/opencode/opencode.json` (Linux/macOS) or `%APPDATA%/opencode/opencode.json` (Windows)
 
 **Manual Setup:** Add to your existing opencode.json:
+
 ```json
 {
-  "mcp": {
-    "viberag": {
-      "type": "local",
-      "command": ["npx", "-y", "viberag-mcp"]
-    }
-  }
+	"mcp": {
+		"viberag": {
+			"type": "local",
+			"command": ["npx", "-y", "viberag-mcp"]
+		}
+	}
 }
 ```
 
@@ -294,14 +309,15 @@ args = ["viberag-mcp"]
 <summary><strong>Windsurf</strong> — <code>~/.codeium/windsurf/mcp_config.json</code></summary>
 
 **Manual Setup:** Merge into your existing mcp_config.json:
+
 ```json
 {
-  "mcpServers": {
-    "viberag": {
-      "command": "npx",
-      "args": ["viberag-mcp"]
-    }
-  }
+	"mcpServers": {
+		"viberag": {
+			"command": "npx",
+			"args": ["viberag-mcp"]
+		}
+	}
 }
 ```
 
@@ -317,14 +333,15 @@ args = ["viberag-mcp"]
 **Config:** `~/Library/Application Support/Zed/settings.json` (macOS) or `~/.config/zed/settings.json` (Linux)
 
 **Manual Setup:** Merge into your existing settings.json:
+
 ```json
 {
-  "context_servers": {
-    "viberag": {
-      "command": "npx",
-      "args": ["viberag-mcp"]
-    }
-  }
+	"context_servers": {
+		"viberag": {
+			"command": "npx",
+			"args": ["viberag-mcp"]
+		}
+	}
 }
 ```
 
@@ -344,6 +361,7 @@ args = ["viberag-mcp"]
 <summary><strong>JetBrains IDEs</strong> — Settings UI</summary>
 
 **Manual Setup:**
+
 1. Open Settings → Tools → AI Assistant → MCP
 2. Click "Add Server"
 3. Set name: `viberag`
@@ -375,20 +393,21 @@ Choose your embedding provider during `/init`:
 
 ### Local Model - Offline, Free
 
-| Model      | Quant | Download | RAM   |
-| ---------- | ----- | -------- | ----- |
+| Model      | Quant | Download | RAM    |
+| ---------- | ----- | -------- | ------ |
 | Qwen3-0.6B | Q8    | ~700MB   | ~1.5GB |
 
 - Works completely offline, no API key required
 - Initial indexing may take time; future updates are incremental
+- Works great for code and natural language (docs, docstrings, code comments, etc.)
 
 ### Cloud Providers - Fastest, Best Quality
 
-| Provider | Model                  | Dims | Cost      | Get API Key                                                                    |
-| -------- | ---------------------- | ---- | --------- | ------------------------------------------------------------------------------ |
-| Gemini   | gemini-embedding-001   | 1536 | Free tier | [Google AI Studio](https://aistudio.google.com)                                |
-| Mistral  | codestral-embed        | 1024 | $0.10/1M  | [Mistral Console](https://console.mistral.ai/api-keys/)                        |
-| OpenAI   | text-embedding-3-small | 1536 | $0.02/1M  | [OpenAI Platform](https://platform.openai.com/api-keys)                        |
+| Provider | Model                  | Dims | Cost      | Get API Key                                             |
+| -------- | ---------------------- | ---- | --------- | ------------------------------------------------------- |
+| Gemini   | gemini-embedding-001   | 1536 | Free tier | [Google AI Studio](https://aistudio.google.com)         |
+| Mistral  | codestral-embed        | 1024 | $0.10/1M  | [Mistral Console](https://console.mistral.ai/api-keys/) |
+| OpenAI   | text-embedding-3-small | 1536 | $0.02/1M  | [OpenAI Platform](https://platform.openai.com/api-keys) |
 
 - **Gemini** - Free tier available, great for getting started
 - **Mistral** - Code-optimized embeddings for technical content
@@ -412,14 +431,15 @@ VibeRAG works best when AI agents use **sub-agents for exploration tasks**. This
 
 When an AI calls viberag directly, all search results expand the main context. Sub-agents run searches in isolated context windows and return only concise summaries.
 
-| Approach | Context Usage | Token Efficiency |
-|----------|---------------|------------------|
-| Direct viberag calls | 24k tokens | Baseline |
-| Sub-agent delegation | 3k tokens | **8x better** |
+| Approach             | Context Usage | Token Efficiency |
+| -------------------- | ------------- | ---------------- |
+| Direct viberag calls | 24k tokens    | Baseline         |
+| Sub-agent delegation | 3k tokens     | **8x better**    |
 
 ### Platform-Specific Guidance
 
 #### Claude Code
+
 ```
 # For exploration tasks, use the Task tool:
 Task(subagent_type='Explore', prompt='Use viberag to find how authentication works')
@@ -430,60 +450,69 @@ Task(subagent_type='Explore', prompt='Search login flows')   # with this one
 ```
 
 Add to your `CLAUDE.md`:
+
 ```markdown
 When exploring the codebase, use Task(subagent_type='Explore') and instruct it
 to use codebase_search or codebase_parallel_search. This keeps the main context clean.
 ```
 
 #### VS Code Copilot
+
 - Use **Agent HQ** to delegate exploration to background agents
 - Background agents can iterate with viberag without blocking your session
 - Use `/delegate` to hand off exploration tasks to Copilot coding agent
 
 #### Cursor
+
 - Enable **Agent mode** for multi-step exploration
 - Agent mode can orchestrate multiple viberag searches autonomously
 - Consider the [Sub-Agents MCP server](https://playbooks.com/mcp/shinpr-sub-agents) for Claude Code-style delegation
 
 #### Windsurf
+
 - **Cascade** automatically plans multi-step tasks
 - Enable **Turbo Mode** for autonomous exploration
 - Cascade's planning agent will orchestrate viberag calls efficiently
 
 #### Roo Code
+
 - Use **Architect mode** for exploration and understanding
 - **Boomerang tasks** coordinate complex multi-mode workflows
 - Each mode (Architect, Code, Debug) can use viberag with focused context
 
 #### Gemini CLI
+
 - Create **extensions** that scope viberag tools for specific tasks
 - Extensions can bundle viberag with custom prompts for specialized exploration
 - Use `gemini mcp add viberag` then reference in extension configs
 
 #### OpenAI Codex
+
 - Use **Agents SDK** to orchestrate viberag as an MCP tool
 - Codex can run as an MCP server itself for multi-agent setups
 - Approval modes control how autonomously Codex explores
 
 #### JetBrains IDEs
+
 - **Junie** agent handles multi-step exploration autonomously
 - **Claude Agent** integration provides sub-agent-like capabilities
 - Access viberag through AI Chat with multi-agent support
 
 #### Zed
+
 - Use **External Agents** (Claude Code, Codex, Gemini CLI) for exploration
 - Set `auto_approve` in settings for autonomous agent operation
 - ACP (Agent Client Protocol) enables BYO agent integration
 
 ### Quick Lookup vs Exploration
 
-| Task Type | Recommended Approach |
-|-----------|---------------------|
-| "Where is function X defined?" | Direct `codebase_search` with mode='definition' |
-| "What file handles Y?" | Direct `codebase_search` - single query |
-| "How does authentication work?" | **Sub-agent** - needs multiple searches |
-| "Find all API endpoints" | **Sub-agent** or `codebase_parallel_search` |
-| "Understand the data flow" | **Sub-agent** - iterative exploration |
+| Task Type                       | Recommended Approach                            |
+| ------------------------------- | ----------------------------------------------- |
+| "Where is function X defined?"  | Direct `codebase_search` with mode='definition' |
+| "What file handles Y?"          | Direct `codebase_search` - single query         |
+| "How does authentication work?" | **Sub-agent** - needs multiple searches         |
+| "Find all API endpoints"        | **Sub-agent** or `codebase_parallel_search`     |
+| "Understand the data flow"      | **Sub-agent** - iterative exploration           |
 
 ### For Platforms Without Sub-Agents
 
@@ -491,13 +520,13 @@ Use `codebase_parallel_search` to run multiple search strategies in a single cal
 
 ```json
 {
-  "searches": [
-    {"query": "authentication", "mode": "semantic"},
-    {"query": "auth login", "mode": "exact"},
-    {"query": "user session", "mode": "hybrid", "bm25_weight": 0.5}
-  ],
-  "merge_results": true,
-  "merge_strategy": "rrf"
+	"searches": [
+		{"query": "authentication", "mode": "semantic"},
+		{"query": "auth login", "mode": "exact"},
+		{"query": "user session", "mode": "hybrid", "bm25_weight": 0.5}
+	],
+	"merge_results": true,
+	"merge_strategy": "rrf"
 }
 ```
 

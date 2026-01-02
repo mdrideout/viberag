@@ -120,7 +120,8 @@ export async function runIndex(
 	if (force) {
 		const {loadConfig} = await import('../../rag/config/index.js');
 		const config = await loadConfig(projectRoot);
-		const currentDimensions = PROVIDER_CONFIGS[config.embeddingProvider]?.dimensions;
+		const currentDimensions =
+			PROVIDER_CONFIGS[config.embeddingProvider]?.dimensions;
 
 		if (currentDimensions && config.embeddingDimensions !== currentDimensions) {
 			const updatedConfig = {

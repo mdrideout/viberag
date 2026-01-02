@@ -6,3 +6,5 @@ dist
 local_cache/
 # MCP config (local, not committed)
 .mcp.json
+# MCP config (local, not committed)
+.roo

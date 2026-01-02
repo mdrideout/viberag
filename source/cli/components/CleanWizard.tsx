@@ -90,6 +90,7 @@ export function CleanWizard({
 				performCleanup(false);
 			}
 		},
+		// eslint-disable-next-line react-hooks/exhaustive-deps -- performCleanup is stable
 		[projectScopeEditors, onCancel],
 	);
 

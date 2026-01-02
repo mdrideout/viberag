@@ -26,6 +26,7 @@ const BATCH_SIZE = 8;
  */
 export class LocalEmbeddingProvider implements EmbeddingProvider {
 	readonly dimensions = DIMENSIONS;
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any -- HuggingFace pipeline type is too complex
 	private extractor: any = null;
 	private initialized = false;
 
