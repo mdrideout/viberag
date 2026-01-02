@@ -394,7 +394,7 @@ RESULT INTERPRETATION:
 FILTERS (transparent, you control what's excluded):
 Path filters:
 - recommendation: use sparingly - only exclude what you absolutely do not want included.
-- path_prefix: Scope to directory (e.g., "src/api/")
+- path_prefix: Scope to directory (e.g., "src/api/") (usually avoid this, prefer unscoped wider searches)
 - path_contains: Path must contain ALL strings (AND logic)
 - path_not_contains: Exclude if path contains ANY string (OR logic)
 
@@ -730,7 +730,7 @@ RESULT INTERPRETATION:
 FILTERS (transparent, you control what's excluded):
 Path filters:
 - recommendation: use sparingly - only exclude what you absolutely do not want included.
-- path_prefix: Scope to directory (e.g., "src/api/")
+- path_prefix: Scope to directory (e.g., "src/api/") (usually avoid this, prefer unscoped wider searches)
 - path_contains: Path must contain ALL strings (AND logic)
 - path_not_contains: Exclude if path contains ANY string (OR logic)
 
