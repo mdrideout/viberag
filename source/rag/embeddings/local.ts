@@ -36,7 +36,10 @@ export class LocalEmbeddingProvider implements EmbeddingProvider {
 		let lastProgress = 0;
 		const progressCallback = onProgress
 			? (progress: {status: string; file?: string; progress?: number}) => {
-					if (progress.status === 'progress' && progress.progress !== undefined) {
+					if (
+						progress.status === 'progress' &&
+						progress.progress !== undefined
+					) {
 						// Round to avoid too many updates
 						const pct = Math.round(progress.progress);
 						if (pct !== lastProgress) {

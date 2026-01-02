@@ -18,6 +18,7 @@ brew install viberag            # macOS/Linux (Homebrew tap)
 **Decision:** VibeRAG requires Node.js 18+ as a runtime dependency.
 
 **This matches the approach used by:**
+
 - [Google Gemini CLI](https://github.com/google-gemini/gemini-cli) - Requires Node.js 20+
 - Many production MCP servers and developer tools
 
@@ -78,11 +79,11 @@ brew install viberag            # macOS/Linux (Homebrew tap)
 
 ### Summary
 
-| Bundler | Binary Size | Result | Blocker |
-|---------|-------------|--------|---------|
-| Bun compile | 157MB | ❌ Failed | LanceDB NAPI-RS dlopen |
-| Deno compile | 642MB | ✅ Works | Large binary size |
-| pkg/yao-pkg | N/A | ❌ Failed | ESM import.meta not supported |
+| Bundler      | Binary Size | Result    | Blocker                       |
+| ------------ | ----------- | --------- | ----------------------------- |
+| Bun compile  | 157MB       | ❌ Failed | LanceDB NAPI-RS dlopen        |
+| Deno compile | 642MB       | ✅ Works  | Large binary size             |
+| pkg/yao-pkg  | N/A         | ❌ Failed | ESM import.meta not supported |
 
 **Conclusion:** Standalone executables are not viable due to native module bundling issues. Node.js runtime dependency is the pragmatic choice.
 
@@ -101,6 +102,7 @@ brew install viberag            # macOS/Linux (Homebrew tap)
 **What blocked us:**
 
 3. **LanceDB NAPI-RS module** (93MB native `.node` file)
+
    ```
    error: dlopen(/$bunfs/root/lancedb.darwin-arm64.node, 0x0001):
      tried: '/$bunfs/root/lancedb.darwin-arm64.node' (no such file)
@@ -119,14 +121,16 @@ brew install viberag            # macOS/Linux (Homebrew tap)
 **Workaround researched but rejected:**
 
 Patching LanceDB's NAPI-RS loader to use static platform detection:
+
 ```javascript
 // Would need to change from dynamic to static:
 if (process.platform === 'darwin' && process.arch === 'arm64') {
-  module.exports = require('@lancedb/lancedb-darwin-arm64');
+	module.exports = require('@lancedb/lancedb-darwin-arm64');
 }
 ```
 
 **Rejected because:**
+
 - Requires maintaining patches against upstream
 - Fragile when LanceDB updates
 - Significant ongoing maintenance burden
@@ -141,6 +145,7 @@ deno compile --allow-all --include node_modules --output viberag dist/cli/index.
 ```
 
 **Why not use Deno:**
+
 - 642MB per platform = 3.2GB total release size (5 platforms)
 - Startup time slower than Bun
 - Less ecosystem alignment (Claude Code uses Bun)
@@ -148,6 +153,7 @@ deno compile --allow-all --include node_modules --output viberag dist/cli/index.
 ### pkg / yao-pkg
 
 Both fail immediately:
+
 ```
 Error: ESM import.meta.url is not supported in pkg
 ```
@@ -160,12 +166,12 @@ Not viable for ESM projects.
 
 ### Why Migrate
 
-| Aspect | Native tree-sitter | web-tree-sitter |
-|--------|-------------------|-----------------|
-| Native modules | 12 packages | 0 packages |
-| Platform support | ~85% (prebuilds) | 100% (WASM) |
-| Build tools needed | Sometimes | Never |
-| Install failures | Possible | None |
+| Aspect             | Native tree-sitter | web-tree-sitter |
+| ------------------ | ------------------ | --------------- |
+| Native modules     | 12 packages        | 0 packages      |
+| Platform support   | ~85% (prebuilds)   | 100% (WASM)     |
+| Build tools needed | Sometimes          | Never           |
+| Install failures   | Possible           | None            |
 
 **Result:** Reduces native dependencies from 13 packages to 1 (LanceDB only).
 
@@ -173,38 +179,39 @@ Not viable for ESM projects.
 
 All 12 languages available via [tree-sitter-wasms](https://github.com/sourcegraph/tree-sitter-wasms) (Sourcegraph):
 
-| Language | WASM Size | Status |
-|----------|-----------|--------|
-| JavaScript | ~200KB | ✅ |
-| TypeScript | ~300KB | ✅ |
-| TSX | ~300KB | ✅ |
-| Python | ~200KB | ✅ |
-| Go | ~200KB | ✅ |
-| Rust | ~400KB | ✅ |
-| Java | ~300KB | ✅ |
-| C# | 3.98MB | ✅ |
-| Kotlin | 4.05MB | ✅ |
-| Swift | 3.15MB | ✅ |
-| Dart | 985KB | ✅ |
-| PHP | ~300KB | ✅ |
+| Language   | WASM Size | Status |
+| ---------- | --------- | ------ |
+| JavaScript | ~200KB    | ✅     |
+| TypeScript | ~300KB    | ✅     |
+| TSX        | ~300KB    | ✅     |
+| Python     | ~200KB    | ✅     |
+| Go         | ~200KB    | ✅     |
+| Rust       | ~400KB    | ✅     |
+| Java       | ~300KB    | ✅     |
+| C#         | 3.98MB    | ✅     |
+| Kotlin     | 4.05MB    | ✅     |
+| Swift      | 3.15MB    | ✅     |
+| Dart       | 985KB     | ✅     |
+| PHP        | ~300KB    | ✅     |
 
 ### API Compatibility
 
 All APIs used in `chunker.ts` are available in web-tree-sitter:
 
-| API | Native | web-tree-sitter |
-|-----|--------|-----------------|
-| `node.type` | ✅ | ✅ |
-| `node.text` | ✅ | ✅ |
-| `node.children` | ✅ | ✅ |
-| `node.parent` | ✅ | ✅ |
-| `node.previousSibling` | ✅ | ✅ |
-| `node.childForFieldName()` | ✅ | ✅ |
-| `node.startPosition.row` | ✅ | ✅ |
-| `parser.setLanguage()` | ✅ | ✅ |
-| `parser.parse()` | ✅ | ✅ |
+| API                        | Native | web-tree-sitter |
+| -------------------------- | ------ | --------------- |
+| `node.type`                | ✅     | ✅              |
+| `node.text`                | ✅     | ✅              |
+| `node.children`            | ✅     | ✅              |
+| `node.parent`              | ✅     | ✅              |
+| `node.previousSibling`     | ✅     | ✅              |
+| `node.childForFieldName()` | ✅     | ✅              |
+| `node.startPosition.row`   | ✅     | ✅              |
+| `parser.setLanguage()`     | ✅     | ✅              |
+| `parser.parse()`           | ✅     | ✅              |
 
 **Key difference:** Initialization is async in web-tree-sitter:
+
 ```typescript
 // Native (sync)
 const parser = new Parser();
@@ -231,11 +238,11 @@ parser.setLanguage(JavaScript);
 
 ### API Embeddings (Default)
 
-| Provider | Model | Dimensions | Cost |
-|----------|-------|------------|------|
-| Gemini | text-embedding-004 | 768 | Free tier |
-| Mistral | codestral-embed-2505 | 1024 | Paid |
-| OpenAI | text-embedding-3-large | 3072 | Paid |
+| Provider | Model                  | Dimensions | Cost      |
+| -------- | ---------------------- | ---------- | --------- |
+| Gemini   | text-embedding-004     | 768        | Free tier |
+| Mistral  | codestral-embed-2505   | 1024       | Paid      |
+| OpenAI   | text-embedding-3-large | 3072       | Paid      |
 
 **Recommended:** Local (offline, no API key, code-optimized)
 
@@ -246,27 +253,34 @@ parser.setLanguage(JavaScript);
 Uses `jinaai/jina-embeddings-v2-base-code` via `@huggingface/transformers`:
 
 ```typescript
-import { pipeline } from '@huggingface/transformers';
+import {pipeline} from '@huggingface/transformers';
 
-const embedder = await pipeline('feature-extraction', 'jinaai/jina-embeddings-v2-base-code', {
-  dtype: 'q8'  // int8 quantization for smaller size (~161MB)
-});
-const embedding = await embedder(text, { pooling: 'mean', normalize: true });
+const embedder = await pipeline(
+	'feature-extraction',
+	'jinaai/jina-embeddings-v2-base-code',
+	{
+		dtype: 'q8', // int8 quantization for smaller size (~161MB)
+	},
+);
+const embedding = await embedder(text, {pooling: 'mean', normalize: true});
 ```
 
 **Specs:**
+
 - 768 dimensions (same as Gemini)
 - 8K token context window
 - Trained on 150M+ code QA pairs
 - int8 quantized (~161MB model)
 
 **Benefits:**
+
 - Works completely offline
 - No API key required
 - No per-token costs
 - Data never leaves machine
 
 **Tradeoffs:**
+
 - First run downloads model (~161MB)
 - Slower than API for large batches
 
@@ -281,19 +295,17 @@ npm install -g viberag
 ```
 
 **package.json configuration:**
+
 ```json
 {
-  "name": "viberag",
-  "bin": {
-    "viberag": "./dist/cli/index.js"
-  },
-  "engines": {
-    "node": ">=18.0.0"
-  },
-  "files": [
-    "dist/",
-    "wasm/"
-  ]
+	"name": "viberag",
+	"bin": {
+		"viberag": "./dist/cli/index.js"
+	},
+	"engines": {
+		"node": ">=18.0.0"
+	},
+	"files": ["dist/", "wasm/"]
 }
 ```
 
@@ -318,6 +330,7 @@ end
 ```
 
 **Usage:**
+
 ```bash
 brew tap yourorg/viberag
 brew install viberag
@@ -332,6 +345,7 @@ brew install viberag
 **Status:** ✅ Complete
 
 **Completed:**
+
 1. ✅ Removed 12 native tree-sitter packages from `package.json`
 2. ✅ Added `web-tree-sitter` and `tree-sitter-wasms` dependencies
 3. ✅ Refactored `Chunker` class with async `initialize()` method
@@ -342,12 +356,14 @@ brew install viberag
 8. ✅ `npm run test:smoke` - 11/12 grammars working
 
 **Known Issue:**
+
 - Dart grammar temporarily disabled due to tree-sitter version mismatch
 - tree-sitter-wasms Dart WASM is version 15
 - web-tree-sitter 0.24.7 supports versions 13-14
 - Will be re-enabled when web-tree-sitter updates
 
 **Files Modified:**
+
 - `source/rag/indexer/chunker.ts` - Complete rewrite for web-tree-sitter
 - `source/rag/__tests__/grammar-smoke.test.ts` - Updated for WASM
 - `package.json` - Dependencies updated
@@ -357,16 +373,19 @@ brew install viberag
 **Status:** ✅ Complete
 
 **Completed:**
+
 1. ✅ `bin` field in package.json (viberag, viberag-mcp)
 2. ✅ Shebang in CLI entry point (`#!/usr/bin/env node`)
 3. ✅ `files` field configured (dist, scripts)
 4. ✅ `engines` field set to `>=18.0.0`
 
 **Pending:**
+
 - [ ] Test `npm link` locally
 - [ ] Test `npm pack` and install
 
 **Files:**
+
 - `package.json` ✅
 - `dist/cli/index.js` ✅
 
@@ -375,6 +394,7 @@ brew install viberag
 **Status:** ✅ Complete
 
 **Completed:**
+
 1. ✅ Added `@xenova/transformers` as regular dependency
 2. ✅ Created `LocalEmbeddingProvider` class with jina-v2-code model
 3. ✅ Added 'local' to EmbeddingProviderType
@@ -383,6 +403,7 @@ brew install viberag
 6. ✅ `npm run build` verified
 
 **Files Modified:**
+
 - `source/rag/embeddings/local.ts` (new)
 - `source/rag/embeddings/index.ts`
 - `source/common/types.ts`
@@ -397,6 +418,7 @@ brew install viberag
 **Status:** Not started
 
 **Tasks:**
+
 1. Create `homebrew-viberag` repository
 2. Write Formula
 3. Test installation
@@ -407,29 +429,32 @@ brew install viberag
 **Status:** Partially complete
 
 **Tasks:**
+
 1. Remove Bun compile from release workflow
 2. Add npm publish step
 3. Add Homebrew formula update automation
 
 **Files:**
+
 - `.github/workflows/release.yml`
 
 ---
 
 ## Node.js Version Support
 
-| Node.js | Status | Notes |
-|---------|--------|-------|
-| 18.x | ✅ Supported | Oldest LTS, minimum |
-| 20.x | ✅ Supported | Current LTS |
-| 22.x | ✅ Supported | Latest |
+| Node.js | Status       | Notes               |
+| ------- | ------------ | ------------------- |
+| 18.x    | ✅ Supported | Oldest LTS, minimum |
+| 20.x    | ✅ Supported | Current LTS         |
+| 22.x    | ✅ Supported | Latest              |
 
 **Engines field:**
+
 ```json
 {
-  "engines": {
-    "node": ">=18.0.0"
-  }
+	"engines": {
+		"node": ">=18.0.0"
+	}
 }
 ```
 
@@ -439,11 +464,12 @@ brew install viberag
 
 After web-tree-sitter migration, only ONE native dependency remains:
 
-| Package | Size | Prebuild Coverage |
-|---------|------|-------------------|
-| @lancedb/lancedb | 94MB | Excellent |
+| Package          | Size | Prebuild Coverage |
+| ---------------- | ---- | ----------------- |
+| @lancedb/lancedb | 94MB | Excellent         |
 
 **LanceDB prebuild platforms:**
+
 - ✅ darwin-x64
 - ✅ darwin-arm64
 - ✅ linux-x64-gnu
@@ -457,13 +483,13 @@ After web-tree-sitter migration, only ONE native dependency remains:
 
 ## Success Metrics
 
-| Metric | Target |
-|--------|--------|
-| Installation success rate | >99% |
-| Platform coverage | All Node.js platforms |
-| Language support | 12 languages |
-| npm package size | <20MB (excluding optional deps) |
-| Startup time | <2s |
+| Metric                    | Target                          |
+| ------------------------- | ------------------------------- |
+| Installation success rate | >99%                            |
+| Platform coverage         | All Node.js platforms           |
+| Language support          | 12 languages                    |
+| npm package size          | <20MB (excluding optional deps) |
+| Startup time              | <2s                             |
 
 ---
 
@@ -476,11 +502,11 @@ For users who want local embeddings without bundled ONNX:
 ```typescript
 // Use Ollama's embedding endpoint
 const response = await fetch('http://localhost:11434/api/embed', {
-  method: 'POST',
-  body: JSON.stringify({
-    model: 'nomic-embed-text',
-    input: texts
-  })
+	method: 'POST',
+	body: JSON.stringify({
+		model: 'nomic-embed-text',
+		input: texts,
+	}),
 });
 ```
 
@@ -489,6 +515,7 @@ User manages Ollama separately - no native deps in our codebase.
 ### Standalone Binary (Future)
 
 If Bun fixes NAPI-RS module extraction:
+
 - Monitor [oven-sh/bun#11598](https://github.com/oven-sh/bun/issues/11598)
 - 157MB binaries would be possible
 - Could offer as alternative to npm
@@ -496,6 +523,7 @@ If Bun fixes NAPI-RS module extraction:
 ### Rust Rewrite (Long-term)
 
 For maximum performance and smallest binary:
+
 - tree-sitter has native Rust bindings
 - LanceDB has Rust API
 - Single <30MB binary possible

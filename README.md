@@ -125,6 +125,15 @@ Choose your embedding provider during `/init`:
 - Token consumption comparisons
 - Speed comparisons
 - Number of requests comparisons.
+- Greater understanding of context - find more related files
+
+## TODO: Subagents
+
+- Update the prompt to encourage the use of subagents.
+
+## TODO: Grok Feedback
+
+- Improving prompting with benefits.
 
 ## TODO: Check
 

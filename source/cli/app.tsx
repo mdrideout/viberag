@@ -45,7 +45,10 @@ const {version} = require('../../package.json') as {version: string};
 const COMMANDS: CommandInfo[] = [
 	{command: '/help', description: 'Show available commands'},
 	{command: '/clear', description: 'Clear the screen'},
-	{command: '/terminal-setup', description: 'Configure Shift+Enter for VS Code'},
+	{
+		command: '/terminal-setup',
+		description: 'Configure Shift+Enter for VS Code',
+	},
 	{command: '/init', description: 'Initialize Viberag (provider wizard)'},
 	{command: '/index', description: 'Index the codebase'},
 	{command: '/reindex', description: 'Force full reindex'},

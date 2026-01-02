@@ -28,14 +28,14 @@ export default function CommandSuggestions({
 
 				return (
 					<Box key={suggestion.command}>
-						<Text
-							color={isSelected ? 'cyan' : undefined}
-							inverse={isSelected}
-						>
+						<Text color={isSelected ? 'cyan' : undefined} inverse={isSelected}>
 							{' '}
 							{paddedCmd}
 						</Text>
-						<Text dimColor={!isSelected} color={isSelected ? 'gray' : undefined}>
+						<Text
+							dimColor={!isSelected}
+							color={isSelected ? 'gray' : undefined}
+						>
 							{' '}
 							{suggestion.description}
 						</Text>

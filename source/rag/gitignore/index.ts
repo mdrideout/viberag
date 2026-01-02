@@ -173,8 +173,8 @@ export async function getGlobIgnorePatterns(
  * - `*.log` matches `*.log` anywhere
  *
  * Fast-glob patterns:
- * - Need `**/` prefix to match anywhere
- * - Need `/**` suffix to match directory contents
+ * - Need `**/ ` prefix to match anywhere
+ * - Need `; /**` suffix to match directory contents
  */
 function gitignoreToGlob(pattern: string): string | null {
 	let result = pattern;

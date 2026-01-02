@@ -99,7 +99,8 @@ export type McpEditorId =
 	| 'zed'
 	| 'gemini-cli'
 	| 'codex'
-	| 'jetbrains';
+	| 'jetbrains'
+	| 'opencode';
 
 /**
  * MCP setup result.

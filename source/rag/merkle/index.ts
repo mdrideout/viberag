@@ -122,7 +122,10 @@ export class MerkleTree {
 			}
 
 			// If extensions specified, filter by extension
-			if (extensions.length > 0 && !hasValidExtension(relativePath, extensions)) {
+			if (
+				extensions.length > 0 &&
+				!hasValidExtension(relativePath, extensions)
+			) {
 				return false;
 			}
 

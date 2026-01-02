@@ -74,7 +74,7 @@ const PROJECT_ACTION_ITEMS: SelectItem<'auto' | 'manual' | 'skip'>[] = [
 ];
 
 const GLOBAL_ACTION_ITEMS: SelectItem<'auto' | 'manual' | 'skip'>[] = [
-	{label: 'Auto-merge into config (shows diff first)', value: 'auto'},
+	{label: 'Auto-update config (Recommended)', value: 'auto'},
 	{label: 'Show config to copy manually', value: 'manual'},
 	{label: 'Skip this editor', value: 'skip'},
 ];
@@ -462,23 +462,28 @@ export function McpSetupWizard({
 		// Show gitignore prompt if we have project configs and haven't handled yet
 		if (projectConfigs.length > 0 && !gitignoreHandled) {
 			return (
-				<Box flexDirection="column" borderStyle="round" paddingX={2} paddingY={1}>
+				<Box
+					flexDirection="column"
+					borderStyle="round"
+					paddingX={2}
+					paddingY={1}
+				>
 					<Text bold color="yellow">
 						Add MCP configs to .gitignore?
 					</Text>
 					<Box marginTop={1} flexDirection="column">
-						<Text>
-							These project-local MCP config files were created:
-						</Text>
+						<Text>These project-local MCP config files were created:</Text>
 						{projectConfigs.map(p => (
 							<Text key={p} dimColor>
-								{'  '}{p}
+								{'  '}
+								{p}
 							</Text>
 						))}
 					</Box>
 					<Box marginTop={1}>
 						<Text dimColor>
-							MCP configs are typically machine-specific and should not be committed.
+							MCP configs are typically machine-specific and should not be
+							committed.
 						</Text>
 					</Box>
 					<Box marginTop={1}>
@@ -535,7 +540,10 @@ export function McpSetupWizard({
 				{gitignoreAdded.length > 0 && (
 					<Box marginTop={1}>
 						<Text color="green">✓</Text>
-						<Text dimColor> Added to .gitignore: {gitignoreAdded.join(', ')}</Text>
+						<Text dimColor>
+							{' '}
+							Added to .gitignore: {gitignoreAdded.join(', ')}
+						</Text>
 					</Box>
 				)}
 				{successResults.length > 0 && (

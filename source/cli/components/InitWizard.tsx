@@ -115,9 +115,24 @@ const LOCAL_MODELS_DATA = [
  * Frontier/API models - fastest, best quality.
  */
 const FRONTIER_MODELS_DATA = [
-	{Provider: 'Gemini', Model: 'gemini-embedding-001', Dims: '768', Cost: 'Free tier'},
-	{Provider: 'Mistral', Model: 'codestral-embed', Dims: '1024', Cost: '$0.10/1M'},
-	{Provider: 'OpenAI', Model: 'text-embed-3-small', Dims: '1536', Cost: '$0.02/1M'},
+	{
+		Provider: 'Gemini',
+		Model: 'gemini-embedding-001',
+		Dims: '768',
+		Cost: 'Free tier',
+	},
+	{
+		Provider: 'Mistral',
+		Model: 'codestral-embed',
+		Dims: '1024',
+		Cost: '$0.10/1M',
+	},
+	{
+		Provider: 'OpenAI',
+		Model: 'text-embed-3-small',
+		Dims: '1536',
+		Cost: '$0.02/1M',
+	},
 ];
 
 /**

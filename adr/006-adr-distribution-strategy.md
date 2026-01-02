@@ -14,6 +14,7 @@ VibeRAG is a Code RAG MCP server distributed to developers using various AI codi
 ### The Appeal of Standalone Binaries
 
 Standalone executables offer:
+
 - Zero dependencies for end users
 - Single file to download and run
 - No version conflicts with user's environment
@@ -22,11 +23,11 @@ We extensively researched bundlers that could produce standalone Node.js executa
 
 ### Bundler Research (Dec 2025)
 
-| Bundler | Binary Size | Result | Blocker |
-|---------|-------------|--------|---------|
-| Bun compile | 157MB | Failed | LanceDB NAPI-RS dlopen |
-| Deno compile | 642MB | Works | Impractical binary size |
-| pkg/yao-pkg | N/A | Failed | ESM import.meta not supported |
+| Bundler      | Binary Size | Result | Blocker                       |
+| ------------ | ----------- | ------ | ----------------------------- |
+| Bun compile  | 157MB       | Failed | LanceDB NAPI-RS dlopen        |
+| Deno compile | 642MB       | Works  | Impractical binary size       |
+| pkg/yao-pkg  | N/A         | Failed | ESM import.meta not supported |
 
 #### Bun Compile Deep Dive
 
@@ -43,6 +44,7 @@ We fixed two issues:
 But we hit an insurmountable blocker:
 
 3. **LanceDB NAPI-RS module** (93MB native `.node` file)
+
    ```
    error: dlopen(/$bunfs/root/lancedb.darwin-arm64.node, 0x0001):
      tried: '/$bunfs/root/lancedb.darwin-arm64.node' (no such file)
@@ -60,22 +62,23 @@ Patching LanceDB's NAPI-RS loader to use static platform detection:
 
 ```javascript
 if (process.platform === 'darwin' && process.arch === 'arm64') {
-  module.exports = require('@lancedb/lancedb-darwin-arm64');
+	module.exports = require('@lancedb/lancedb-darwin-arm64');
 }
 ```
 
 **Rejected because:**
+
 - Requires maintaining patches against upstream LanceDB
 - Fragile when LanceDB updates
 - Significant ongoing maintenance burden
 
 ### Industry Precedent
 
-| Tool | Distribution | Runtime Required |
-|------|--------------|------------------|
-| Google Gemini CLI | npm package | Node.js 20+ |
-| OpenAI Codex CLI | npm + standalone | Node.js 18+ (npm) or none (binary) |
-| Claude Code | Bun binary | None (custom renderer, no ink) |
+| Tool              | Distribution     | Runtime Required                   |
+| ----------------- | ---------------- | ---------------------------------- |
+| Google Gemini CLI | npm package      | Node.js 20+                        |
+| OpenAI Codex CLI  | npm + standalone | Node.js 18+ (npm) or none (binary) |
+| Claude Code       | Bun binary       | None (custom renderer, no ink)     |
 
 Note: Claude Code avoids this issue by using a custom terminal renderer instead of ink, eliminating the yoga.wasm and tree-sitter dependencies.
 
@@ -84,6 +87,7 @@ Note: Claude Code avoids this issue by using a custom terminal renderer instead 
 **We will distribute VibeRAG as an npm global package requiring Node.js 18+.**
 
 Additionally, we will migrate from native tree-sitter to web-tree-sitter (WASM) to:
+
 1. Reduce native dependencies from 13 packages to 1 (LanceDB only)
 2. Eliminate platform-specific grammar installation issues
 3. Achieve 100% platform compatibility for parsing
@@ -121,6 +125,7 @@ Additionally, we will migrate from native tree-sitter to web-tree-sitter (WASM) 
 ### Alternative 1: Deno Compile (642MB binaries)
 
 Works correctly but:
+
 - 642MB per platform = 3.2GB total release size
 - Startup time slower than Node.js
 - Less ecosystem alignment
@@ -156,10 +161,11 @@ Replace 12 native tree-sitter grammar packages with `web-tree-sitter` + `tree-si
 ### Phase 2: npm Global Configuration
 
 Configure `package.json` for global installation:
+
 ```json
 {
-  "bin": { "viberag": "./dist/cli/index.js" },
-  "engines": { "node": ">=18.0.0" }
+	"bin": {"viberag": "./dist/cli/index.js"},
+	"engines": {"node": ">=18.0.0"}
 }
 ```
 

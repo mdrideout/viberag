@@ -71,9 +71,7 @@ const RESULT_OVERHEAD_BYTES = 200;
 /**
  * Estimate JSON response size for a set of results.
  */
-function estimateResponseSize(
-	results: SearchResults['results'],
-): number {
+function estimateResponseSize(results: SearchResults['results']): number {
 	const textSize = results.reduce((sum, r) => sum + r.text.length, 0);
 	const overhead = results.length * RESULT_OVERHEAD_BYTES + 500; // Base JSON overhead
 	return textSize + overhead;
@@ -277,7 +275,9 @@ export function createMcpServer(projectRoot: string): McpServerWithWatcher {
 			path_contains: z
 				.array(z.string())
 				.optional()
-				.describe('Path must contain ALL strings - AND logic (e.g., ["services", "user"])'),
+				.describe(
+					'Path must contain ALL strings - AND logic (e.g., ["services", "user"])',
+				),
 			path_not_contains: z
 				.array(z.string())
 				.optional()
@@ -295,12 +295,19 @@ export function createMcpServer(projectRoot: string): McpServerWithWatcher {
 			is_exported: z
 				.boolean()
 				.optional()
-				.describe('Only public/exported symbols (Go: Capitalized, Python: no _ prefix, JS/TS: export)'),
+				.describe(
+					'Only public/exported symbols (Go: Capitalized, Python: no _ prefix, JS/TS: export)',
+				),
 			decorator_contains: z
 				.string()
 				.optional()
-				.describe('Has decorator/attribute containing string (Python: @route, Java: @GetMapping, Rust: #[test])'),
-			has_docstring: z.boolean().optional().describe('Only code with doc comments'),
+				.describe(
+					'Has decorator/attribute containing string (Python: @route, Java: @GetMapping, Rust: #[test])',
+				),
+			has_docstring: z
+				.boolean()
+				.optional()
+				.describe('Only code with doc comments'),
 		})
 		.optional();
 
@@ -465,7 +472,8 @@ Production code: { path_not_contains: ["test", "mock", "fixture"], is_exported: 
 			try {
 				// Determine if debug info should be returned
 				const returnDebug =
-					args.return_debug ?? (args.mode === 'hybrid' || args.mode === undefined);
+					args.return_debug ??
+					(args.mode === 'hybrid' || args.mode === undefined);
 
 				const results = await engine.search(args.query, {
 					mode: args.mode,
@@ -613,10 +621,7 @@ EXAMPLE STRATEGIES:
 							.max(1)
 							.optional()
 							.describe('BM25 weight for hybrid mode'),
-						auto_boost: z
-							.boolean()
-							.optional()
-							.describe('Enable auto-boost'),
+						auto_boost: z.boolean().optional().describe('Enable auto-boost'),
 						limit: z
 							.number()
 							.min(1)
@@ -820,10 +825,11 @@ EXAMPLE STRATEGIES:
 					}
 
 					// Calculate overlap statistics
-					const uniqueToSearch = args.searches.map((_, i) =>
-						allResults.filter(
-							r => r.sources.length === 1 && r.sources[0] === i,
-						).length,
+					const uniqueToSearch = args.searches.map(
+						(_, i) =>
+							allResults.filter(
+								r => r.sources.length === 1 && r.sources[0] === i,
+							).length,
 					);
 					const overlapping = allResults.filter(
 						r => r.sources.length > 1,

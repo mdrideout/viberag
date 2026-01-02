@@ -362,9 +362,7 @@ export class Indexer {
 	/**
 	 * Initialize all components.
 	 */
-	private async initialize(
-		progressCallback?: ProgressCallback,
-	): Promise<void> {
+	private async initialize(progressCallback?: ProgressCallback): Promise<void> {
 		// Load config
 		this.config = await loadConfig(this.projectRoot);
 		const providerName = this.getProviderDisplayName(
@@ -390,7 +388,9 @@ export class Indexer {
 		progressCallback?.(
 			0,
 			0,
-			isLocal ? `Loading ${providerName} model` : `Connecting to ${providerName}`,
+			isLocal
+				? `Loading ${providerName} model`
+				: `Connecting to ${providerName}`,
 		);
 		this.embeddings = this.createEmbeddingProvider(this.config);
 

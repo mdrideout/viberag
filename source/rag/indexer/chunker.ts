@@ -425,7 +425,14 @@ export class Chunker {
 		for (let i = 0; i < node.childCount; i++) {
 			const child = node.child(i);
 			if (child) {
-				this.traverseNode(child, lang, lines, chunks, filepath, parentClassName);
+				this.traverseNode(
+					child,
+					lang,
+					lines,
+					chunks,
+					filepath,
+					parentClassName,
+				);
 			}
 		}
 	}
@@ -996,7 +1003,8 @@ export class Chunker {
 						const child = sibling.child(i);
 						if (
 							child &&
-							(child.type === 'annotation' || child.type === 'marker_annotation')
+							(child.type === 'annotation' ||
+								child.type === 'marker_annotation')
 						) {
 							const nameNode = this.findChildOfType(child, ['identifier']);
 							if (nameNode) {
@@ -1212,7 +1220,10 @@ export class Chunker {
 	/**
 	 * Extract the name of a function/class/method from its node.
 	 */
-	private extractName(node: Parser.SyntaxNode, _lang: SupportedLanguage): string {
+	private extractName(
+		node: Parser.SyntaxNode,
+		_lang: SupportedLanguage,
+	): string {
 		// Try to get name via field first (works for many languages)
 		const nameField = node.childForFieldName('name');
 		if (nameField) {
@@ -1541,10 +1552,7 @@ export class Chunker {
 					const overlapStart = currentLines.length - overlapLines;
 					currentLines = currentLines.slice(overlapStart);
 					currentStartLine = chunkEndLine - overlapLines + 1;
-					currentSize = currentLines.reduce(
-						(sum, l) => sum + l.length + 1,
-						0,
-					);
+					currentSize = currentLines.reduce((sum, l) => sum + l.length + 1, 0);
 				} else {
 					// No overlap or previous chunk too small
 					currentLines = [];

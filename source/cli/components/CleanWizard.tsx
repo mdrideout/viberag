@@ -153,13 +153,17 @@ export function CleanWizard({
 				{globalScopeEditors.length > 0 && (
 					<Box marginTop={1}>
 						<Text color="blue">
-							Note: Global MCP configs ({globalScopeEditors.map(e => e.name).join(', ')})
-							{'\n'}will NOT be modified. Remove manually if needed.
+							Note: Global MCP configs (
+							{globalScopeEditors.map(e => e.name).join(', ')}){'\n'}will NOT be
+							modified. Remove manually if needed.
 						</Text>
 					</Box>
 				)}
 				<Box marginTop={1}>
-					<SelectInput items={CONFIRM_ITEMS} onSelect={item => handleConfirm(item.value)} />
+					<SelectInput
+						items={CONFIRM_ITEMS}
+						onSelect={item => handleConfirm(item.value)}
+					/>
 				</Box>
 				<Text dimColor>↑/↓ navigate, Enter select, Esc cancel</Text>
 			</Box>
