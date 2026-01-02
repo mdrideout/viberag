@@ -1,6 +1,8 @@
-# VibeRAG
+![VibeRAG Banner](viberag-banner-opt.png)
 
-Local code RAG (Retrieval-Augmented Generation) for AI coding assistants. Index your codebase once, search semantically from any AI tool.
+# VIBERAG
+
+An MCP server for local codebase semantic, keyword, and hybrid search. Automatic codebase indexing and search for AI coding assistants.
 
 ## Features
 
