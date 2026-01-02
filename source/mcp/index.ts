@@ -16,7 +16,8 @@ import {configExists, Indexer} from '../rag/index.js';
 // Use current working directory as project root (same behavior as CLI)
 const projectRoot = process.cwd();
 
-const {server, startWatcher, stopWatcher} = createMcpServer(projectRoot);
+const {server, startWatcher, stopWatcher, startWarmup} =
+	createMcpServer(projectRoot);
 
 // Handle shutdown signals
 async function shutdown(signal: string): Promise<void> {
@@ -33,11 +34,25 @@ server.start({
 	transportType: 'stdio',
 });
 
-// Start watcher and sync index after server is running
+// Start warmup, watcher, and sync index after server is running
 // Use setImmediate to ensure server.start() completes first
 setImmediate(async () => {
+	// Start warmup FIRST (most important for tool responsiveness)
+	// This runs in background - tools will wait for it to complete
 	try {
-		// Start watcher first (will queue any changes during sync)
+		if (await configExists(projectRoot)) {
+			startWarmup();
+			console.error('[viberag-mcp] Warmup started');
+		}
+	} catch (error) {
+		console.error(
+			'[viberag-mcp] Failed to start warmup:',
+			error instanceof Error ? error.message : error,
+		);
+	}
+
+	// Start watcher (will queue any changes during sync)
+	try {
 		await startWatcher();
 	} catch (error) {
 		// Watcher errors shouldn't crash the server

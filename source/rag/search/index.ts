@@ -447,6 +447,15 @@ export class SearchEngine {
 	}
 
 	/**
+	 * Pre-initialize the search engine.
+	 * Call this to eagerly load embedding models before search calls.
+	 * For local models, this may take 30+ seconds on first run.
+	 */
+	async warmup(): Promise<void> {
+		await this.ensureInitialized();
+	}
+
+	/**
 	 * Initialize the search engine.
 	 */
 	private async ensureInitialized(): Promise<void> {
@@ -486,7 +495,9 @@ export class SearchEngine {
 			case 'openai':
 				return new OpenAIEmbeddingProvider(apiKey);
 			default:
-				throw new Error(`Unknown embedding provider: ${config.embeddingProvider}`);
+				throw new Error(
+					`Unknown embedding provider: ${config.embeddingProvider}`,
+				);
 		}
 	}
 

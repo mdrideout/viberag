@@ -11,7 +11,6 @@ import {createRequire} from 'node:module';
 import {FastMCP} from 'fastmcp';
 import {z} from 'zod';
 import {
-	SearchEngine,
 	Indexer,
 	configExists,
 	loadManifest,
@@ -25,6 +24,7 @@ import {
 	type SearchFilters,
 } from '../rag/index.js';
 import {FileWatcher} from './watcher.js';
+import {WarmupManager} from './warmup.js';
 
 const require = createRequire(import.meta.url);
 const pkg = require('../../package.json') as {
@@ -244,19 +244,22 @@ function formatIndexStats(stats: IndexStats): string {
 }
 
 /**
- * MCP server with file watcher.
+ * MCP server with file watcher and warmup manager.
  */
 export interface McpServerWithWatcher {
 	server: FastMCP;
 	watcher: FileWatcher;
+	warmupManager: WarmupManager;
 	/** Start the watcher (call after server.start) */
 	startWatcher: () => Promise<void>;
 	/** Stop the watcher (call before exit) */
 	stopWatcher: () => Promise<void>;
+	/** Start warmup (call after server.start) */
+	startWarmup: () => void;
 }
 
 /**
- * Create and configure the MCP server with file watcher.
+ * Create and configure the MCP server with file watcher and warmup manager.
  */
 export function createMcpServer(projectRoot: string): McpServerWithWatcher {
 	const server = new FastMCP({
@@ -266,6 +269,9 @@ export function createMcpServer(projectRoot: string): McpServerWithWatcher {
 
 	// Create file watcher
 	const watcher = new FileWatcher(projectRoot);
+
+	// Create warmup manager for shared SearchEngine
+	const warmupManager = new WarmupManager(projectRoot);
 
 	// Filters schema for transparent, AI-controlled filtering
 	const filtersSchema = z
@@ -387,6 +393,7 @@ RESULT INTERPRETATION:
 
 FILTERS (transparent, you control what's excluded):
 Path filters:
+- recommendation: use sparingly - only exclude what you absolutely do not want included.
 - path_prefix: Scope to directory (e.g., "src/api/")
 - path_contains: Path must contain ALL strings (AND logic)
 - path_not_contains: Exclude if path contains ANY string (OR logic)
@@ -504,34 +511,30 @@ Production code: { path_not_contains: ["test", "mock", "fixture"], is_exported: 
 					}
 				: undefined;
 
-			const engine = new SearchEngine(projectRoot);
-			try {
-				// Determine if debug info should be returned
-				const returnDebug =
-					args.return_debug ??
-					(args.mode === 'hybrid' || args.mode === undefined);
+			// Get shared search engine from warmup manager (waits for warmup if needed)
+			const engine = await warmupManager.getSearchEngine();
 
-				const results = await engine.search(args.query, {
-					mode: args.mode,
-					limit: args.limit,
-					exhaustive: args.exhaustive,
-					minScore: args.min_score,
-					filters,
-					codeSnippet: args.code_snippet,
-					symbolName: args.symbol_name,
-					bm25Weight: args.bm25_weight,
-					autoBoost: args.auto_boost,
-					autoBoostThreshold: args.auto_boost_threshold,
-					returnDebug,
-				});
-				return formatSearchResults(
-					results,
-					returnDebug,
-					args.max_response_size,
-				);
-			} finally {
-				engine.close();
-			}
+			// Determine if debug info should be returned
+			const returnDebug =
+				args.return_debug ??
+				(args.mode === 'hybrid' || args.mode === undefined);
+
+			const results = await engine.search(args.query, {
+				mode: args.mode,
+				limit: args.limit,
+				exhaustive: args.exhaustive,
+				minScore: args.min_score,
+				filters,
+				codeSnippet: args.code_snippet,
+				symbolName: args.symbol_name,
+				bm25Weight: args.bm25_weight,
+				autoBoost: args.auto_boost,
+				autoBoostThreshold: args.auto_boost_threshold,
+				returnDebug,
+			});
+
+			// Don't close engine - it's shared across calls
+			return formatSearchResults(results, returnDebug, args.max_response_size);
 		},
 	});
 
@@ -628,6 +631,17 @@ Production code: { path_not_contains: ["test", "mock", "fixture"], is_exported: 
 					`Run viberag_index with force=true to reindex and enable new features.`;
 			}
 
+			// Add warmup state
+			const warmupState = warmupManager.getState();
+			response['warmup'] = {
+				status: warmupState.status,
+				provider: warmupState.provider,
+				startedAt: warmupState.startedAt,
+				readyAt: warmupState.readyAt,
+				elapsedMs: warmupState.elapsedMs,
+				error: warmupState.error,
+			};
+
 			return JSON.stringify(response);
 		},
 	});
@@ -715,6 +729,7 @@ RESULT INTERPRETATION:
 
 FILTERS (transparent, you control what's excluded):
 Path filters:
+- recommendation: use sparingly - only exclude what you absolutely do not want included.
 - path_prefix: Scope to directory (e.g., "src/api/")
 - path_contains: Path must contain ALL strings (AND logic)
 - path_not_contains: Exclude if path contains ANY string (OR logic)
@@ -791,196 +806,193 @@ Metadata filters:
 		execute: async args => {
 			await ensureInitialized(projectRoot);
 
-			const engine = new SearchEngine(projectRoot);
-			try {
-				// Run all searches in parallel
-				const searchPromises = args.searches.map(async (config, index) => {
-					const filters: SearchFilters | undefined = config.filters
-						? {
-								pathPrefix: config.filters.path_prefix,
-								pathContains: config.filters.path_contains,
-								pathNotContains: config.filters.path_not_contains,
-								type: config.filters.type,
-								extension: config.filters.extension,
-								isExported: config.filters.is_exported,
-								decoratorContains: config.filters.decorator_contains,
-								hasDocstring: config.filters.has_docstring,
-							}
-						: undefined;
+			// Get shared search engine from warmup manager (waits for warmup if needed)
+			const engine = await warmupManager.getSearchEngine();
 
-					const results = await engine.search(config.query, {
-						mode: config.mode,
-						limit: config.limit,
-						filters,
-						bm25Weight: config.bm25_weight,
-						autoBoost: config.auto_boost,
-						returnDebug: true,
-					});
+			// Run all searches in parallel
+			const searchPromises = args.searches.map(async (config, index) => {
+				const filters: SearchFilters | undefined = config.filters
+					? {
+							pathPrefix: config.filters.path_prefix,
+							pathContains: config.filters.path_contains,
+							pathNotContains: config.filters.path_not_contains,
+							type: config.filters.type,
+							extension: config.filters.extension,
+							isExported: config.filters.is_exported,
+							decoratorContains: config.filters.decorator_contains,
+							hasDocstring: config.filters.has_docstring,
+						}
+					: undefined;
 
-					return {
-						index,
-						config: {
-							query: config.query,
-							mode: config.mode ?? 'hybrid',
-							bm25Weight: config.bm25_weight,
-						},
-						results,
-					};
+				const results = await engine.search(config.query, {
+					mode: config.mode,
+					limit: config.limit,
+					filters,
+					bm25Weight: config.bm25_weight,
+					autoBoost: config.auto_boost,
+					returnDebug: true,
 				});
 
-				const searchResults = await Promise.all(searchPromises);
+				return {
+					index,
+					config: {
+						query: config.query,
+						mode: config.mode ?? 'hybrid',
+						bm25Weight: config.bm25_weight,
+					},
+					results,
+				};
+			});
 
-				// Build individual results
-				const individual = searchResults.map(sr => ({
-					searchIndex: sr.index,
-					config: sr.config,
-					resultCount: sr.results.results.length,
-					results: sr.results.results.map(r => ({
-						id: r.id,
-						type: r.type,
-						name: r.name || '(anonymous)',
-						filepath: r.filepath,
-						startLine: r.startLine,
-						endLine: r.endLine,
-						score: Number(r.score.toFixed(4)),
-					})),
-					debug: sr.results.debug,
-				}));
+			const searchResults = await Promise.all(searchPromises);
 
-				// Build merged results if requested
-				let merged: Record<string, unknown> | undefined;
+			// Build individual results
+			const individual = searchResults.map(sr => ({
+				searchIndex: sr.index,
+				config: sr.config,
+				resultCount: sr.results.results.length,
+				results: sr.results.results.map(r => ({
+					id: r.id,
+					type: r.type,
+					name: r.name || '(anonymous)',
+					filepath: r.filepath,
+					startLine: r.startLine,
+					endLine: r.endLine,
+					score: Number(r.score.toFixed(4)),
+				})),
+				debug: sr.results.debug,
+			}));
 
-				if (args.merge_results) {
-					// Collect all results with their sources
-					const allResults: Array<{
+			// Build merged results if requested
+			let merged: Record<string, unknown> | undefined;
+
+			if (args.merge_results) {
+				// Collect all results with their sources
+				const allResults: Array<{
+					result: (typeof searchResults)[0]['results']['results'][0];
+					sources: number[];
+					ranks: number[];
+				}> = [];
+
+				// Group results by ID
+				const resultMap = new Map<
+					string,
+					{
 						result: (typeof searchResults)[0]['results']['results'][0];
 						sources: number[];
 						ranks: number[];
-					}> = [];
+					}
+				>();
 
-					// Group results by ID
-					const resultMap = new Map<
-						string,
-						{
-							result: (typeof searchResults)[0]['results']['results'][0];
-							sources: number[];
-							ranks: number[];
+				for (const sr of searchResults) {
+					sr.results.results.forEach((result, rank) => {
+						const existing = resultMap.get(result.id);
+						if (existing) {
+							existing.sources.push(sr.index);
+							existing.ranks.push(rank);
+							// Keep highest score
+							if (result.score > existing.result.score) {
+								existing.result = result;
+							}
+						} else {
+							resultMap.set(result.id, {
+								result,
+								sources: [sr.index],
+								ranks: [rank],
+							});
 						}
-					>();
-
-					for (const sr of searchResults) {
-						sr.results.results.forEach((result, rank) => {
-							const existing = resultMap.get(result.id);
-							if (existing) {
-								existing.sources.push(sr.index);
-								existing.ranks.push(rank);
-								// Keep highest score
-								if (result.score > existing.result.score) {
-									existing.result = result;
-								}
-							} else {
-								resultMap.set(result.id, {
-									result,
-									sources: [sr.index],
-									ranks: [rank],
-								});
-							}
-						});
-					}
-
-					// Convert to array for sorting
-					for (const [, value] of resultMap) {
-						allResults.push(value);
-					}
-
-					// Sort by merge strategy
-					if (args.merge_strategy === 'rrf') {
-						// RRF: Sum of 1/(rank+k) across all sources
-						const k = 60; // RRF constant
-						allResults.sort((a, b) => {
-							const rrfA = a.ranks.reduce((sum, r) => sum + 1 / (r + k), 0);
-							const rrfB = b.ranks.reduce((sum, r) => sum + 1 / (r + k), 0);
-							return rrfB - rrfA; // Higher RRF score first
-						});
-					} else {
-						// Dedupe: Sort by score, then by number of sources
-						allResults.sort((a, b) => {
-							if (b.sources.length !== a.sources.length) {
-								return b.sources.length - a.sources.length;
-							}
-							return b.result.score - a.result.score;
-						});
-					}
-
-					// Take top merged_limit results
-					let mergedResults = allResults
-						.slice(0, args.merged_limit)
-						.map(item => ({
-							id: item.result.id,
-							type: item.result.type,
-							name: item.result.name || '(anonymous)',
-							filepath: item.result.filepath,
-							startLine: item.result.startLine,
-							endLine: item.result.endLine,
-							score: Number(item.result.score.toFixed(4)),
-							sources: item.sources,
-							text: item.result.text,
-						}));
-
-					// Apply size capping to merged results
-					const cappedMerged = capResultsToSize(
-						mergedResults.map(r => ({
-							...r,
-							id: r.id,
-							filename: '',
-							vectorScore: undefined,
-							ftsScore: undefined,
-							signature: undefined,
-							isExported: undefined,
-						})),
-						args.max_response_size,
-					);
-
-					// Reduce to capped length if needed
-					if (cappedMerged.length < mergedResults.length) {
-						mergedResults = mergedResults.slice(0, cappedMerged.length);
-					}
-
-					// Calculate overlap statistics
-					const uniqueToSearch = args.searches.map(
-						(_, i) =>
-							allResults.filter(
-								r => r.sources.length === 1 && r.sources[0] === i,
-							).length,
-					);
-					const overlapping = allResults.filter(
-						r => r.sources.length > 1,
-					).length;
-
-					merged = {
-						strategy: args.merge_strategy,
-						totalUnique: allResults.length,
-						resultCount: mergedResults.length,
-						overlap: overlapping,
-						uniquePerSearch: uniqueToSearch,
-						results: mergedResults,
-					};
+					});
 				}
 
-				return JSON.stringify({
-					searchCount: args.searches.length,
-					individual,
-					merged,
-				});
-			} finally {
-				engine.close();
+				// Convert to array for sorting
+				for (const [, value] of resultMap) {
+					allResults.push(value);
+				}
+
+				// Sort by merge strategy
+				if (args.merge_strategy === 'rrf') {
+					// RRF: Sum of 1/(rank+k) across all sources
+					const k = 60; // RRF constant
+					allResults.sort((a, b) => {
+						const rrfA = a.ranks.reduce((sum, r) => sum + 1 / (r + k), 0);
+						const rrfB = b.ranks.reduce((sum, r) => sum + 1 / (r + k), 0);
+						return rrfB - rrfA; // Higher RRF score first
+					});
+				} else {
+					// Dedupe: Sort by score, then by number of sources
+					allResults.sort((a, b) => {
+						if (b.sources.length !== a.sources.length) {
+							return b.sources.length - a.sources.length;
+						}
+						return b.result.score - a.result.score;
+					});
+				}
+
+				// Take top merged_limit results
+				let mergedResults = allResults
+					.slice(0, args.merged_limit)
+					.map(item => ({
+						id: item.result.id,
+						type: item.result.type,
+						name: item.result.name || '(anonymous)',
+						filepath: item.result.filepath,
+						startLine: item.result.startLine,
+						endLine: item.result.endLine,
+						score: Number(item.result.score.toFixed(4)),
+						sources: item.sources,
+						text: item.result.text,
+					}));
+
+				// Apply size capping to merged results
+				const cappedMerged = capResultsToSize(
+					mergedResults.map(r => ({
+						...r,
+						id: r.id,
+						filename: '',
+						vectorScore: undefined,
+						ftsScore: undefined,
+						signature: undefined,
+						isExported: undefined,
+					})),
+					args.max_response_size,
+				);
+
+				// Reduce to capped length if needed
+				if (cappedMerged.length < mergedResults.length) {
+					mergedResults = mergedResults.slice(0, cappedMerged.length);
+				}
+
+				// Calculate overlap statistics
+				const uniqueToSearch = args.searches.map(
+					(_, i) =>
+						allResults.filter(r => r.sources.length === 1 && r.sources[0] === i)
+							.length,
+				);
+				const overlapping = allResults.filter(r => r.sources.length > 1).length;
+
+				merged = {
+					strategy: args.merge_strategy,
+					totalUnique: allResults.length,
+					resultCount: mergedResults.length,
+					overlap: overlapping,
+					uniquePerSearch: uniqueToSearch,
+					results: mergedResults,
+				};
 			}
+
+			// Don't close engine - it's shared across calls
+			return JSON.stringify({
+				searchCount: args.searches.length,
+				individual,
+				merged,
+			});
 		},
 	});
 
 	return {
 		server,
 		watcher,
+		warmupManager,
 		startWatcher: async () => {
 			// Only start watcher if project is initialized
 			if (await configExists(projectRoot)) {
@@ -989,6 +1001,18 @@ Metadata filters:
 		},
 		stopWatcher: async () => {
 			await watcher.stop();
+			warmupManager.close();
+		},
+		startWarmup: () => {
+			warmupManager.startWarmup({
+				onProgress: state => {
+					if (state.status === 'ready') {
+						console.error(
+							`[viberag-mcp] Warmup complete (${state.elapsedMs}ms)`,
+						);
+					}
+				},
+			});
 		},
 	};
 }
