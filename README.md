@@ -7,7 +7,7 @@
 Viberag is fully local, offline capable MCP server for local codebase search.
 
 - Semantic codebase search
-- Keyboard codebase search
+- Keyword codebase search (BM25)
 - Hybrid codebase search (with tunable parameters)
 
 VibeRAG automatically indexes your codebase into a local container-free vector database ([lancedb](https://lancedb.com/)). Every time you make a change, the indexes are automatically updated.
