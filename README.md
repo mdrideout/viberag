@@ -2,7 +2,7 @@
 
 # VIBERAG
 
-An MCP server for local codebase semantic, keyword, and hybrid search. Automatic codebase indexing and search for AI coding assistants.
+An MCP server for local codebase semantic, keyword, and hybrid search. Automatic codebase indexing and mcp search tools for AI coding assistants.
 
 ## Features
 
