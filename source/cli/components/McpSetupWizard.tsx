@@ -114,7 +114,7 @@ function MultiSelect({
 			if (item && !disabledItems?.has(item.id)) {
 				onToggle(item.id);
 			}
-		} else if (key.return) {
+		} else if (key.return && selected.size > 0) {
 			onSubmit();
 		}
 	});
@@ -218,13 +218,9 @@ export function McpSetupWizard({
 
 	// Submit selection
 	const handleSubmitSelection = useCallback(() => {
-		if (selected.size === 0) {
-			onCancel();
-			return;
-		}
 		onStepChange('configure', {selectedEditors: Array.from(selected)});
 		setCurrentEditorIndex(0);
-	}, [selected, onStepChange, onCancel]);
+	}, [selected, onStepChange]);
 
 	// Get current editor being configured
 	const selectedEditorIds = config.selectedEditors ?? [];
@@ -373,8 +369,8 @@ export function McpSetupWizard({
 				</Box>
 				<Box marginTop={1}>
 					<Text dimColor>
-						{selected.size} selected | ↑/↓ move, Space toggle, Enter confirm,
-						Esc cancel
+						{selected.size} selected | ↑/↓ move, Space toggle,{' '}
+						{selected.size > 0 ? 'Enter confirm, ' : ''}Esc cancel
 					</Text>
 				</Box>
 			</Box>
