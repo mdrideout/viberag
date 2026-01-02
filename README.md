@@ -44,6 +44,7 @@ VibeRAG includes an MCP server that integrates with AI coding tools. Run `/mcp-s
 | **Roo Code**        | `.roo/mcp.json`                                   | Auto                                                |
 | **Windsurf**        | `~/.codeium/windsurf/mcp_config.json`             | Manual merge                                        |
 | **Zed**             | `~/Library/Application Support/Zed/settings.json` | Manual merge                                        |
+| **OpenCode**        | `~/.config/opencode/opencode.json`                | Manual merge                                        |
 | **Gemini CLI**      | `~/.gemini/settings.json`                         | `gemini mcp add viberag -- npx viberag-mcp`         |
 | **OpenAI Codex**    | `~/.codex/config.toml`                            | `codex mcp add viberag -- npx viberag-mcp`          |
 | **JetBrains IDEs**  | Settings UI                                       | Manual in Settings → AI Assistant → MCP             |
@@ -86,9 +87,9 @@ Choose your embedding provider during `/init`:
 
 ### Local Model - Offline, Free
 
-| Model      | Quant | Download | RAM    |
-| ---------- | ----- | -------- | ------ |
-| Qwen3-0.6B | Q8    | ~700MB   | ~10GB  |
+| Model      | Quant | Download | RAM   |
+| ---------- | ----- | -------- | ----- |
+| Qwen3-0.6B | Q8    | ~700MB   | ~10GB |
 
 - Works completely offline, no API key required
 - Initial indexing may take time; future updates are incremental
@@ -112,7 +113,6 @@ Choose your embedding provider during `/init`:
 3. **Storage** - Vectors stored in LanceDB (local, no server required)
 4. **Search** - Hybrid search combines vector similarity + full-text search
 5. **MCP** - AI tools query the index via the MCP protocol
-
 
 ## TODO: Benefits
 

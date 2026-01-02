@@ -19,7 +19,8 @@ export type EditorId =
 	| 'zed'
 	| 'gemini-cli'
 	| 'codex'
-	| 'jetbrains';
+	| 'jetbrains'
+	| 'opencode';
 
 /**
  * Configuration for an editor/agent's MCP setup.
@@ -137,8 +138,7 @@ export const EDITORS: EditorConfig[] = [
 		docsUrl: 'https://docs.windsurf.com/windsurf/cascade/mcp',
 		jsonKey: 'mcpServers',
 		description: 'global config',
-		restartInstructions:
-			'Click refresh in Cascade Plugins panel, then restart',
+		restartInstructions: 'Click refresh in Cascade Plugins panel, then restart',
 		verificationSteps: [
 			'Click Plugins icon in Cascade panel',
 			'Verify "viberag" shows in plugin list',
@@ -210,6 +210,23 @@ export const EDITORS: EditorConfig[] = [
 		verificationSteps: [
 			'Settings → Tools → AI Assistant → MCP',
 			'Verify "viberag" shows green in Status column',
+		],
+	},
+	{
+		id: 'opencode',
+		name: 'OpenCode',
+		configPath: '~/.config/opencode/opencode.json',
+		configFormat: 'json',
+		scope: 'global',
+		canAutoCreate: false,
+		cliCommand: null,
+		docsUrl: 'https://opencode.ai/docs/mcp-servers/',
+		jsonKey: 'mcp',
+		description: 'global config',
+		restartInstructions: 'Restart OpenCode session',
+		verificationSteps: [
+			'Check MCP servers list in OpenCode',
+			'Verify "viberag" appears and is enabled',
 		],
 	},
 ];
@@ -301,4 +318,17 @@ export function getWindsurfConfigPath(): string {
 		return path.join(os.homedir(), '.codeium/windsurf/mcp_config.json');
 	}
 	return path.join(os.homedir(), '.codeium/windsurf/mcp_config.json');
+}
+
+/**
+ * Get OpenCode config path based on platform.
+ */
+export function getOpenCodeConfigPath(): string {
+	const platform = process.platform;
+	if (platform === 'win32') {
+		// Windows uses APPDATA for config
+		return path.join(os.homedir(), 'AppData/Roaming/opencode/opencode.json');
+	}
+	// macOS, Linux, etc. use ~/.config/opencode/
+	return path.join(os.homedir(), '.config/opencode/opencode.json');
 }

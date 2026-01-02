@@ -14,6 +14,7 @@ import {
 	getConfigPath,
 	getZedSettingsPath,
 	getWindsurfConfigPath,
+	getOpenCodeConfigPath,
 } from '../data/mcp-editors.js';
 
 /**
@@ -38,10 +39,24 @@ export function generateViberagConfig(): object {
 }
 
 /**
+ * Generate OpenCode-specific viberag MCP server configuration.
+ * OpenCode requires: type="local", command as array, no args key.
+ */
+export function generateOpenCodeViberagConfig(): object {
+	return {
+		type: 'local',
+		command: ['npx', '-y', 'viberag-mcp'],
+	};
+}
+
+/**
  * Generate complete MCP config for an editor.
  */
 export function generateMcpConfig(editor: EditorConfig): object {
-	const viberagConfig = generateViberagConfig();
+	const viberagConfig =
+		editor.id === 'opencode'
+			? generateOpenCodeViberagConfig()
+			: generateViberagConfig();
 
 	// Use the editor's specific key
 	return {
@@ -91,7 +106,10 @@ export async function readJsonConfig(
  * Merge viberag config into existing config.
  */
 export function mergeConfig(existing: object, editor: EditorConfig): object {
-	const viberagConfig = generateViberagConfig();
+	const viberagConfig =
+		editor.id === 'opencode'
+			? generateOpenCodeViberagConfig()
+			: generateViberagConfig();
 	const jsonKey = editor.jsonKey;
 
 	// Get or create the servers object
@@ -134,6 +152,8 @@ export async function writeMcpConfig(
 			configPath = getZedSettingsPath();
 		} else if (editor.id === 'windsurf') {
 			configPath = getWindsurfConfigPath();
+		} else if (editor.id === 'opencode') {
+			configPath = getOpenCodeConfigPath();
 		} else {
 			const path = getConfigPath(editor, projectRoot);
 			if (!path) {
@@ -226,10 +246,15 @@ export function getManualInstructions(
 		lines.push(`  ${editor.cliCommand}`);
 		lines.push('');
 	} else if (editor.configFormat === 'json') {
-		const configPath =
-			editor.scope === 'project'
-				? editor.configPath
-				: (getConfigPath(editor, projectRoot) ?? editor.configPath);
+		let configPath: string;
+		if (editor.id === 'opencode') {
+			configPath = getOpenCodeConfigPath();
+		} else if (editor.scope === 'project') {
+			configPath = editor.configPath!;
+		} else {
+			const resolvedPath = getConfigPath(editor, projectRoot);
+			configPath = resolvedPath ?? editor.configPath!;
+		}
 
 		lines.push(`Add to ${configPath}:`);
 		lines.push('');
@@ -292,6 +317,8 @@ export async function getMergeDiff(
 			configPath = getZedSettingsPath();
 		} else if (editor.id === 'windsurf') {
 			configPath = getWindsurfConfigPath();
+		} else if (editor.id === 'opencode') {
+			configPath = getOpenCodeConfigPath();
 		} else {
 			const path = getConfigPath(editor, projectRoot);
 			if (!path) return null;
@@ -335,6 +362,8 @@ export async function isAlreadyConfigured(
 			configPath = getZedSettingsPath();
 		} else if (editor.id === 'windsurf') {
 			configPath = getWindsurfConfigPath();
+		} else if (editor.id === 'opencode') {
+			configPath = getOpenCodeConfigPath();
 		} else {
 			const path = getConfigPath(editor, projectRoot);
 			if (!path) return false;
@@ -373,7 +402,11 @@ export function removeViberagFromConfig(
 	}
 
 	// Remove viberag from servers
-	const {viberag: _, ...remainingServers} = servers as Record<string, unknown>;
+	const remainingServers = Object.fromEntries(
+		Object.entries(servers as Record<string, unknown>).filter(
+			([key]) => key !== 'viberag',
+		),
+	);
 
 	return {
 		...existing,
@@ -407,6 +440,8 @@ export async function removeViberagConfig(
 			configPath = getZedSettingsPath();
 		} else if (editor.id === 'windsurf') {
 			configPath = getWindsurfConfigPath();
+		} else if (editor.id === 'opencode') {
+			configPath = getOpenCodeConfigPath();
 		} else {
 			const p = getConfigPath(editor, projectRoot);
 			if (!p) {
@@ -526,9 +561,10 @@ export async function addToGitignore(
 		}
 
 		// Add entry with a comment
-		const addition = content.endsWith('\n') || content === ''
-			? `# MCP config (local, not committed)\n${entry}\n`
-			: `\n# MCP config (local, not committed)\n${entry}\n`;
+		const addition =
+			content.endsWith('\n') || content === ''
+				? `# MCP config (local, not committed)\n${entry}\n`
+				: `\n# MCP config (local, not committed)\n${entry}\n`;
 
 		await fs.appendFile(gitignorePath, addition);
 		return true;
@@ -555,10 +591,12 @@ export function getProjectConfigPaths(results: McpSetupResult[]): string[] {
 			if (!configPath.startsWith('/') && !configPath.startsWith('~')) {
 				// It's a relative path, so project-scope
 				paths.push(configPath);
-			} else if (configPath.includes('.mcp.json') ||
+			} else if (
+				configPath.includes('.mcp.json') ||
 				configPath.includes('.cursor/') ||
 				configPath.includes('.vscode/') ||
-				configPath.includes('.roo/')) {
+				configPath.includes('.roo/')
+			) {
 				// Extract relative path from absolute path
 				const projectDir = process.cwd();
 				if (configPath.startsWith(projectDir)) {
