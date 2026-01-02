@@ -72,16 +72,11 @@ Semantic search is especially useful in monorepos, where you may be trying to un
 
 - SOTA API based embeddings from [Gemini](https://ai.google.dev/gemini-api/docs/embeddings), [OpenAI](https://platform.openai.com/docs/guides/embeddings), and [Mistral](https://docs.mistral.ai/capabilities/embeddings) are also supported.
 
-## MCP Server Setup
+## MCP Server
 
 VibeRAG includes an MCP server that integrates with AI coding tools.
 
-### Exposed MCP Tools
-
-- `codebase_search` - Semantic search for code
-- `codebase_parallel_search` - Run multiple search strategies in parallel
-
-### Setup Wizard
+### IDE / Agent Setup Wizard
 
 Run `/mcp-setup` in the VibeRAG CLI for interactive setup. This wizard will attempt to automatically configure your coding agents / editors with viberags MCP server settings.
 
@@ -374,7 +369,113 @@ args = ["viberag-mcp"]
 
 </details>
 
+
+### Exposed MCP Tools
+
+| Tool                       | Description                                          |
+| -------------------------- | ---------------------------------------------------- |
+| `codebase_search`          | Semantic, keyword, or hybrid search for code         |
+| `codebase_parallel_search` | Run multiple search strategies in parallel           |
+| `viberag_index`            | Index the codebase (incremental by default)          |
+| `viberag_status`           | Get index status, file count, and embedding provider |
+| `viberag_watch_status`     | Get file watcher status for auto-indexing            |
+
+#### `codebase_search`
+
+The primary search tool. Finds code by meaning, not just keywords.
+
+**Search Modes:**
+
+| Mode         | Best For                                     |
+| ------------ | -------------------------------------------- |
+| `hybrid`     | Most queries (default) - combines both       |
+| `semantic`   | Conceptual queries ("how does auth work?")   |
+| `exact`      | Symbol names, specific strings               |
+| `definition` | Direct symbol lookup ("where is X defined?") |
+| `similar`    | Find code similar to a snippet               |
+
+**Key Parameters:**
+
+- `query` - Natural language search query
+- `mode` - Search mode (default: `hybrid`)
+- `limit` - Max results (default: 10, max: 100)
+- `bm25_weight` - Balance keyword vs semantic (0-1, default: 0.3)
+- `filters` - Path, type, and metadata filters
+
+**Example:**
+
+```json
+{
+	"query": "authentication middleware",
+	"mode": "hybrid",
+	"limit": 15,
+	"filters": {
+		"path_not_contains": ["test", "mock"],
+		"is_exported": true
+	}
+}
+```
+
+#### `codebase_parallel_search`
+
+Run multiple search strategies simultaneously and merge results. Best for comprehensive exploration.
+
+**Use Cases:**
+
+- Compare semantic vs keyword results
+- Search related concepts together
+- Test different weight settings
+
+**Example:**
+
+```json
+{
+	"searches": [
+		{"query": "authentication", "mode": "semantic", "limit": 10},
+		{"query": "auth login JWT", "mode": "exact", "limit": 10},
+		{"query": "user session", "mode": "hybrid", "bm25_weight": 0.5, "limit": 10}
+	],
+	"merge_results": true,
+	"merge_strategy": "rrf",
+	"merged_limit": 20
+}
+```
+
+#### `viberag_index`
+
+Manually trigger indexing. Normally not needed as file watching handles updates automatically.
+
+**Parameters:**
+
+- `force` - Full reindex ignoring cache (default: `false`)
+
+#### `viberag_status`
+
+Check index health and configuration.
+
+**Returns:**
+
+- File count, chunk count
+- Embedding provider and dimensions
+- Schema version
+- Last update timestamp
+- Warmup status (ready, initializing, etc.)
+
+#### `viberag_watch_status`
+
+Check the file watcher for auto-indexing.
+
+**Returns:**
+
+- Whether watching is active
+- Number of files being watched
+- Pending changes count
+- Last update timestamp
+
+
 ## CLI Commands
+
+VibeRAG includes a CLI for easy execution of initialization, indexing, setup, and other things you may want to manually control outside of agent use.
 
 | Command           | Description                                               |
 | ----------------- | --------------------------------------------------------- |
