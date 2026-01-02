@@ -2,7 +2,7 @@
  * MCP Server for VibeRAG
  *
  * Exposes RAG functionality via Model Context Protocol.
- * Tools: viberag_search, viberag_index, viberag_status, viberag_watch_status
+ * Tools: codebase_search, codebase_parallel_search, viberag_index, viberag_status, viberag_watch_status
  *
  * Includes file watcher for automatic incremental indexing.
  */
@@ -311,28 +311,44 @@ export function createMcpServer(projectRoot: string): McpServerWithWatcher {
 		})
 		.optional();
 
-	// Tool: viberag_search
+	// Tool: codebase_search
 	server.addTool({
-		name: 'viberag_search',
-		description: `Search code by meaning or keywords. Supports iterative refinement.
+		name: 'codebase_search',
+		description: `
+Codebase search: semantic search, keyword search, and hybrid search options. 
+Use this when you need to find code that matches semantic meaning and keyword patterns. 
+This tool helps you perform exhaustive searches of the codebase and get the best 
+context and understanding when exploring and searching the codebase, docs, etc.
 
-IMPORTANT - SUB-AGENT DELEGATION:
-For comprehensive codebase exploration (not quick lookups), delegate to a sub-agent:
-- Claude Code: Use Task tool with subagent_type='Explore' - runs searches in isolated context
-- VS Code Copilot: Delegate to background agent via Agent HQ
-- Windsurf: Let Cascade's planning agent orchestrate multiple searches
-- Roo Code: Use Architect mode for exploration tasks
-- JetBrains: Use Junie agent for multi-step exploration
+USE FOR CODEBASE EXPLORATION:
+- Finds related code that grep/glob/read would miss. 
+- Semantic codebase search will find more relevant files.
 
-WHY: Sub-agents run searches in their own context window, preventing result bloat in
-your main conversation. A sub-agent can iterate through multiple searches and return
-only a concise summary, using ~8x fewer tokens than calling viberag directly.
+EXAMPLES:
+- "How does X work?"
+- "Where is Y handled?"
+- "Find patterns for Z"
+- "Help me understand X"
+- "How are we handling [exception type]"
+- "Find every instance of Y"
 
-WHEN TO USE DIRECTLY vs DELEGATE:
-- Direct: Quick symbol lookup, single targeted query, verifying a specific file
-- Delegate: "How does X work?", "Find all Y patterns", understanding a system
+WHEN TO USE codebase_search:
+- You're exploring or investigating
+- You need comprehensive results (not just the first match)
+- The question is conceptual ("how does X work" vs "where is function Y")
+- You want to find related code you might not have thought to search for
+- Find semantically similar code when you don't know the exact function or variable names
 
-For platforms without sub-agents, use viberag_multi_search for parallel queries.
+REAL EXAMPLE: Asked "how are API keys configured?"
+- grep finds: 3 files with "API_KEY" pattern
+- viberag finds: 36 results including provider implementations, ADR docs explaining
+  design decisions, init wizard UI, error messages, and config interfaces
+
+DELEGATE TO A BACKGROUND AGENT
+- Tell sub-agents / background agents to run viberag codebase_search mcp tool
+- Tell task/explore to use viberag codebase_search and then synthesize findings and results and return a summary
+- Context management: This reduces token usage in the main conversation context
+- For simple lookups ("where is function X?"), direct viberag calls are fine.
 
 MODE SELECTION:
 - 'hybrid' (default): Combined semantic + keyword. Start here for most queries.
@@ -357,7 +373,7 @@ For thorough searches, consider:
 1. Start with hybrid mode, default weights
 2. Check debug info to evaluate search quality
 3. If maxVectorScore < 0.3, try exact mode or higher bm25_weight
-4. If results seem incomplete, try viberag_multi_search for comparison
+4. If results seem incomplete, try codebase_parallel_search for comparison
 5. Use exhaustive=true for refactoring tasks needing ALL matches
 
 RESULT INTERPRETATION:
@@ -607,26 +623,60 @@ Production code: { path_not_contains: ["test", "mock", "fixture"], is_exported: 
 		},
 	});
 
-	// Tool: viberag_multi_search
+	// Tool: codebase_parallel_search
 	server.addTool({
-		name: 'viberag_multi_search',
-		description: `Run multiple searches in parallel and compare results.
+		name: 'codebase_parallel_search',
+		description: `
+Codebase Parallel Search: run multiple semantic search, keyword search, and hybrid searches in parallel and compare results. 
+Use this when you need to run multiple searches at once to find code that matches semantic meaning and keyword patterns. 
+This tool helps you perform exhaustive searches of the codebase and get the best 
+context and understanding when exploring and searching the codebase, docs, etc.
 
-PARALLEL SUB-AGENT EXECUTION:
-This tool is ideal for comprehensive exploration. For maximum efficiency:
-- Claude Code: Spawn multiple Task agents in parallel, each using viberag_multi_search
-  with different query angles (e.g., one for "how", one for "where", one for "what")
-- VS Code Copilot: Delegate to multiple background agents simultaneously
-- Windsurf: Cascade's Turbo Mode can run this autonomously with multiple strategies
-- Roo Code: Use Boomerang tasks to coordinate parallel exploration
+NOTE: This is for narrower sets of queries. Parallel searches may return a large number of results,
+it is best to keep search filters narrow and specific. For separate broader searches, use codebase_search one at a time.
 
-WHY PARALLEL: Each sub-agent has its own context window. Running 3-4 sub-agents
-in parallel with different search strategies provides comprehensive coverage
-while keeping each agent's context focused and efficient.
+USE FOR CODEBASE EXPLORATION:
+- Finds related code that grep/glob/read would miss. 
+- Semantic codebase search will find more relevant files.
 
-SINGLE-CALL COMPREHENSIVE SEARCH:
-For platforms without sub-agents, this tool provides similar benefits in one call.
-Pass multiple search configurations to cover different angles simultaneously.
+EXAMPLE: "How are embeddings configured?"
+- codebase_search: Found 8 results (embedding provider files)
+- codebase_parallel_search with 3 strategies: Found 24 unique results including:
+  * Provider implementations (what single search found)
+  * ADR docs explaining why certain providers were chosen
+  * Init wizard showing user-facing configuration
+  * Type definitions and interfaces
+  * Error handling and validation
+
+WHEN TO USE:
+- Need to test several search strategies at once
+- Exploring a feature or system (not just looking up one thing)
+- You want comprehensive coverage without multiple round-trips
+- The topic has multiple related concepts (auth → session, JWT, tokens, login)
+- You're not sure which search mode will work best
+
+MODE SELECTION:
+- 'hybrid' (default): Combined semantic + keyword. Start here for most queries.
+- 'semantic': Pure meaning-based search. Best for conceptual queries.
+- 'exact': Pure keyword/BM25. Best for symbol names, specific strings.
+- 'definition': Direct symbol lookup. Fastest for "where is X defined?"
+- 'similar': Find code similar to a snippet. Pass code_snippet parameter.
+
+WEIGHT TUNING (hybrid mode):
+The bm25_weight parameter (0-1) balances keyword vs semantic matching:
+- 0.2-0.3: Favor semantic (conceptual queries like "how does X work")
+- 0.5: Balanced (documentation, prose, mixed content)
+- 0.7-0.9: Favor keywords (symbol names, exact strings, specific terms)
+
+AUTO-BOOST:
+By default, auto_boost=true increases keyword weight when semantic scores are low.
+This helps find content that doesn't match code embeddings (docs, comments, prose).
+Set auto_boost=false for precise control or comparative searches.
+
+PARALLEL SEARCH STRATEGIES:
+1. Mode comparison: [{mode:'semantic'}, {mode:'exact'}, {mode:'hybrid'}]
+2. Related concepts: [{query:'auth'}, {query:'session'}, {query:'login'}]
+3. Weight tuning: [{bm25_weight:0.2}, {bm25_weight:0.5}, {bm25_weight:0.8}]
 
 USE CASES:
 - Compare semantic vs keyword results for the same query
@@ -634,16 +684,28 @@ USE CASES:
 - Search multiple related queries and aggregate results
 - Implement multi-phase search strategies
 
-RETURNS:
-- Individual results for each search configuration
-- Merged/deduped results with source tracking (RRF ranking)
-- Comparative metrics (overlap, unique results per config)
+RESULT INTERPRETATION:
+- score: Combined relevance (higher = better)
+- vectorScore: Semantic similarity (0-1, may be missing for exact mode)
+- ftsScore: Keyword match strength (BM25 score)
+- debug.searchQuality: 'high', 'medium', or 'low' based on vector scores
+- debug.suggestion: Hints when different settings might work better
 
-EXAMPLE STRATEGIES:
-1. Mode comparison: [{mode:'semantic'}, {mode:'exact'}, {mode:'hybrid'}]
-2. Weight tuning: [{bm25_weight:0.2}, {bm25_weight:0.5}, {bm25_weight:0.8}]
-3. Multi-query: [{query:'auth'}, {query:'authentication'}, {query:'login'}]
-4. Comprehensive: Combine queries, modes, and filters for thorough exploration`,
+FILTERS (transparent, you control what's excluded):
+Path filters:
+- path_prefix: Scope to directory (e.g., "src/api/")
+- path_contains: Path must contain ALL strings (AND logic)
+- path_not_contains: Exclude if path contains ANY string (OR logic)
+
+Code filters:
+- type: Match ANY of ["function", "class", "method", "module"]
+- extension: Match ANY extension (e.g., [".ts", ".py"])
+
+Metadata filters:
+- is_exported: Only public/exported symbols
+- has_docstring: Only code with documentation comments
+- decorator_contains: Has decorator/attribute matching string
+`,
 		parameters: z.object({
 			searches: z
 				.array(

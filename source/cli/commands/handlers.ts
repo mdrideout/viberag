@@ -275,9 +275,10 @@ This registers VibeRAG as an MCP server. After adding:
 
 1. Restart Claude Code (or run: claude mcp restart viberag)
 2. The following tools will be available:
-   - viberag_search  Search the codebase semantically
-   - viberag_index   Index or reindex the codebase
-   - viberag_status  Get index statistics
+   - codebase_search          Search the codebase semantically
+   - codebase_parallel_search  Run multiple searches in parallel
+   - viberag_index             Index or reindex the codebase
+   - viberag_status            Get index statistics
 
 Note: The project must be initialized first (run /init in the CLI).
 The MCP server uses the current working directory as the project root.`;

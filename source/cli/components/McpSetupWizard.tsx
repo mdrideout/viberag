@@ -568,7 +568,7 @@ export function McpSetupWizard({
 						<Text bold>Next steps:</Text>
 						<Text>1. Restart your editor(s) to load the MCP server</Text>
 						<Text>2. Verify using the steps above</Text>
-						<Text>3. Test viberag_search with a code query</Text>
+						<Text>3. Test codebase_search with a code query</Text>
 					</Box>
 				)}
 				<Box marginTop={1}>

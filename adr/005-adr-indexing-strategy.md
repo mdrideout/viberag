@@ -118,10 +118,10 @@ We considered pre-computing event publishers/subscribers and API endpoints. Inst
 **Multi-stage search (adopted):**
 
 ```
-Stage 1: viberag_search(query="event publish emit", mode="semantic")
+Stage 1: codebase_search(query="event publish emit", mode="semantic")
          → Finds event-related code
 
-Stage 2: viberag_search(query="order-created", mode="exact")
+Stage 2: codebase_search(query="order-created", mode="exact")
          → Finds specific event references
 
 Stage 3: AI reads results, interprets which are publishers vs subscribers

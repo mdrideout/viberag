@@ -142,7 +142,7 @@ Task(subagent_type='Explore', prompt='Search login flows')   # with this one
 Add to your `CLAUDE.md`:
 ```markdown
 When exploring the codebase, use Task(subagent_type='Explore') and instruct it
-to use viberag_search or viberag_multi_search. This keeps the main context clean.
+to use codebase_search or codebase_parallel_search. This keeps the main context clean.
 ```
 
 #### VS Code Copilot
@@ -189,15 +189,15 @@ to use viberag_search or viberag_multi_search. This keeps the main context clean
 
 | Task Type | Recommended Approach |
 |-----------|---------------------|
-| "Where is function X defined?" | Direct `viberag_search` with mode='definition' |
-| "What file handles Y?" | Direct `viberag_search` - single query |
+| "Where is function X defined?" | Direct `codebase_search` with mode='definition' |
+| "What file handles Y?" | Direct `codebase_search` - single query |
 | "How does authentication work?" | **Sub-agent** - needs multiple searches |
-| "Find all API endpoints" | **Sub-agent** or `viberag_multi_search` |
+| "Find all API endpoints" | **Sub-agent** or `codebase_parallel_search` |
 | "Understand the data flow" | **Sub-agent** - iterative exploration |
 
 ### For Platforms Without Sub-Agents
 
-Use `viberag_multi_search` to run multiple search strategies in a single call:
+Use `codebase_parallel_search` to run multiple search strategies in a single call:
 
 ```json
 {
