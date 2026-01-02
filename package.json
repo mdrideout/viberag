@@ -5,6 +5,14 @@
 	"author": {
 		"name": "Matthew Rideout"
 	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/mdrideout/viberag.git"
+	},
+	"bugs": {
+		"url": "https://github.com/mdrideout/viberag/issues"
+	},
+	"homepage": "https://github.com/mdrideout/viberag#readme",
 	"bin": {
 		"viberag": "dist/cli/index.js",
 		"viberag-mcp": "dist/mcp/index.js"
