@@ -5,7 +5,7 @@ Local code RAG (Retrieval-Augmented Generation) for AI coding assistants. Index 
 ## Features
 
 - **Semantic code search** - Find code by meaning, not just keywords
-- **Local embeddings** - No API keys required, runs entirely offline
+- **Flexible embeddings** - Local model (offline, free) or cloud providers (Gemini, Mistral, OpenAI)
 - **MCP server** - Works with Claude Code, Cursor, VS Code Copilot, and more
 - **Incremental indexing** - Only re-embeds changed files
 - **Multi-language support** - TypeScript, JavaScript, Python, Go, Rust, and more
@@ -36,18 +36,18 @@ VibeRAG includes an MCP server that integrates with AI coding tools. Run `/mcp-s
 
 ### Supported Editors
 
-| Editor              | Config Location                                   | Setup                                               |
-| ------------------- | ------------------------------------------------- | --------------------------------------------------- |
-| **Claude Code**     | `.mcp.json`                                       | Auto or `claude mcp add viberag -- npx viberag-mcp` |
-| **VS Code Copilot** | `.vscode/mcp.json`                                | Auto                                                |
-| **Cursor**          | `.cursor/mcp.json`                                | Auto                                                |
-| **Roo Code**        | `.roo/mcp.json`                                   | Auto                                                |
-| **Windsurf**        | `~/.codeium/windsurf/mcp_config.json`             | Manual merge                                        |
+| Editor              | Config Location                                    | Setup                                               |
+| ------------------- | -------------------------------------------------- | --------------------------------------------------- |
+| **Claude Code**     | `.mcp.json`                                        | Auto or `claude mcp add viberag -- npx viberag-mcp` |
+| **Cursor**          | `.cursor/mcp.json`                                 | Auto                                                |
+| **Gemini CLI**      | `~/.gemini/settings.json`                          | `gemini mcp add viberag -- npx viberag-mcp`         |
+| **JetBrains IDEs**  | Settings UI                                        | Manual in Settings → AI Assistant → MCP             |
+| **OpenAI Codex**    | `~/.codex/config.toml`                             | `codex mcp add viberag -- npx viberag-mcp`          |
+| **OpenCode**        | `~/.config/opencode/opencode.json`                 | Manual merge                                        |
+| **Roo Code**        | `.roo/mcp.json`                                    | Auto                                                |
+| **VS Code Copilot** | `.vscode/mcp.json`                                 | Auto                                                |
+| **Windsurf**        | `~/.codeium/windsurf/mcp_config.json`              | Manual merge                                        |
 | **Zed**             | `~/Library/Application Support/Zed/settings.json` | Manual merge                                        |
-| **OpenCode**        | `~/.config/opencode/opencode.json`                | Manual merge                                        |
-| **Gemini CLI**      | `~/.gemini/settings.json`                         | `gemini mcp add viberag -- npx viberag-mcp`         |
-| **OpenAI Codex**    | `~/.codex/config.toml`                            | `codex mcp add viberag -- npx viberag-mcp`          |
-| **JetBrains IDEs**  | Settings UI                                       | Manual in Settings → AI Assistant → MCP             |
 
 ### Manual Configuration
 
@@ -94,17 +94,19 @@ Choose your embedding provider during `/init`:
 - Works completely offline, no API key required
 - Initial indexing may take time; future updates are incremental
 
-### Frontier Models - Fastest, Best Quality
+### Cloud Providers - Fastest, Best Quality
 
-| Provider | Model                  | Dims | Cost      |
-| -------- | ---------------------- | ---- | --------- |
-| Gemini   | gemini-embedding-001   | 768  | Free tier |
-| Mistral  | codestral-embed        | 1024 | $0.10/1M  |
-| OpenAI   | text-embedding-3-small | 1536 | $0.02/1M  |
+| Provider | Model                  | Dims | Cost      | Get API Key                                                                    |
+| -------- | ---------------------- | ---- | --------- | ------------------------------------------------------------------------------ |
+| Gemini   | gemini-embedding-001   | 1536 | Free tier | [Google AI Studio](https://aistudio.google.com)                                |
+| Mistral  | codestral-embed        | 1024 | $0.10/1M  | [Mistral Console](https://console.mistral.ai/api-keys/)                        |
+| OpenAI   | text-embedding-3-small | 1536 | $0.02/1M  | [OpenAI Platform](https://platform.openai.com/api-keys)                        |
 
-- **Gemini** - Free tier available with `GEMINI_API_KEY`
-- **Mistral** - Code-optimized embeddings. Requires `MISTRAL_API_KEY`
-- **OpenAI** - Fast and reliable. Requires `OPENAI_API_KEY`
+- **Gemini** - Free tier available, great for getting started
+- **Mistral** - Code-optimized embeddings for technical content
+- **OpenAI** - Fast and reliable with low cost
+
+API keys are entered during the `/init` wizard and stored securely in `.viberag/config.json` (automatically added to `.gitignore`).
 
 ## How It Works
 

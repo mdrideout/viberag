@@ -85,6 +85,8 @@ export type EmbeddingProviderType =
  */
 export type InitWizardConfig = {
 	provider: EmbeddingProviderType;
+	/** API key for cloud providers (gemini, mistral, openai) */
+	apiKey?: string;
 };
 
 /**

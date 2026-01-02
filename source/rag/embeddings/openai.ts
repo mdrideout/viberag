@@ -21,13 +21,13 @@ export class OpenAIEmbeddingProvider implements EmbeddingProvider {
 	private initialized = false;
 
 	constructor(apiKey?: string) {
-		this.apiKey = apiKey || process.env['OPENAI_API_KEY'] || '';
+		this.apiKey = apiKey ?? '';
 	}
 
 	async initialize(_onProgress?: ModelProgressCallback): Promise<void> {
 		if (!this.apiKey) {
 			throw new Error(
-				'OpenAI API key required. Set OPENAI_API_KEY environment variable or pass to constructor.',
+				'OpenAI API key required. Run /init to configure your API key.',
 			);
 		}
 		this.initialized = true;

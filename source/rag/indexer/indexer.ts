@@ -418,17 +418,18 @@ export class Indexer {
 	 * Create the appropriate embedding provider based on config.
 	 */
 	private createEmbeddingProvider(config: ViberagConfig): EmbeddingProvider {
+		const apiKey = config.apiKey;
 		switch (config.embeddingProvider) {
 			case 'local':
 				return new LocalEmbeddingProvider();
 			case 'local-4b':
 				return new Local4BEmbeddingProvider();
 			case 'gemini':
-				return new GeminiEmbeddingProvider();
+				return new GeminiEmbeddingProvider(apiKey);
 			case 'mistral':
-				return new MistralEmbeddingProvider();
+				return new MistralEmbeddingProvider(apiKey);
 			case 'openai':
-				return new OpenAIEmbeddingProvider();
+				return new OpenAIEmbeddingProvider(apiKey);
 			default:
 				throw new Error(
 					`Unknown embedding provider: ${config.embeddingProvider}`,

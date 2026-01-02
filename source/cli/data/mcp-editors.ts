@@ -54,6 +54,7 @@ export interface EditorConfig {
 
 /**
  * All supported editors with their MCP configurations.
+ * Sorted alphabetically by name.
  */
 export const EDITORS: EditorConfig[] = [
 	{
@@ -75,25 +76,6 @@ export const EDITORS: EditorConfig[] = [
 		],
 	},
 	{
-		id: 'vscode',
-		name: 'VS Code Copilot',
-		configPath: '.vscode/mcp.json',
-		configFormat: 'json',
-		scope: 'project',
-		canAutoCreate: true,
-		cliCommand: null,
-		docsUrl:
-			'https://code.visualstudio.com/docs/copilot/customization/mcp-servers',
-		jsonKey: 'servers', // VS Code uses 'servers', not 'mcpServers'
-		description: 'auto-setup',
-		restartInstructions:
-			'Reload VS Code window (Cmd/Ctrl+Shift+P → "Reload Window")',
-		verificationSteps: [
-			'Cmd/Ctrl+Shift+P → "MCP: List Servers"',
-			'Verify "viberag" appears with status',
-		],
-	},
-	{
 		id: 'cursor',
 		name: 'Cursor',
 		configPath: '.cursor/mcp.json',
@@ -111,6 +93,74 @@ export const EDITORS: EditorConfig[] = [
 		],
 	},
 	{
+		id: 'gemini-cli',
+		name: 'Gemini CLI',
+		configPath: '~/.gemini/settings.json',
+		configFormat: 'json',
+		scope: 'global',
+		canAutoCreate: false, // Has CLI command
+		cliCommand: 'gemini mcp add viberag -- npx viberag-mcp',
+		docsUrl: 'https://geminicli.com/docs/tools/mcp-server/',
+		jsonKey: 'mcpServers',
+		description: 'global config',
+		restartInstructions: 'Restart Gemini CLI session',
+		verificationSteps: [
+			'Run /mcp in Gemini CLI',
+			'Look for "viberag" in server list',
+		],
+	},
+	{
+		id: 'jetbrains',
+		name: 'JetBrains IDEs',
+		configPath: null, // UI-only configuration
+		configFormat: 'ui',
+		scope: 'ui',
+		canAutoCreate: false,
+		cliCommand: null,
+		docsUrl: 'https://www.jetbrains.com/help/ai-assistant/mcp.html',
+		jsonKey: 'mcpServers',
+		description: 'manual setup',
+		restartInstructions: 'No restart needed - changes apply immediately',
+		verificationSteps: [
+			'Settings → Tools → AI Assistant → MCP',
+			'Verify "viberag" shows green in Status column',
+		],
+	},
+	{
+		id: 'codex',
+		name: 'OpenAI Codex',
+		configPath: '~/.codex/config.toml',
+		configFormat: 'toml',
+		scope: 'global',
+		canAutoCreate: false, // Has CLI command
+		cliCommand: 'codex mcp add viberag -- npx viberag-mcp',
+		docsUrl: 'https://developers.openai.com/codex/mcp/',
+		jsonKey: 'mcp_servers', // TOML section name
+		description: 'global config',
+		restartInstructions: 'Restart Codex session',
+		verificationSteps: [
+			'Run /mcp in Codex TUI',
+			'Look for "viberag" in server list',
+		],
+	},
+	{
+		id: 'opencode',
+		name: 'OpenCode',
+		configPath: '~/.config/opencode/opencode.json',
+		configFormat: 'json',
+		scope: 'global',
+		canAutoCreate: false,
+		cliCommand: null,
+		docsUrl: 'https://opencode.ai/docs/mcp-servers/',
+		jsonKey: 'mcp',
+		description: 'global config',
+		restartInstructions: 'Restart OpenCode session',
+		verificationSteps: [
+			'Check MCP servers list in OpenCode',
+			'Verify "viberag" appears and is enabled',
+		],
+	},
+	{
 		id: 'roo-code',
 		name: 'Roo Code',
 		configPath: '.roo/mcp.json',
@@ -125,6 +175,25 @@ export const EDITORS: EditorConfig[] = [
 		verificationSteps: [
 			'Click MCP icon in Roo Code pane header',
 			'Verify "viberag" appears in server list',
+		],
+	},
+	{
+		id: 'vscode',
+		name: 'VS Code Copilot',
+		configPath: '.vscode/mcp.json',
+		configFormat: 'json',
+		scope: 'project',
+		canAutoCreate: true,
+		cliCommand: null,
+		docsUrl:
+			'https://code.visualstudio.com/docs/copilot/customization/mcp-servers',
+		jsonKey: 'servers', // VS Code uses 'servers', not 'mcpServers'
+		description: 'auto-setup',
+		restartInstructions:
+			'Reload VS Code window (Cmd/Ctrl+Shift+P → "Reload Window")',
+		verificationSteps: [
+			'Cmd/Ctrl+Shift+P → "MCP: List Servers"',
+			'Verify "viberag" appears with status',
 		],
 	},
 	{
@@ -159,74 +228,6 @@ export const EDITORS: EditorConfig[] = [
 		verificationSteps: [
 			'Open Agent Panel settings',
 			'Verify "viberag" shows green indicator',
-		],
-	},
-	{
-		id: 'gemini-cli',
-		name: 'Gemini CLI',
-		configPath: '~/.gemini/settings.json',
-		configFormat: 'json',
-		scope: 'global',
-		canAutoCreate: false, // Has CLI command
-		cliCommand: 'gemini mcp add viberag -- npx viberag-mcp',
-		docsUrl: 'https://geminicli.com/docs/tools/mcp-server/',
-		jsonKey: 'mcpServers',
-		description: 'CLI command',
-		restartInstructions: 'Restart Gemini CLI session',
-		verificationSteps: [
-			'Run /mcp in Gemini CLI',
-			'Look for "viberag" in server list',
-		],
-	},
-	{
-		id: 'codex',
-		name: 'OpenAI Codex',
-		configPath: '~/.codex/config.toml',
-		configFormat: 'toml',
-		scope: 'global',
-		canAutoCreate: false, // Has CLI command
-		cliCommand: 'codex mcp add viberag -- npx viberag-mcp',
-		docsUrl: 'https://developers.openai.com/codex/mcp/',
-		jsonKey: 'mcp_servers', // TOML section name
-		description: 'CLI command',
-		restartInstructions: 'Restart Codex session',
-		verificationSteps: [
-			'Run /mcp in Codex TUI',
-			'Look for "viberag" in server list',
-		],
-	},
-	{
-		id: 'jetbrains',
-		name: 'JetBrains IDEs',
-		configPath: null, // UI-only configuration
-		configFormat: 'ui',
-		scope: 'ui',
-		canAutoCreate: false,
-		cliCommand: null,
-		docsUrl: 'https://www.jetbrains.com/help/ai-assistant/mcp.html',
-		jsonKey: 'mcpServers',
-		description: 'manual setup',
-		restartInstructions: 'No restart needed - changes apply immediately',
-		verificationSteps: [
-			'Settings → Tools → AI Assistant → MCP',
-			'Verify "viberag" shows green in Status column',
-		],
-	},
-	{
-		id: 'opencode',
-		name: 'OpenCode',
-		configPath: '~/.config/opencode/opencode.json',
-		configFormat: 'json',
-		scope: 'global',
-		canAutoCreate: false,
-		cliCommand: null,
-		docsUrl: 'https://opencode.ai/docs/mcp-servers/',
-		jsonKey: 'mcp',
-		description: 'global config',
-		restartInstructions: 'Restart OpenCode session',
-		verificationSteps: [
-			'Check MCP servers list in OpenCode',
-			'Verify "viberag" appears and is enabled',
 		],
 	},
 ];

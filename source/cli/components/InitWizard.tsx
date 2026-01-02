@@ -1,9 +1,9 @@
 /**
  * Multi-step initialization wizard component.
- * Guides users through embedding provider selection.
+ * Guides users through embedding provider selection and API key configuration.
  */
 
-import React from 'react';
+import React, {useState} from 'react';
 import {Box, Text, useInput} from 'ink';
 import SelectInput from 'ink-select-input';
 import type {
@@ -15,9 +15,34 @@ type Props = {
 	step: number;
 	config: Partial<InitWizardConfig>;
 	isReinit: boolean;
+	/** Existing API key from previous config (for reinit flow) */
+	existingApiKey?: string;
+	/** Existing provider from previous config (for reinit flow) */
+	existingProvider?: EmbeddingProviderType;
 	onStepChange: (step: number, data?: Partial<InitWizardConfig>) => void;
 	onComplete: (config: InitWizardConfig) => void;
 	onCancel: () => void;
+};
+
+/**
+ * Cloud providers that require API keys.
+ */
+const CLOUD_PROVIDERS = ['gemini', 'mistral', 'openai'] as const;
+type CloudProvider = (typeof CLOUD_PROVIDERS)[number];
+
+function isCloudProvider(
+	provider: EmbeddingProviderType,
+): provider is CloudProvider {
+	return CLOUD_PROVIDERS.includes(provider as CloudProvider);
+}
+
+/**
+ * URLs to get API keys for each cloud provider.
+ */
+const API_KEY_URLS: Record<CloudProvider, string> = {
+	gemini: 'https://aistudio.google.com',
+	mistral: 'https://console.mistral.ai/api-keys/',
+	openai: 'https://platform.openai.com/api-keys',
 };
 
 type SelectItem<T> = {
@@ -68,7 +93,7 @@ const PROVIDER_CONFIG: Record<
 		dims: '768',
 		context: '2K',
 		cost: 'Free tier',
-		note: 'GEMINI_API_KEY required',
+		note: 'API key required',
 		description: 'Fast API, free tier available',
 	},
 	mistral: {
@@ -78,7 +103,7 @@ const PROVIDER_CONFIG: Record<
 		dims: '1024',
 		context: '8K',
 		cost: '$0.10/1M',
-		note: 'MISTRAL_API_KEY required',
+		note: 'API key required',
 		description: 'Code-optimized embeddings',
 	},
 	openai: {
@@ -88,7 +113,7 @@ const PROVIDER_CONFIG: Record<
 		dims: '1536',
 		context: '8K',
 		cost: '$0.02/1M',
-		note: 'OPENAI_API_KEY required',
+		note: 'API key required',
 		description: 'Fast and reliable API',
 	},
 };
@@ -238,14 +263,70 @@ const CONFIRM_ITEMS: SelectItem<'init' | 'cancel'>[] = [
 	{label: 'Cancel', value: 'cancel'},
 ];
 
+// API key action options for reinit
+const API_KEY_ACTION_ITEMS: SelectItem<'keep' | 'new'>[] = [
+	{label: 'Keep existing API key', value: 'keep'},
+	{label: 'Enter new API key', value: 'new'},
+];
+
+/**
+ * Simple text input component for API key entry.
+ */
+function ApiKeyInputStep({
+	providerName,
+	apiKeyInput,
+	setApiKeyInput,
+	onSubmit,
+}: {
+	providerName: string;
+	apiKeyInput: string;
+	setApiKeyInput: (value: string) => void;
+	onSubmit: (key: string) => void;
+}): React.ReactElement {
+	// Handle text input (supports paste)
+	useInput((input, key) => {
+		if (key.return) {
+			onSubmit(apiKeyInput);
+		} else if (key.backspace || key.delete) {
+			setApiKeyInput(apiKeyInput.slice(0, -1));
+		} else if (!key.ctrl && !key.meta && input) {
+			// Add printable characters (supports multi-char paste)
+			setApiKeyInput(apiKeyInput + input);
+		}
+	});
+
+	return (
+		<Box marginTop={1} flexDirection="column">
+			<Text>Enter your {providerName} API key:</Text>
+			<Box marginTop={1}>
+				<Text color="blue">&gt; </Text>
+				<Text>{apiKeyInput}</Text>
+				<Text color="gray">█</Text>
+			</Box>
+			{apiKeyInput.trim() === '' && (
+				<Text color="yellow" dimColor>
+					API key is required
+				</Text>
+			)}
+			<Text dimColor>Press Enter to continue</Text>
+		</Box>
+	);
+}
+
 export function InitWizard({
 	step,
 	config,
 	isReinit,
+	existingApiKey,
+	existingProvider,
 	onStepChange,
 	onComplete,
 	onCancel,
 }: Props): React.ReactElement {
+	// State for API key input
+	const [apiKeyInput, setApiKeyInput] = useState('');
+	const [apiKeyAction, setApiKeyAction] = useState<'keep' | 'new' | null>(null);
+
 	// Handle Escape to cancel
 	useInput((input, key) => {
 		if (key.escape || (key.ctrl && input === 'c')) {
@@ -257,7 +338,16 @@ export function InitWizard({
 	const normalizedStep = typeof step === 'number' && !isNaN(step) ? step : 0;
 	const normalizedIsReinit = typeof isReinit === 'boolean' ? isReinit : false;
 
+	// Check if current provider is a cloud provider
+	const currentProvider = config.provider ?? 'local';
+	const needsApiKey = isCloudProvider(currentProvider);
+
+	// Check if we have an existing API key for the same provider
+	const hasExistingKeyForProvider =
+		existingApiKey && existingProvider === currentProvider;
+
 	// Compute effective step (adjusted for non-reinit flow)
+	// Steps: 0=reinit confirm, 1=provider select, 2=api key (cloud only), 3=final confirm
 	const effectiveStep = normalizedIsReinit
 		? normalizedStep
 		: normalizedStep + 1;
@@ -301,6 +391,9 @@ export function InitWizard({
 					<SelectInput
 						items={PROVIDER_ITEMS}
 						onSelect={item => {
+							// Reset API key state when provider changes
+							setApiKeyInput('');
+							setApiKeyAction(null);
 							// Use relative increment: step + 1
 							onStepChange(normalizedStep + 1, {provider: item.value});
 						}}
@@ -314,10 +407,84 @@ export function InitWizard({
 		);
 	}
 
-	// Step 2: Confirmation
+	// Step 2: API Key input (cloud providers only)
+	// For local providers, skip to step 3 (confirmation)
 	if (effectiveStep === 2) {
+		// Skip API key step for local providers
+		if (!needsApiKey) {
+			// Auto-advance to confirmation
+			onStepChange(normalizedStep + 1);
+			return (
+				<Box>
+					<Text dimColor>Loading...</Text>
+				</Box>
+			);
+		}
+
+		const provider = currentProvider as CloudProvider;
+		const info = PROVIDER_CONFIG[provider];
+		const apiKeyUrl = API_KEY_URLS[provider];
+
+		return (
+			<Box flexDirection="column" borderStyle="round" paddingX={2} paddingY={1}>
+				<Text bold>Configure {info.name} API Key</Text>
+
+				<Box marginTop={1} flexDirection="column">
+					<Text>
+						Get your API key:{' '}
+						<Text color="cyan" underline>
+							{apiKeyUrl}
+						</Text>
+					</Text>
+				</Box>
+
+				{/* Show keep/new choice if existing key for same provider */}
+				{hasExistingKeyForProvider && apiKeyAction === null ? (
+					<Box marginTop={1} flexDirection="column">
+						<Text color="green">
+							An API key is already configured for {info.name}.
+						</Text>
+						<Box marginTop={1}>
+							<SelectInput
+								items={API_KEY_ACTION_ITEMS}
+								onSelect={item => {
+									if (item.value === 'keep') {
+										// Keep existing key, advance to confirmation
+										onStepChange(normalizedStep + 1, {apiKey: existingApiKey});
+									} else {
+										// Show text input for new key
+										setApiKeyAction('new');
+									}
+								}}
+							/>
+						</Box>
+					</Box>
+				) : (
+					<ApiKeyInputStep
+						providerName={info.name}
+						apiKeyInput={apiKeyInput}
+						setApiKeyInput={setApiKeyInput}
+						onSubmit={key => {
+							if (key.trim()) {
+								onStepChange(normalizedStep + 1, {apiKey: key.trim()});
+							}
+						}}
+					/>
+				)}
+
+				<Box marginTop={1}>
+					<Text dimColor>Esc to cancel</Text>
+				</Box>
+			</Box>
+		);
+	}
+
+	// Step 3: Confirmation
+	if (effectiveStep === 3) {
 		const provider = config.provider ?? 'gemini';
 		const info = PROVIDER_CONFIG[provider];
+		const hasApiKey = !!config.apiKey;
+
 		return (
 			<Box flexDirection="column" borderStyle="round" paddingX={2} paddingY={1}>
 				<Text bold>Ready to Initialize</Text>
@@ -338,8 +505,17 @@ export function InitWizard({
 					<Text>
 						<Text dimColor>Cost: </Text>
 						{info.cost}
-						{info.note ? <Text dimColor> ({info.note})</Text> : null}
 					</Text>
+					{isCloudProvider(provider) && (
+						<Text>
+							<Text dimColor>API Key: </Text>
+							{hasApiKey ? (
+								<Text color="green">Configured</Text>
+							) : (
+								<Text color="red">Missing</Text>
+							)}
+						</Text>
+					)}
 					<Text>
 						<Text dimColor>Directory:</Text> .viberag/
 					</Text>
@@ -349,7 +525,7 @@ export function InitWizard({
 						items={CONFIRM_ITEMS}
 						onSelect={item => {
 							if (item.value === 'init') {
-								onComplete({provider});
+								onComplete({provider, apiKey: config.apiKey});
 							} else {
 								onCancel();
 							}

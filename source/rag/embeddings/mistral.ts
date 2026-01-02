@@ -21,13 +21,13 @@ export class MistralEmbeddingProvider implements EmbeddingProvider {
 	private initialized = false;
 
 	constructor(apiKey?: string) {
-		this.apiKey = apiKey || process.env['MISTRAL_API_KEY'] || '';
+		this.apiKey = apiKey ?? '';
 	}
 
 	async initialize(_onProgress?: ModelProgressCallback): Promise<void> {
 		if (!this.apiKey) {
 			throw new Error(
-				'Mistral API key required. Set MISTRAL_API_KEY environment variable or pass to constructor.',
+				'Mistral API key required. Run /init to configure your API key.',
 			);
 		}
 		this.initialized = true;

@@ -23,6 +23,8 @@ export interface ViberagConfig {
 	embeddingProvider: EmbeddingProviderType;
 	embeddingModel: string;
 	embeddingDimensions: number;
+	/** API key for cloud providers (gemini, mistral, openai) */
+	apiKey?: string;
 	extensions: string[];
 	excludePatterns: string[];
 	chunkMaxSize: number;
@@ -49,7 +51,7 @@ export const PROVIDER_CONFIGS: Record<
 	},
 	gemini: {
 		model: 'gemini-embedding-001',
-		dimensions: 768,
+		dimensions: 1536,
 	},
 	mistral: {
 		model: 'codestral-embed',

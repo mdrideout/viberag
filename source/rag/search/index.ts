@@ -458,8 +458,8 @@ export class SearchEngine {
 		this.storage = new Storage(this.projectRoot, config.embeddingDimensions);
 		await this.storage.connect();
 
-		// Initialize embeddings with config
-		this.embeddings = this.createEmbeddingProvider(config.embeddingProvider);
+		// Initialize embeddings with config (includes apiKey for cloud providers)
+		this.embeddings = this.createEmbeddingProvider(config);
 		await this.embeddings.initialize();
 
 		this.initialized = true;
@@ -467,24 +467,26 @@ export class SearchEngine {
 	}
 
 	/**
-	 * Create the appropriate embedding provider based on provider type.
+	 * Create the appropriate embedding provider based on config.
 	 */
-	private createEmbeddingProvider(
-		providerType: EmbeddingProviderType,
-	): EmbeddingProvider {
-		switch (providerType) {
+	private createEmbeddingProvider(config: {
+		embeddingProvider: EmbeddingProviderType;
+		apiKey?: string;
+	}): EmbeddingProvider {
+		const apiKey = config.apiKey;
+		switch (config.embeddingProvider) {
 			case 'local':
 				return new LocalEmbeddingProvider();
 			case 'local-4b':
 				return new Local4BEmbeddingProvider();
 			case 'gemini':
-				return new GeminiEmbeddingProvider();
+				return new GeminiEmbeddingProvider(apiKey);
 			case 'mistral':
-				return new MistralEmbeddingProvider();
+				return new MistralEmbeddingProvider(apiKey);
 			case 'openai':
-				return new OpenAIEmbeddingProvider();
+				return new OpenAIEmbeddingProvider(apiKey);
 			default:
-				throw new Error(`Unknown embedding provider: ${providerType}`);
+				throw new Error(`Unknown embedding provider: ${config.embeddingProvider}`);
 		}
 	}
 

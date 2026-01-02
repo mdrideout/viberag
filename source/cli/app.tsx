@@ -34,7 +34,8 @@ import {
 	runIndex,
 	formatIndexStats,
 } from './commands/handlers.js';
-import {getViberagDir} from '../rag/constants.js';
+import {getViberagDir, loadConfig} from '../rag/index.js';
+import type {EmbeddingProviderType} from '../common/types.js';
 import type {SearchResultsData} from '../common/types.js';
 
 const require = createRequire(import.meta.url);
@@ -73,6 +74,13 @@ export default function App() {
 		undefined,
 	);
 	const [wizardMode, setWizardMode] = useState<WizardMode>({active: false});
+	// Existing config for reinit flow (API key preservation)
+	const [existingApiKey, setExistingApiKey] = useState<string | undefined>(
+		undefined,
+	);
+	const [existingProvider, setExistingProvider] = useState<
+		EmbeddingProviderType | undefined
+	>(undefined);
 	const {stdout} = useStdout();
 
 	// Enable Kitty keyboard protocol for Shift+Enter support in iTerm2/Kitty/WezTerm
@@ -83,7 +91,15 @@ export default function App() {
 
 	// Check initialization status and load stats on mount
 	useEffect(() => {
-		checkInitialized(projectRoot).then(setIsInitialized);
+		checkInitialized(projectRoot).then(async initialized => {
+			setIsInitialized(initialized);
+			// Load existing config for API key preservation during reinit
+			if (initialized) {
+				const config = await loadConfig(projectRoot);
+				setExistingApiKey(config.apiKey);
+				setExistingProvider(config.embeddingProvider);
+			}
+		});
 		loadIndexStats(projectRoot).then(setIndexStats);
 	}, [projectRoot]);
 
@@ -337,6 +353,8 @@ export default function App() {
 					step={wizardMode.step}
 					config={wizardMode.config}
 					isReinit={wizardMode.isReinit}
+					existingApiKey={existingApiKey}
+					existingProvider={existingProvider}
 					onStepChange={handleInitWizardStep}
 					onComplete={handleInitWizardComplete}
 					onCancel={handleWizardCancel}

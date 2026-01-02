@@ -82,6 +82,7 @@ export async function runInit(
 		embeddingProvider: provider,
 		embeddingModel: model,
 		embeddingDimensions: dimensions,
+		...(wizardConfig?.apiKey && {apiKey: wizardConfig.apiKey}),
 	};
 
 	// Save config

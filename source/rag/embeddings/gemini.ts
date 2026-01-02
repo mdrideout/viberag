@@ -1,7 +1,11 @@
 /**
  * Gemini embedding provider using Google's Generative AI API.
  *
- * Uses gemini-embedding-001 model (768 dimensions, supports up to 3072).
+ * Uses gemini-embedding-001 model with 1536 dimensions.
+ * Note: The model defaults to 3072 dims but we explicitly request 1536 for:
+ * - Good balance of quality and storage
+ * - Matches OpenAI text-embedding-3-small dimensions
+ *
  * Free tier available with generous limits.
  */
 
@@ -17,18 +21,18 @@ const BATCH_SIZE = 100; // Gemini supports up to 100 texts per request
  * Uses gemini-embedding-001 model via Google's Generative AI API.
  */
 export class GeminiEmbeddingProvider implements EmbeddingProvider {
-	readonly dimensions = 768;
+	readonly dimensions = 1536;
 	private apiKey: string;
 	private initialized = false;
 
 	constructor(apiKey?: string) {
-		this.apiKey = apiKey || process.env['GEMINI_API_KEY'] || '';
+		this.apiKey = apiKey ?? '';
 	}
 
 	async initialize(_onProgress?: ModelProgressCallback): Promise<void> {
 		if (!this.apiKey) {
 			throw new Error(
-				'Gemini API key required. Set GEMINI_API_KEY environment variable or pass to constructor.',
+				'Gemini API key required. Run /init to configure your API key.',
 			);
 		}
 		this.initialized = true;
@@ -70,6 +74,7 @@ export class GeminiEmbeddingProvider implements EmbeddingProvider {
 						parts: [{text}],
 					},
 					taskType: 'RETRIEVAL_DOCUMENT',
+					outputDimensionality: this.dimensions,
 				})),
 			}),
 		});
@@ -104,6 +109,7 @@ export class GeminiEmbeddingProvider implements EmbeddingProvider {
 					parts: [{text}],
 				},
 				taskType: 'RETRIEVAL_QUERY',
+				outputDimensionality: this.dimensions,
 			}),
 		});
 
