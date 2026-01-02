@@ -114,31 +114,101 @@ Choose your embedding provider during `/init`:
 4. **Search** - Hybrid search combines vector similarity + full-text search
 5. **MCP** - AI tools query the index via the MCP protocol
 
-## TODO: Benefits
+## AI Agent Best Practices
 
-- More than just code search.
-- Semantic meaning search
-- Search documentation, prompts, README markdown files.
-- Code + Natural language understanding
-- Hybrid search
-- Full text search
-- Token consumption comparisons
-- Speed comparisons
-- Number of requests comparisons.
-- Greater understanding of context - find more related files
+VibeRAG works best when AI agents use **sub-agents for exploration tasks**. This keeps the main conversation context clean and uses ~8x fewer tokens.
 
-## TODO: Subagents
+### Why Sub-Agents?
 
-- Update the prompt to encourage the use of subagents.
+When an AI calls viberag directly, all search results expand the main context. Sub-agents run searches in isolated context windows and return only concise summaries.
 
-## TODO: Grok Feedback
+| Approach | Context Usage | Token Efficiency |
+|----------|---------------|------------------|
+| Direct viberag calls | 24k tokens | Baseline |
+| Sub-agent delegation | 3k tokens | **8x better** |
 
-- Improving prompting with benefits.
+### Platform-Specific Guidance
 
-## TODO: Check
+#### Claude Code
+```
+# For exploration tasks, use the Task tool:
+Task(subagent_type='Explore', prompt='Use viberag to find how authentication works')
 
-- Do we limit viberag search that would prevent it from being exhaustive, returning all relevant results? Are we clear about what is truncated?
+# For parallel comprehensive search:
+Task(subagent_type='Explore', prompt='Search auth patterns') # runs in parallel
+Task(subagent_type='Explore', prompt='Search login flows')   # with this one
+```
 
-# Test Edit
+Add to your `CLAUDE.md`:
+```markdown
+When exploring the codebase, use Task(subagent_type='Explore') and instruct it
+to use viberag_search or viberag_multi_search. This keeps the main context clean.
+```
 
-This is a test. Again. Test. hair dye
+#### VS Code Copilot
+- Use **Agent HQ** to delegate exploration to background agents
+- Background agents can iterate with viberag without blocking your session
+- Use `/delegate` to hand off exploration tasks to Copilot coding agent
+
+#### Cursor
+- Enable **Agent mode** for multi-step exploration
+- Agent mode can orchestrate multiple viberag searches autonomously
+- Consider the [Sub-Agents MCP server](https://playbooks.com/mcp/shinpr-sub-agents) for Claude Code-style delegation
+
+#### Windsurf
+- **Cascade** automatically plans multi-step tasks
+- Enable **Turbo Mode** for autonomous exploration
+- Cascade's planning agent will orchestrate viberag calls efficiently
+
+#### Roo Code
+- Use **Architect mode** for exploration and understanding
+- **Boomerang tasks** coordinate complex multi-mode workflows
+- Each mode (Architect, Code, Debug) can use viberag with focused context
+
+#### Gemini CLI
+- Create **extensions** that scope viberag tools for specific tasks
+- Extensions can bundle viberag with custom prompts for specialized exploration
+- Use `gemini mcp add viberag` then reference in extension configs
+
+#### OpenAI Codex
+- Use **Agents SDK** to orchestrate viberag as an MCP tool
+- Codex can run as an MCP server itself for multi-agent setups
+- Approval modes control how autonomously Codex explores
+
+#### JetBrains IDEs
+- **Junie** agent handles multi-step exploration autonomously
+- **Claude Agent** integration provides sub-agent-like capabilities
+- Access viberag through AI Chat with multi-agent support
+
+#### Zed
+- Use **External Agents** (Claude Code, Codex, Gemini CLI) for exploration
+- Set `auto_approve` in settings for autonomous agent operation
+- ACP (Agent Client Protocol) enables BYO agent integration
+
+### Quick Lookup vs Exploration
+
+| Task Type | Recommended Approach |
+|-----------|---------------------|
+| "Where is function X defined?" | Direct `viberag_search` with mode='definition' |
+| "What file handles Y?" | Direct `viberag_search` - single query |
+| "How does authentication work?" | **Sub-agent** - needs multiple searches |
+| "Find all API endpoints" | **Sub-agent** or `viberag_multi_search` |
+| "Understand the data flow" | **Sub-agent** - iterative exploration |
+
+### For Platforms Without Sub-Agents
+
+Use `viberag_multi_search` to run multiple search strategies in a single call:
+
+```json
+{
+  "searches": [
+    {"query": "authentication", "mode": "semantic"},
+    {"query": "auth login", "mode": "exact"},
+    {"query": "user session", "mode": "hybrid", "bm25_weight": 0.5}
+  ],
+  "merge_results": true,
+  "merge_strategy": "rrf"
+}
+```
+
+This provides comprehensive coverage without multiple round-trips.

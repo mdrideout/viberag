@@ -316,6 +316,24 @@ export function createMcpServer(projectRoot: string): McpServerWithWatcher {
 		name: 'viberag_search',
 		description: `Search code by meaning or keywords. Supports iterative refinement.
 
+IMPORTANT - SUB-AGENT DELEGATION:
+For comprehensive codebase exploration (not quick lookups), delegate to a sub-agent:
+- Claude Code: Use Task tool with subagent_type='Explore' - runs searches in isolated context
+- VS Code Copilot: Delegate to background agent via Agent HQ
+- Windsurf: Let Cascade's planning agent orchestrate multiple searches
+- Roo Code: Use Architect mode for exploration tasks
+- JetBrains: Use Junie agent for multi-step exploration
+
+WHY: Sub-agents run searches in their own context window, preventing result bloat in
+your main conversation. A sub-agent can iterate through multiple searches and return
+only a concise summary, using ~8x fewer tokens than calling viberag directly.
+
+WHEN TO USE DIRECTLY vs DELEGATE:
+- Direct: Quick symbol lookup, single targeted query, verifying a specific file
+- Delegate: "How does X work?", "Find all Y patterns", understanding a system
+
+For platforms without sub-agents, use viberag_multi_search for parallel queries.
+
 MODE SELECTION:
 - 'hybrid' (default): Combined semantic + keyword. Start here for most queries.
 - 'semantic': Pure meaning-based search. Best for conceptual queries.
@@ -505,7 +523,9 @@ Production code: { path_not_contains: ["test", "mock", "fixture"], is_exported: 
 		description:
 			'Index the codebase for semantic search. Uses incremental indexing by default ' +
 			'(only processes changed files based on Merkle tree diff). ' +
-			'Use force=true for full reindex after config changes.',
+			'Use force=true for full reindex after config changes. ' +
+			'NOTE: Indexing can take time for large codebases. Consider running in a background ' +
+			'agent or delegating to a sub-agent if your platform supports it.',
 		parameters: z.object({
 			force: z
 				.boolean()
@@ -533,7 +553,8 @@ Production code: { path_not_contains: ["test", "mock", "fixture"], is_exported: 
 		name: 'viberag_status',
 		description:
 			'Get index status including file count, chunk count, embedding provider, schema version, and last update time. ' +
-			'If schema version is outdated, run viberag_index with force=true to reindex.',
+			'If schema version is outdated, run viberag_index with force=true to reindex. ' +
+			'TIP: Check status before delegating exploration to sub-agents to ensure the index is current.',
 		parameters: z.object({}),
 		execute: async () => {
 			await ensureInitialized(projectRoot);
@@ -591,6 +612,22 @@ Production code: { path_not_contains: ["test", "mock", "fixture"], is_exported: 
 		name: 'viberag_multi_search',
 		description: `Run multiple searches in parallel and compare results.
 
+PARALLEL SUB-AGENT EXECUTION:
+This tool is ideal for comprehensive exploration. For maximum efficiency:
+- Claude Code: Spawn multiple Task agents in parallel, each using viberag_multi_search
+  with different query angles (e.g., one for "how", one for "where", one for "what")
+- VS Code Copilot: Delegate to multiple background agents simultaneously
+- Windsurf: Cascade's Turbo Mode can run this autonomously with multiple strategies
+- Roo Code: Use Boomerang tasks to coordinate parallel exploration
+
+WHY PARALLEL: Each sub-agent has its own context window. Running 3-4 sub-agents
+in parallel with different search strategies provides comprehensive coverage
+while keeping each agent's context focused and efficient.
+
+SINGLE-CALL COMPREHENSIVE SEARCH:
+For platforms without sub-agents, this tool provides similar benefits in one call.
+Pass multiple search configurations to cover different angles simultaneously.
+
 USE CASES:
 - Compare semantic vs keyword results for the same query
 - Run same query with different weights to find optimal settings
@@ -599,13 +636,14 @@ USE CASES:
 
 RETURNS:
 - Individual results for each search configuration
-- Merged/deduped results with source tracking
+- Merged/deduped results with source tracking (RRF ranking)
 - Comparative metrics (overlap, unique results per config)
 
 EXAMPLE STRATEGIES:
 1. Mode comparison: [{mode:'semantic'}, {mode:'exact'}, {mode:'hybrid'}]
 2. Weight tuning: [{bm25_weight:0.2}, {bm25_weight:0.5}, {bm25_weight:0.8}]
-3. Multi-query: [{query:'auth'}, {query:'authentication'}, {query:'login'}]`,
+3. Multi-query: [{query:'auth'}, {query:'authentication'}, {query:'login'}]
+4. Comprehensive: Combine queries, modes, and filters for thorough exploration`,
 		parameters: z.object({
 			searches: z
 				.array(
