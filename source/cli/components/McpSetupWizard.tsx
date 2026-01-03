@@ -373,6 +373,12 @@ export function McpSetupWizard({
 						{selected.size > 0 ? 'Enter confirm, ' : ''}Esc cancel
 					</Text>
 				</Box>
+				<Box marginTop={1}>
+					<Text dimColor>
+						Manual setup:
+						https://github.com/mdrideout/viberag?tab=readme-ov-file#manual-setup-instructions
+					</Text>
+				</Box>
 			</Box>
 		);
 	}

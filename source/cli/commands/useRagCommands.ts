@@ -70,7 +70,10 @@ Multi-line input:
 Tips:
   Ctrl+C          - Clear input (twice to quit)
   Escape          - Clear input
-  Up/Down         - Command history`,
+  Up/Down         - Command history
+
+Manual MCP Setup:
+  https://github.com/mdrideout/viberag?tab=readme-ov-file#manual-setup-instructions`,
 		);
 	}, [addOutput]);
 

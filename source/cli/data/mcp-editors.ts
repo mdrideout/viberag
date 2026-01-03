@@ -216,13 +216,13 @@ export const EDITORS: EditorConfig[] = [
 	{
 		id: 'zed',
 		name: 'Zed',
-		configPath: '~/Library/Application Support/Zed/settings.json', // macOS default
+		configPath: '~/.config/zed/settings.json', // Linux default, resolved at runtime
 		configFormat: 'json',
 		scope: 'global',
 		canAutoCreate: false, // Needs merge with existing config
 		cliCommand: null,
 		docsUrl: 'https://zed.dev/docs/ai/mcp',
-		jsonKey: 'context_servers', // Different key!
+		jsonKey: 'context_servers',
 		description: 'global config',
 		restartInstructions: 'Restart Zed',
 		verificationSteps: [
@@ -294,15 +294,11 @@ export function getConfigPath(
 
 /**
  * Get Zed settings path based on platform.
+ * Zed uses ~/.config/zed/settings.json on macOS and Linux.
  */
 export function getZedSettingsPath(): string {
 	const platform = process.platform;
-	if (platform === 'darwin') {
-		return path.join(
-			os.homedir(),
-			'Library/Application Support/Zed/settings.json',
-		);
-	} else if (platform === 'linux') {
+	if (platform === 'darwin' || platform === 'linux') {
 		return path.join(os.homedir(), '.config/zed/settings.json');
 	} else {
 		// Windows - best guess

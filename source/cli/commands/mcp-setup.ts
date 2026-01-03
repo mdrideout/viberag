@@ -3,10 +3,88 @@
  *
  * Functions for generating, writing, and merging MCP configurations
  * for various AI coding tools.
+ *
+ * Note: Zed and VS Code use JSONC (JSON with Comments) for their config files.
+ * We strip comments before parsing to handle this.
  */
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
+
+/**
+ * Strip comments from JSONC content.
+ * Handles // single-line and /* multi-line comments.
+ * Also removes trailing commas before ] or }.
+ *
+ * This is needed because Zed and VS Code use JSONC format.
+ */
+function stripJsonComments(content: string): string {
+	let result = '';
+	let i = 0;
+	let inString = false;
+	let stringChar = '';
+
+	while (i < content.length) {
+		const char = content[i];
+		const nextChar = content[i + 1];
+
+		// Handle string boundaries
+		if (!inString && (char === '"' || char === "'")) {
+			inString = true;
+			stringChar = char;
+			result += char;
+			i++;
+			continue;
+		}
+
+		if (inString) {
+			// Check for escape sequences
+			if (char === '\\' && i + 1 < content.length) {
+				result += char + nextChar;
+				i += 2;
+				continue;
+			}
+			// Check for string end
+			if (char === stringChar) {
+				inString = false;
+				stringChar = '';
+			}
+			result += char;
+			i++;
+			continue;
+		}
+
+		// Handle single-line comments
+		if (char === '/' && nextChar === '/') {
+			// Skip until end of line
+			while (i < content.length && content[i] !== '\n') {
+				i++;
+			}
+			continue;
+		}
+
+		// Handle multi-line comments
+		if (char === '/' && nextChar === '*') {
+			i += 2; // Skip /*
+			while (i < content.length - 1) {
+				if (content[i] === '*' && content[i + 1] === '/') {
+					i += 2; // Skip */
+					break;
+				}
+				i++;
+			}
+			continue;
+		}
+
+		result += char;
+		i++;
+	}
+
+	// Remove trailing commas before ] or }
+	result = result.replace(/,(\s*[}\]])/g, '$1');
+
+	return result;
+}
 import {
 	EDITORS,
 	type EditorConfig,
@@ -39,6 +117,18 @@ export function generateViberagConfig(): object {
 }
 
 /**
+ * Generate Zed-specific viberag MCP server configuration.
+ * Zed requires: source="custom" for non-extension MCP servers.
+ */
+export function generateZedViberagConfig(): object {
+	return {
+		source: 'custom',
+		command: 'npx',
+		args: ['viberag-mcp'],
+	};
+}
+
+/**
  * Generate OpenCode-specific viberag MCP server configuration.
  * OpenCode requires: type="local", command as array, no args key.
  */
@@ -54,9 +144,11 @@ export function generateOpenCodeViberagConfig(): object {
  */
 export function generateMcpConfig(editor: EditorConfig): object {
 	const viberagConfig =
-		editor.id === 'opencode'
-			? generateOpenCodeViberagConfig()
-			: generateViberagConfig();
+		editor.id === 'zed'
+			? generateZedViberagConfig()
+			: editor.id === 'opencode'
+				? generateOpenCodeViberagConfig()
+				: generateViberagConfig();
 
 	// Use the editor's specific key
 	return {
@@ -90,13 +182,16 @@ export async function configExists(configPath: string): Promise<boolean> {
 
 /**
  * Read existing config file as JSON.
+ * Handles JSONC (JSON with Comments) format used by Zed and VS Code.
  */
 export async function readJsonConfig(
 	configPath: string,
 ): Promise<object | null> {
 	try {
 		const content = await fs.readFile(configPath, 'utf-8');
-		return JSON.parse(content) as object;
+		// Strip comments for JSONC support (Zed, VS Code)
+		const stripped = stripJsonComments(content);
+		return JSON.parse(stripped) as object;
 	} catch {
 		return null;
 	}
@@ -107,9 +202,11 @@ export async function readJsonConfig(
  */
 export function mergeConfig(existing: object, editor: EditorConfig): object {
 	const viberagConfig =
-		editor.id === 'opencode'
-			? generateOpenCodeViberagConfig()
-			: generateViberagConfig();
+		editor.id === 'zed'
+			? generateZedViberagConfig()
+			: editor.id === 'opencode'
+				? generateOpenCodeViberagConfig()
+				: generateViberagConfig();
 	const jsonKey = editor.jsonKey;
 
 	// Get or create the servers object

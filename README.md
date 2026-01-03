@@ -117,7 +117,7 @@ The wizard can auto-configure project-level configs and merge into global config
 
 The following sections describe manual MCP server setup configurations for various editors, and agent CLI commands if applicable.
 
-#### Project-Specific Configs
+#### Project Level Configs
 
 These editors use per-project config files that VibeRAG can auto-create.
 
@@ -219,7 +219,7 @@ claude mcp add viberag -- npx viberag-mcp
 
 ---
 
-### Global Configs
+#### Global Configs
 
 These editors use global config files. VibeRAG can merge into existing configs.
 
@@ -323,9 +323,9 @@ args = ["viberag-mcp"]
 </details>
 
 <details>
-<summary><strong>Zed</strong> — <code>~/Library/Application Support/Zed/settings.json</code></summary>
+<summary><strong>Zed</strong> — <code>~/.config/zed/settings.json</code></summary>
 
-**Config:** `~/Library/Application Support/Zed/settings.json` (macOS) or `~/.config/zed/settings.json` (Linux)
+**Config:** `~/.config/zed/settings.json` (macOS and Linux)
 
 **Manual Setup:** Merge into your existing settings.json:
 
@@ -333,6 +333,7 @@ args = ["viberag-mcp"]
 {
 	"context_servers": {
 		"viberag": {
+			"source": "custom",
 			"command": "npx",
 			"args": ["viberag-mcp"]
 		}
@@ -340,7 +341,7 @@ args = ["viberag-mcp"]
 }
 ```
 
-> **Note:** Zed uses `"context_servers"` instead of `"mcpServers"`
+> **Note:** Zed uses `"context_servers"` instead of `"mcpServers"` and requires `"source": "custom"` for non-extension servers
 
 **Verify:** Open Agent Panel settings, verify "viberag" shows green indicator
 
@@ -350,7 +351,7 @@ args = ["viberag-mcp"]
 
 ---
 
-### UI-Based Setup
+#### UI-Based Setup
 
 <details>
 <summary><strong>JetBrains IDEs</strong> — Settings UI</summary>
@@ -472,7 +473,6 @@ Check the file watcher for auto-indexing.
 - Number of files being watched
 - Pending changes count
 - Last update timestamp
-
 
 ## CLI Commands
 
