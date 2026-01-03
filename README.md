@@ -115,14 +115,10 @@ The wizard can auto-configure project-level configs and merge into global config
 
 ### Manual Setup Instructions
 
-The following sections describe manual MCP server setup configurations for various editors, and agent CLI commands if applicable.
-
-#### Project Level Configs
-
-These editors use per-project config files that VibeRAG can auto-create.
+The following sections describe manual MCP server setup configurations for various editors and agents.
 
 <details>
-<summary><strong>Claude Code</strong> — <code>.mcp.json</code></summary>
+<summary><strong>Claude Code</strong></summary>
 
 **CLI Command:**
 
@@ -130,7 +126,20 @@ These editors use per-project config files that VibeRAG can auto-create.
 claude mcp add viberag -- npx viberag-mcp
 ```
 
-**Manual Setup:**
+**Global Config:** `~/.claude.json`
+
+```json
+{
+	"mcpServers": {
+		"viberag": {
+			"command": "npx",
+			"args": ["viberag-mcp"]
+		}
+	}
+}
+```
+
+**Project Config:** `.mcp.json`
 
 ```json
 {
@@ -150,9 +159,22 @@ claude mcp add viberag -- npx viberag-mcp
 </details>
 
 <details>
-<summary><strong>Cursor</strong> — <code>.cursor/mcp.json</code></summary>
+<summary><strong>Cursor</strong></summary>
 
-**Manual Setup:**
+**Global Config:** `~/.cursor/mcp.json`
+
+```json
+{
+	"mcpServers": {
+		"viberag": {
+			"command": "npx",
+			"args": ["viberag-mcp"]
+		}
+	}
+}
+```
+
+**Project Config:** `.cursor/mcp.json`
 
 ```json
 {
@@ -172,9 +194,15 @@ claude mcp add viberag -- npx viberag-mcp
 </details>
 
 <details>
-<summary><strong>Roo Code</strong> — <code>.roo/mcp.json</code></summary>
+<summary><strong>Gemini CLI</strong></summary>
 
-**Manual Setup:**
+**CLI Command:**
+
+```bash
+gemini mcp add viberag -- npx viberag-mcp
+```
+
+**Global Config:** `~/.gemini/settings.json`
 
 ```json
 {
@@ -187,52 +215,7 @@ claude mcp add viberag -- npx viberag-mcp
 }
 ```
 
-**Verify:** Click MCP icon in Roo Code pane header, verify "viberag" appears in server list
-
-[Documentation](https://docs.roocode.com/features/mcp/using-mcp-in-roo)
-
-</details>
-
-<details>
-<summary><strong>VS Code Copilot</strong> — <code>.vscode/mcp.json</code></summary>
-
-**Manual Setup:**
-
-```json
-{
-	"servers": {
-		"viberag": {
-			"command": "npx",
-			"args": ["viberag-mcp"]
-		}
-	}
-}
-```
-
-> **Note:** VS Code uses `"servers"` instead of `"mcpServers"`
-
-**Verify:** Cmd/Ctrl+Shift+P → "MCP: List Servers", verify "viberag" appears
-
-[Documentation](https://code.visualstudio.com/docs/copilot/chat/mcp-servers)
-
-</details>
-
----
-
-#### Global Configs
-
-These editors use global config files. VibeRAG can merge into existing configs.
-
-<details>
-<summary><strong>Gemini CLI</strong> — <code>~/.gemini/settings.json</code></summary>
-
-**CLI Command:**
-
-```bash
-gemini mcp add viberag -- npx viberag-mcp
-```
-
-**Manual Setup:** Add to your existing settings.json:
+**Project Config:** `.gemini/settings.json`
 
 ```json
 {
@@ -252,7 +235,24 @@ gemini mcp add viberag -- npx viberag-mcp
 </details>
 
 <details>
-<summary><strong>OpenAI Codex</strong> — <code>~/.codex/config.toml</code></summary>
+<summary><strong>JetBrains IDEs</strong></summary>
+
+**UI Setup:**
+
+1. Open Settings → Tools → AI Assistant → MCP
+2. Click "Add Server"
+3. Set name: `viberag`
+4. Set command: `npx`
+5. Set args: `viberag-mcp`
+
+**Verify:** Settings → Tools → AI Assistant → MCP, verify "viberag" shows green in Status column
+
+[Documentation](https://www.jetbrains.com/help/ai-assistant/mcp.html)
+
+</details>
+
+<details>
+<summary><strong>OpenAI Codex</strong></summary>
 
 **CLI Command:**
 
@@ -260,7 +260,7 @@ gemini mcp add viberag -- npx viberag-mcp
 codex mcp add viberag -- npx viberag-mcp
 ```
 
-**Manual Setup:** Add to your config.toml:
+**Global Config:** `~/.codex/config.toml`
 
 ```toml
 [mcp_servers.viberag]
@@ -275,11 +275,22 @@ args = ["viberag-mcp"]
 </details>
 
 <details>
-<summary><strong>OpenCode</strong> — <code>~/.config/opencode/opencode.json</code></summary>
+<summary><strong>OpenCode</strong></summary>
 
-**Config:** `~/.config/opencode/opencode.json` (Linux/macOS) or `%APPDATA%/opencode/opencode.json` (Windows)
+**Global Config:** `~/.config/opencode/opencode.json` (Linux/macOS) or `%APPDATA%/opencode/opencode.json` (Windows)
 
-**Manual Setup:** Add to your existing opencode.json:
+```json
+{
+	"mcp": {
+		"viberag": {
+			"type": "local",
+			"command": ["npx", "-y", "viberag-mcp"]
+		}
+	}
+}
+```
+
+**Project Config:** `opencode.json`
 
 ```json
 {
@@ -301,9 +312,72 @@ args = ["viberag-mcp"]
 </details>
 
 <details>
-<summary><strong>Windsurf</strong> — <code>~/.codeium/windsurf/mcp_config.json</code></summary>
+<summary><strong>Roo Code</strong></summary>
 
-**Manual Setup:** Merge into your existing mcp_config.json:
+**Global Config:** UI only — Click MCP icon in Roo Code pane header → Edit Global MCP
+
+**Project Config:** `.roo/mcp.json`
+
+```json
+{
+	"mcpServers": {
+		"viberag": {
+			"command": "npx",
+			"args": ["viberag-mcp"]
+		}
+	}
+}
+```
+
+**Verify:** Click MCP icon in Roo Code pane header, verify "viberag" appears in server list
+
+[Documentation](https://docs.roocode.com/features/mcp/using-mcp-in-roo)
+
+</details>
+
+<details>
+<summary><strong>VS Code Copilot</strong></summary>
+
+**Global Config:** Add to User `settings.json` under `mcp.servers`:
+
+```json
+{
+	"mcp": {
+		"servers": {
+			"viberag": {
+				"command": "npx",
+				"args": ["viberag-mcp"]
+			}
+		}
+	}
+}
+```
+
+**Project Config:** `.vscode/mcp.json`
+
+```json
+{
+	"servers": {
+		"viberag": {
+			"command": "npx",
+			"args": ["viberag-mcp"]
+		}
+	}
+}
+```
+
+> **Note:** VS Code uses `"servers"` instead of `"mcpServers"`
+
+**Verify:** Cmd/Ctrl+Shift+P → "MCP: List Servers", verify "viberag" appears
+
+[Documentation](https://code.visualstudio.com/docs/copilot/chat/mcp-servers)
+
+</details>
+
+<details>
+<summary><strong>Windsurf</strong></summary>
+
+**Global Config:** `~/.codeium/windsurf/mcp_config.json`
 
 ```json
 {
@@ -323,11 +397,23 @@ args = ["viberag-mcp"]
 </details>
 
 <details>
-<summary><strong>Zed</strong> — <code>~/.config/zed/settings.json</code></summary>
+<summary><strong>Zed</strong></summary>
 
-**Config:** `~/.config/zed/settings.json` (macOS and Linux)
+**Global Config:** `~/.config/zed/settings.json`
 
-**Manual Setup:** Merge into your existing settings.json:
+```json
+{
+	"context_servers": {
+		"viberag": {
+			"source": "custom",
+			"command": "npx",
+			"args": ["viberag-mcp"]
+		}
+	}
+}
+```
+
+**Project Config:** `.zed/settings.json`
 
 ```json
 {
@@ -346,27 +432,6 @@ args = ["viberag-mcp"]
 **Verify:** Open Agent Panel settings, verify "viberag" shows green indicator
 
 [Documentation](https://zed.dev/docs/ai/mcp)
-
-</details>
-
----
-
-#### UI-Based Setup
-
-<details>
-<summary><strong>JetBrains IDEs</strong> — Settings UI</summary>
-
-**Manual Setup:**
-
-1. Open Settings → Tools → AI Assistant → MCP
-2. Click "Add Server"
-3. Set name: `viberag`
-4. Set command: `npx`
-5. Set args: `viberag-mcp`
-
-**Verify:** Settings → Tools → AI Assistant → MCP, verify "viberag" shows green in Status column
-
-[Documentation](https://www.jetbrains.com/help/ai-assistant/mcp.html)
 
 </details>
 
