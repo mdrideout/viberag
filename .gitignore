@@ -12,3 +12,5 @@ local_cache/
 .gemini/settings.json
 # MCP config (local, not committed)
 .roo/mcp.json
+# MCP config (local, not committed)
+.vscode/mcp.json
