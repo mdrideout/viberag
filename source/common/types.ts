@@ -119,14 +119,20 @@ export type McpSetupResultType = {
  * Configuration collected from the MCP setup wizard.
  */
 export type McpSetupWizardConfig = {
-	selectedEditors: McpEditorId[];
-	results: McpSetupResultType[];
+	selectedEditor: McpEditorId | null;
+	selectedScope: 'global' | 'project' | null;
+	result: McpSetupResultType | null;
 };
 
 /**
  * MCP setup wizard step types.
  */
-export type McpSetupStep = 'prompt' | 'select' | 'configure' | 'summary';
+export type McpSetupStep =
+	| 'prompt'
+	| 'select'
+	| 'scope'
+	| 'configure'
+	| 'summary';
 
 /**
  * Wizard mode state for the app.

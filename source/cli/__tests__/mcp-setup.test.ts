@@ -149,7 +149,7 @@ describe('Project-Level Config Creation', () => {
 
 	it('creates .mcp.json for Claude Code in empty project', async () => {
 		const editor = getEditor('claude-code')!;
-		const result = await writeMcpConfig(editor, ctx.dir);
+		const result = await writeMcpConfig(editor, 'project', ctx.dir);
 
 		expect(result.success).toBe(true);
 		expect(result.method).toBe('file-created');
@@ -164,7 +164,7 @@ describe('Project-Level Config Creation', () => {
 
 	it('creates .vscode/mcp.json with parent directory', async () => {
 		const editor = getEditor('vscode')!;
-		const result = await writeMcpConfig(editor, ctx.dir);
+		const result = await writeMcpConfig(editor, 'project', ctx.dir);
 
 		expect(result.success).toBe(true);
 		expect(result.method).toBe('file-created');
@@ -182,7 +182,7 @@ describe('Project-Level Config Creation', () => {
 
 	it('creates .cursor/mcp.json for Cursor', async () => {
 		const editor = getEditor('cursor')!;
-		const result = await writeMcpConfig(editor, ctx.dir);
+		const result = await writeMcpConfig(editor, 'project', ctx.dir);
 
 		expect(result.success).toBe(true);
 		expect(result.configPath).toContain('.cursor/mcp.json');
@@ -195,7 +195,7 @@ describe('Project-Level Config Creation', () => {
 
 	it('creates .roo/mcp.json for Roo Code', async () => {
 		const editor = getEditor('roo-code')!;
-		const result = await writeMcpConfig(editor, ctx.dir);
+		const result = await writeMcpConfig(editor, 'project', ctx.dir);
 
 		expect(result.success).toBe(true);
 		expect(result.configPath).toContain('.roo/mcp.json');
@@ -234,7 +234,7 @@ describe('Config Merging', () => {
 		});
 
 		const editor = getEditor('claude-code')!;
-		const result = await writeMcpConfig(editor, ctx.dir);
+		const result = await writeMcpConfig(editor, 'project', ctx.dir);
 
 		expect(result.success).toBe(true);
 		expect(result.method).toBe('file-merged');
@@ -261,7 +261,7 @@ describe('Config Merging', () => {
 		await writeTestConfig(ctx.dir, '.mcp.json', existingConfig);
 
 		const editor = getEditor('claude-code')!;
-		await writeMcpConfig(editor, ctx.dir);
+		await writeMcpConfig(editor, 'project', ctx.dir);
 
 		const config = (await readTestConfig(ctx.dir, '.mcp.json')) as {
 			mcpServers: Record<string, unknown>;
@@ -281,7 +281,7 @@ describe('Config Merging', () => {
 		});
 
 		const editor = getEditor('vscode')!;
-		await writeMcpConfig(editor, ctx.dir);
+		await writeMcpConfig(editor, 'project', ctx.dir);
 
 		const config = (await readTestConfig(ctx.dir, '.vscode/mcp.json')) as {
 			servers: Record<string, unknown>;
@@ -476,14 +476,14 @@ describe('Already Configured Detection', () => {
 		});
 
 		const editor = getEditor('claude-code')!;
-		const result = await isAlreadyConfigured(editor, ctx.dir);
+		const result = await isAlreadyConfigured(editor, 'project', ctx.dir);
 
 		expect(result).toBe(true);
 	});
 
 	it('isAlreadyConfigured returns false for empty project', async () => {
 		const editor = getEditor('claude-code')!;
-		const result = await isAlreadyConfigured(editor, ctx.dir);
+		const result = await isAlreadyConfigured(editor, 'project', ctx.dir);
 
 		expect(result).toBe(false);
 	});
@@ -497,7 +497,7 @@ describe('Already Configured Detection', () => {
 		});
 
 		const editor = getEditor('claude-code')!;
-		const result = await writeMcpConfig(editor, ctx.dir);
+		const result = await writeMcpConfig(editor, 'project', ctx.dir);
 
 		expect(result.success).toBe(true);
 		expect(result.method).toBe('file-merged');
@@ -524,7 +524,7 @@ describe('Edge Cases', () => {
 		await writeTestConfig(ctx.dir, '.mcp.json', {});
 
 		const editor = getEditor('claude-code')!;
-		const result = await writeMcpConfig(editor, ctx.dir);
+		const result = await writeMcpConfig(editor, 'project', ctx.dir);
 
 		expect(result.success).toBe(true);
 
@@ -540,7 +540,7 @@ describe('Edge Cases', () => {
 		await fs.writeFile(configPath, '{ invalid json }', 'utf-8');
 
 		const editor = getEditor('claude-code')!;
-		const result = await writeMcpConfig(editor, ctx.dir);
+		const result = await writeMcpConfig(editor, 'project', ctx.dir);
 
 		expect(result.success).toBe(false);
 		expect(result.error).toContain('parse');
@@ -568,11 +568,13 @@ describe('Edge Cases', () => {
 // =============================================================================
 
 describe('Editor Configuration Data', () => {
-	it('all project-scope editors have canAutoCreate true', () => {
-		const projectEditors = EDITORS.filter(e => e.scope === 'project');
+	it('editors with canAutoCreate true support project scope', () => {
+		// All editors that can auto-create should support project scope
+		// (we only auto-create project configs, not global)
+		const autoCreateEditors = EDITORS.filter(e => e.canAutoCreate);
 
-		for (const editor of projectEditors) {
-			expect(editor.canAutoCreate).toBe(true);
+		for (const editor of autoCreateEditors) {
+			expect(editor.supportsProject).toBe(true);
 		}
 	});
 
@@ -597,6 +599,18 @@ describe('Editor Configuration Data', () => {
 		const ids = EDITORS.map(e => e.id);
 		const uniqueIds = new Set(ids);
 		expect(uniqueIds.size).toBe(ids.length);
+	});
+
+	it('editors with both scopes have correct paths', () => {
+		const dualScopeEditors = EDITORS.filter(
+			e => e.supportsGlobal && e.supportsProject,
+		);
+
+		for (const editor of dualScopeEditors) {
+			// Project path should be set
+			expect(editor.projectConfigPath).toBeTruthy();
+			// Global path may be null (for UI-only global like VS Code, Roo Code)
+		}
 	});
 });
 
@@ -625,7 +639,7 @@ describe('Config Removal', () => {
 		});
 
 		const editor = getEditor('claude-code')!;
-		const result = await removeViberagConfig(editor, ctx.dir);
+		const result = await removeViberagConfig(editor, 'project', ctx.dir);
 
 		expect(result.success).toBe(true);
 		expect(result.editor).toBe('claude-code');
@@ -647,7 +661,7 @@ describe('Config Removal', () => {
 		});
 
 		const editor = getEditor('claude-code')!;
-		const result = await removeViberagConfig(editor, ctx.dir);
+		const result = await removeViberagConfig(editor, 'project', ctx.dir);
 
 		expect(result.success).toBe(true);
 
@@ -668,7 +682,7 @@ describe('Config Removal', () => {
 		});
 
 		const editor = getEditor('claude-code')!;
-		const result = await removeViberagConfig(editor, ctx.dir);
+		const result = await removeViberagConfig(editor, 'project', ctx.dir);
 
 		expect(result.success).toBe(false);
 		expect(result.error).toContain('not configured');
@@ -676,7 +690,7 @@ describe('Config Removal', () => {
 
 	it('returns error when config file does not exist', async () => {
 		const editor = getEditor('claude-code')!;
-		const result = await removeViberagConfig(editor, ctx.dir);
+		const result = await removeViberagConfig(editor, 'project', ctx.dir);
 
 		expect(result.success).toBe(false);
 		expect(result.error).toContain('does not exist');
@@ -691,7 +705,7 @@ describe('Config Removal', () => {
 		});
 
 		const editor = getEditor('vscode')!;
-		const result = await removeViberagConfig(editor, ctx.dir);
+		const result = await removeViberagConfig(editor, 'project', ctx.dir);
 
 		expect(result.success).toBe(true);
 
@@ -801,7 +815,7 @@ describe('findConfiguredEditors', () => {
 		const result = await findConfiguredEditors(ctx.dir);
 
 		expect(result.projectScope.length).toBeGreaterThanOrEqual(2);
-		const ids = result.projectScope.map(e => e.id);
+		const ids = result.projectScope.map(e => e.editor.id);
 		expect(ids).toContain('claude-code');
 		expect(ids).toContain('cursor');
 	});
@@ -827,8 +841,23 @@ describe('findConfiguredEditors', () => {
 
 		const result = await findConfiguredEditors(ctx.dir);
 
-		const ids = result.projectScope.map(e => e.id);
+		const ids = result.projectScope.map(e => e.editor.id);
 		expect(ids).toContain('claude-code');
 		expect(ids).not.toContain('cursor');
+	});
+
+	it('ConfiguredEditorInfo includes scope information', async () => {
+		await writeTestConfig(ctx.dir, '.mcp.json', {
+			mcpServers: {viberag: {command: 'npx'}},
+		});
+
+		const result = await findConfiguredEditors(ctx.dir);
+		const claudeInfo = result.projectScope.find(
+			e => e.editor.id === 'claude-code',
+		);
+
+		expect(claudeInfo).toBeDefined();
+		expect(claudeInfo?.scope).toBe('project');
+		expect(claudeInfo?.editor.name).toBe('Claude Code');
 	});
 });

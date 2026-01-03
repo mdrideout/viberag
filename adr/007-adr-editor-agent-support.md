@@ -18,33 +18,33 @@ VibeRAG's MCP setup wizard supports multiple AI coding tools. As the ecosystem e
 
 ### Scope Support Summary
 
-| Editor | Global Config | Project Config | CLI Command | Recommended Default |
-|--------|:-------------:|:--------------:|:-----------:|:-------------------:|
-| Claude Code | Yes | Yes | Yes | **Global** |
-| Cursor | Yes | Yes | No | **Global** |
-| VS Code Copilot | Yes | Yes | No | **Global** |
-| Windsurf | Yes | No | No | Global (only option) |
-| Zed | Yes | Yes | No | **Global** |
-| Gemini CLI | Yes | Yes | Yes | **Global** |
-| JetBrains IDEs | UI only | No | No | UI (only option) |
-| OpenAI Codex | Yes | No | Yes | Global (only option) |
-| OpenCode | Yes | Yes | No | **Global** |
-| Roo Code | UI only | Yes | No | **Global** |
+| Editor          | Global Config | Project Config | CLI Command | Recommended Default  |
+| --------------- | :-----------: | :------------: | :---------: | :------------------: |
+| Claude Code     |      Yes      |      Yes       |     Yes     |      **Global**      |
+| Cursor          |      Yes      |      Yes       |     No      |      **Global**      |
+| VS Code Copilot | Yes (manual)  |      Yes       |     No      |      **Global**      |
+| Windsurf        |      Yes      |       No       |     No      | Global (only option) |
+| Zed             |      Yes      |      Yes       |     No      |      **Global**      |
+| Gemini CLI      |      Yes      |      Yes       |     Yes     |      **Global**      |
+| JetBrains IDEs  |    UI only    |       No       |     No      |   UI (only option)   |
+| OpenAI Codex    |      Yes      |       No       |     Yes     | Global (only option) |
+| OpenCode        |      Yes      |      Yes       |     No      |      **Global**      |
+| Roo Code        |    UI only    |      Yes       |     No      |      **Global**      |
 
 ### Configuration Paths Reference
 
-| Editor | Global Path | Project Path | JSON Key | Format |
-|--------|-------------|--------------|----------|--------|
-| Claude Code | `~/.claude.json` | `.mcp.json` | `mcpServers` | JSON |
-| Cursor | `~/.cursor/mcp.json` | `.cursor/mcp.json` | `mcpServers` | JSON |
-| VS Code Copilot | User `settings.json` → `mcp.servers` | `.vscode/mcp.json` | `servers` | JSON |
-| Windsurf | `~/.codeium/windsurf/mcp_config.json` | N/A | `mcpServers` | JSON |
-| Zed | `~/.config/zed/settings.json` | `.zed/settings.json` | `context_servers` | JSON |
-| Gemini CLI | `~/.gemini/settings.json` | `.gemini/settings.json` | `mcpServers` | JSON |
-| JetBrains IDEs | Settings UI | N/A | N/A | UI |
-| OpenAI Codex | `~/.codex/config.toml` | N/A | `mcp_servers` | TOML |
-| OpenCode | `~/.config/opencode/opencode.json` | `opencode.json` | `mcp` | JSON |
-| Roo Code | VS Code settings UI | `.roo/mcp.json` | `mcpServers` | JSON |
+| Editor          | Global Path                           | Project Path            | JSON Key          | Format |
+| --------------- | ------------------------------------- | ----------------------- | ----------------- | ------ |
+| Claude Code     | `~/.claude.json`                      | `.mcp.json`             | `mcpServers`      | JSON   |
+| Cursor          | `~/.cursor/mcp.json`                  | `.cursor/mcp.json`      | `mcpServers`      | JSON   |
+| VS Code Copilot | User `settings.json` → `mcp.servers`  | `.vscode/mcp.json`      | `servers`         | JSON   |
+| Windsurf        | `~/.codeium/windsurf/mcp_config.json` | N/A                     | `mcpServers`      | JSON   |
+| Zed             | `~/.config/zed/settings.json`         | `.zed/settings.json`    | `context_servers` | JSON   |
+| Gemini CLI      | `~/.gemini/settings.json`             | `.gemini/settings.json` | `mcpServers`      | JSON   |
+| JetBrains IDEs  | Settings UI                           | N/A                     | N/A               | UI     |
+| OpenAI Codex    | `~/.codex/config.toml`                | N/A                     | `mcp_servers`     | TOML   |
+| OpenCode        | `~/.config/opencode/opencode.json`    | `opencode.json`         | `mcp`             | JSON   |
+| Roo Code        | VS Code settings UI                   | `.roo/mcp.json`         | `mcpServers`      | JSON   |
 
 ### Working Directory (cwd) Support
 
@@ -52,18 +52,18 @@ VibeRAG's MCP setup wizard supports multiple AI coding tools. As the ecosystem e
 
 This table documents whether each editor supports explicit `cwd` (working directory) configuration for MCP servers, and what the default behavior is.
 
-| Editor | Has `cwd` Config | Default cwd | Variable Support |
-|--------|:----------------:|-------------|------------------|
-| Claude Code | Yes | Project root | `${workspaceFolder}` |
-| Cursor | Yes | Project root | `${workspaceFolder}` in args |
-| VS Code Copilot | Yes | Project root | `${workspaceFolder}` |
-| Windsurf | No | Unspecified (likely editor location) | N/A |
-| Zed | No | Extension receives `project` param | N/A |
-| Gemini CLI | Yes | CLI's current directory | Relative paths (e.g., `"./path"`) |
-| JetBrains | No | Unspecified | N/A |
-| OpenAI Codex | Yes | CLI's current directory | Relative paths |
-| OpenCode | No | CLI's current directory | N/A |
-| Roo Code | Yes | Project root | Relative paths |
+| Editor          | Has `cwd` Config | Default cwd                          | Variable Support                  |
+| --------------- | :--------------: | ------------------------------------ | --------------------------------- |
+| Claude Code     |       Yes        | Project root                         | `${workspaceFolder}`              |
+| Cursor          |       Yes        | Project root                         | `${workspaceFolder}` in args      |
+| VS Code Copilot |       Yes        | Project root                         | `${workspaceFolder}`              |
+| Windsurf        |        No        | Unspecified (likely editor location) | N/A                               |
+| Zed             |        No        | Extension receives `project` param   | N/A                               |
+| Gemini CLI      |       Yes        | CLI's current directory              | Relative paths (e.g., `"./path"`) |
+| JetBrains       |        No        | Unspecified                          | N/A                               |
+| OpenAI Codex    |       Yes        | CLI's current directory              | Relative paths                    |
+| OpenCode        |        No        | CLI's current directory              | N/A                               |
+| Roo Code        |       Yes        | Project root                         | Relative paths                    |
 
 **Documentation Sources:**
 
@@ -159,13 +159,14 @@ cwd = "/path/to/project"
 
 **Supports:** Global, Project, CLI
 
-| Scope | Path | Description |
-|-------|------|-------------|
-| **Local** (default) | `~/.claude.json` | Private to current project, not shared |
-| **User** | `~/.claude.json` | Available across all projects for this user |
-| **Project** | `.mcp.json` | Shared with team via version control |
+| Scope               | Path             | Description                                 |
+| ------------------- | ---------------- | ------------------------------------------- |
+| **Local** (default) | `~/.claude.json` | Private to current project, not shared      |
+| **User**            | `~/.claude.json` | Available across all projects for this user |
+| **Project**         | `.mcp.json`      | Shared with team via version control        |
 
 **CLI Commands:**
+
 ```bash
 # Add to local scope (default) - stored in ~/.claude.json
 claude mcp add viberag -- npx viberag-mcp
@@ -181,20 +182,22 @@ claude mcp add viberag --scope project -- npx viberag-mcp
 ```
 
 **Configuration Example (`.mcp.json` or `~/.claude.json`):**
+
 ```json
 {
-  "mcpServers": {
-    "viberag": {
-      "command": "npx",
-      "args": ["viberag-mcp"]
-    }
-  }
+	"mcpServers": {
+		"viberag": {
+			"command": "npx",
+			"args": ["viberag-mcp"]
+		}
+	}
 }
 ```
 
 **Precedence:** Project scope > Local/User scope
 
 **Documentation Sources:**
+
 - [Claude Code MCP Scopes](https://github.com/context7/code_claude/blob/main/en/mcp.md) - Quote: "local (the default) makes the server available only in the current project. project shares the configuration with everyone in the project via a .mcp.json file. user makes the server available across all your projects."
 - [Plugin MCP Integration](https://github.com/anthropics/claude-code/blob/main/plugins/plugin-dev/skills/mcp-integration/SKILL.md)
 
@@ -204,26 +207,28 @@ claude mcp add viberag --scope project -- npx viberag-mcp
 
 **Supports:** Global, Project
 
-| Scope | Path | Description |
-|-------|------|-------------|
-| **Global** | `~/.cursor/mcp.json` | Available across all projects |
-| **Project** | `.cursor/mcp.json` | Project-specific configuration |
+| Scope       | Path                 | Description                    |
+| ----------- | -------------------- | ------------------------------ |
+| **Global**  | `~/.cursor/mcp.json` | Available across all projects  |
+| **Project** | `.cursor/mcp.json`   | Project-specific configuration |
 
 **Configuration Example:**
+
 ```json
 {
-  "mcpServers": {
-    "viberag": {
-      "command": "npx",
-      "args": ["-y", "viberag-mcp"]
-    }
-  }
+	"mcpServers": {
+		"viberag": {
+			"command": "npx",
+			"args": ["-y", "viberag-mcp"]
+		}
+	}
 }
 ```
 
 **Precedence:** Project config takes precedence when both exist
 
 **Documentation Sources:**
+
 - [Cursor MCP Configuration](https://docs.cursor.com/de/context/mcp) - Quote: "This configuration is typically placed in `.cursor/mcp.json` or `~/.cursor/mcp.json`"
 
 ---
@@ -232,46 +237,60 @@ claude mcp add viberag --scope project -- npx viberag-mcp
 
 **Supports:** Global (User Settings), Project, Workspace, Remote
 
-| Scope | Path | Description |
-|-------|------|-------------|
-| **User Settings** | `settings.json` → `mcp.servers` | Global for all workspaces |
-| **Workspace Settings** | `.code-workspace` → `settings.mcp` | Multi-root workspace |
-| **Project** | `.vscode/mcp.json` | Project-specific, shareable |
-| **Remote Settings** | Remote `settings.json` | For remote development |
+| Scope                  | Path                               | Description                 |
+| ---------------------- | ---------------------------------- | --------------------------- |
+| **User Settings**      | `settings.json` → `mcp.servers`    | Global for all workspaces   |
+| **Workspace Settings** | `.code-workspace` → `settings.mcp` | Multi-root workspace        |
+| **Project**            | `.vscode/mcp.json`                 | Project-specific, shareable |
+| **Remote Settings**    | Remote `settings.json`             | For remote development      |
 
 **Global Configuration (User `settings.json`):**
+
 ```json
 {
-  "mcp": {
-    "servers": {
-      "viberag": {
-        "command": "npx",
-        "args": ["-y", "viberag-mcp"]
-      }
-    }
-  }
+	"mcp": {
+		"servers": {
+			"viberag": {
+				"command": "npx",
+				"args": ["-y", "viberag-mcp"]
+			}
+		}
+	}
 }
 ```
 
 **Project Configuration (`.vscode/mcp.json`):**
+
 ```json
 {
-  "servers": {
-    "viberag": {
-      "command": "npx",
-      "args": ["-y", "viberag-mcp"]
-    }
-  }
+	"servers": {
+		"viberag": {
+			"command": "npx",
+			"args": ["-y", "viberag-mcp"]
+		}
+	}
 }
 ```
 
 **Special Requirements:**
+
 - Uses `servers` key, not `mcpServers`
 - **JSONC Format:** VS Code uses JSONC (JSON with Comments) for settings files. Comments and trailing commas are allowed.
 
 **Precedence:** Workspace > User settings
 
+**Implementation Note (Auto-Config Limitation):**
+
+VS Code's global MCP config is stored in User `settings.json`, which has platform-specific paths:
+
+- macOS: `~/Library/Application Support/Code/User/settings.json`
+- Linux: `~/.config/Code/User/settings.json`
+- Windows: `%APPDATA%\Code\User\settings.json`
+
+Due to this complexity and the need to safely merge into existing user settings (which contain many other VS Code preferences), the MCP setup wizard shows **manual instructions for global scope** while providing **auto-configuration for project scope** only (`.vscode/mcp.json`).
+
 **Documentation Sources:**
+
 - [VS Code MCP Servers](https://github.com/microsoft/vscode-docs/blob/main/docs/copilot/customization/mcp-servers.md)
 - [VS Code v1.99 Release Notes](https://github.com/microsoft/vscode-docs/blob/main/release-notes/v1_99.md) - Quote: "MCP servers can be configured under the `mcp` section in your user, remote, or `.code-workspace` settings, or in `.vscode/mcp.json` in your workspace"
 
@@ -281,26 +300,28 @@ claude mcp add viberag --scope project -- npx viberag-mcp
 
 **Supports:** Global only
 
-| Scope | Path | Description |
-|-------|------|-------------|
-| **Global** | `~/.codeium/windsurf/mcp_config.json` | macOS/Linux |
-| **Global** | `C:\Users\[Username]\.codeium\windsurf\mcp_config.json` | Windows |
+| Scope      | Path                                                    | Description |
+| ---------- | ------------------------------------------------------- | ----------- |
+| **Global** | `~/.codeium/windsurf/mcp_config.json`                   | macOS/Linux |
+| **Global** | `C:\Users\[Username]\.codeium\windsurf\mcp_config.json` | Windows     |
 
 **Configuration Example:**
+
 ```json
 {
-  "mcpServers": {
-    "viberag": {
-      "command": "npx",
-      "args": ["-y", "viberag-mcp"]
-    }
-  }
+	"mcpServers": {
+		"viberag": {
+			"command": "npx",
+			"args": ["-y", "viberag-mcp"]
+		}
+	}
 }
 ```
 
 **Note:** Windsurf does NOT support project-level MCP configuration. Global only.
 
 **Documentation Sources:**
+
 - [Windsurf MCP Configuration](https://github.com/context7/windsurf-windsurf/blob/main/cascade/mcp.md)
 - [Windsurf Cascade MCP](https://docs.windsurf.com/windsurf/cascade/mcp)
 - [Windsurf Config Location](https://github.com/context7/docs_windsurf_com-windsurf-getting-started/blob/main/windsurf/mcp.md) - Shows `~/.codeium/windsurf` as config directory
@@ -311,26 +332,28 @@ claude mcp add viberag --scope project -- npx viberag-mcp
 
 **Supports:** Global, Project
 
-| Scope | Path | Description |
-|-------|------|-------------|
-| **Global** | `~/.config/zed/settings.json` | macOS and Linux |
-| **Global** | `$XDG_CONFIG_HOME/zed/settings.json` | Linux (if XDG_CONFIG_HOME set) |
-| **Project** | `.zed/settings.json` | Project-specific settings |
+| Scope       | Path                                 | Description                    |
+| ----------- | ------------------------------------ | ------------------------------ |
+| **Global**  | `~/.config/zed/settings.json`        | macOS and Linux                |
+| **Global**  | `$XDG_CONFIG_HOME/zed/settings.json` | Linux (if XDG_CONFIG_HOME set) |
+| **Project** | `.zed/settings.json`                 | Project-specific settings      |
 
 **Configuration Example:**
+
 ```json
 {
-  "context_servers": {
-    "viberag": {
-      "source": "custom",
-      "command": "npx",
-      "args": ["viberag-mcp"]
-    }
-  }
+	"context_servers": {
+		"viberag": {
+			"source": "custom",
+			"command": "npx",
+			"args": ["viberag-mcp"]
+		}
+	}
 }
 ```
 
 **Special Requirements:**
+
 - **`"source": "custom"` is REQUIRED** for non-extension MCP servers
 - Uses `context_servers` key (not `mcpServers`)
 - Global path is `~/.config/zed/settings.json` on BOTH macOS and Linux
@@ -352,6 +375,7 @@ Without JSONC parsing, `JSON.parse()` fails on files with comments, causing the 
 **Precedence:** Project settings merge with global; some settings like `theme` only apply from global
 
 **Documentation Sources:**
+
 - [Zed Configuration](https://github.com/context7/zed_dev/blob/main/configuring-zed.md) - Quote: "The user settings JSON file, typically located at `~/.config/zed/settings.json`... Project-specific settings can be managed by creating a `.zed/settings.json` file within the project's root directory"
 - [Zed AI MCP](https://github.com/context7/zed_dev/blob/main/ai/mcp.md)
 
@@ -361,18 +385,19 @@ Without JSONC parsing, `JSON.parse()` fails on files with comments, causing the 
 
 **Supports:** Global (User), Project, System, CLI
 
-| Scope | Path | Description |
-|-------|------|-------------|
-| **System Defaults** | `/etc/gemini-cli/system-defaults.json` (Linux) | Lowest precedence |
-| | `/Library/Application Support/GeminiCli/system-defaults.json` (macOS) | |
-| | `C:\ProgramData\gemini-cli\system-defaults.json` (Windows) | |
-| **User** | `~/.gemini/settings.json` | User-wide settings |
-| **Project** | `.gemini/settings.json` | Project-specific |
-| **System Overrides** | `/etc/gemini-cli/settings.json` (Linux) | Highest precedence |
-| | `/Library/Application Support/GeminiCli/settings.json` (macOS) | |
-| | `C:\ProgramData\gemini-cli\settings.json` (Windows) | |
+| Scope                | Path                                                                  | Description        |
+| -------------------- | --------------------------------------------------------------------- | ------------------ |
+| **System Defaults**  | `/etc/gemini-cli/system-defaults.json` (Linux)                        | Lowest precedence  |
+|                      | `/Library/Application Support/GeminiCli/system-defaults.json` (macOS) |                    |
+|                      | `C:\ProgramData\gemini-cli\system-defaults.json` (Windows)            |                    |
+| **User**             | `~/.gemini/settings.json`                                             | User-wide settings |
+| **Project**          | `.gemini/settings.json`                                               | Project-specific   |
+| **System Overrides** | `/etc/gemini-cli/settings.json` (Linux)                               | Highest precedence |
+|                      | `/Library/Application Support/GeminiCli/settings.json` (macOS)        |                    |
+|                      | `C:\ProgramData\gemini-cli\settings.json` (Windows)                   |                    |
 
 **CLI Commands:**
+
 ```bash
 # Add to user scope (default)
 gemini mcp add viberag -- npx viberag-mcp
@@ -389,20 +414,22 @@ gemini mcp remove viberag
 ```
 
 **Configuration Example:**
+
 ```json
 {
-  "mcpServers": {
-    "viberag": {
-      "command": "npx",
-      "args": ["-y", "viberag-mcp"]
-    }
-  }
+	"mcpServers": {
+		"viberag": {
+			"command": "npx",
+			"args": ["-y", "viberag-mcp"]
+		}
+	}
 }
 ```
 
 **Precedence:** System overrides > Project > User > System defaults
 
 **Documentation Sources:**
+
 - [Gemini CLI Configuration](https://github.com/google-gemini/gemini-cli/blob/main/docs/get-started/configuration.md) - Quote: "User settings file: `~/.gemini/settings.json`... Project settings file: `.gemini/settings.json` within your project's root directory"
 - [Gemini CLI MCP Server](https://github.com/google-gemini/gemini-cli/blob/main/docs/tools/mcp-server.md)
 
@@ -412,11 +439,12 @@ gemini mcp remove viberag
 
 **Supports:** UI only (global)
 
-| Scope | Path | Description |
-|-------|------|-------------|
+| Scope         | Path                                  | Description            |
+| ------------- | ------------------------------------- | ---------------------- |
 | **Global UI** | Settings → Tools → AI Assistant → MCP | IDE-wide configuration |
 
 **Manual Setup Steps:**
+
 1. Open Settings (⌘, on macOS, Ctrl+Alt+S on Windows/Linux)
 2. Navigate to Tools → AI Assistant → MCP
 3. Click "Add Server"
@@ -429,6 +457,7 @@ gemini mcp remove viberag
 **Note:** JetBrains uses UI-based configuration only. No file-based MCP config for project or global scope.
 
 **Documentation Sources:**
+
 - [JetBrains AI Assistant MCP](https://github.com/context7/jetbrains_help/blob/main/ai-assistant/mcp.md)
 - [Official JetBrains MCP Docs](https://www.jetbrains.com/help/ai-assistant/mcp.html)
 
@@ -438,11 +467,12 @@ gemini mcp remove viberag
 
 **Supports:** Global only, CLI
 
-| Scope | Path | Description |
-|-------|------|-------------|
+| Scope      | Path                   | Description             |
+| ---------- | ---------------------- | ----------------------- |
 | **Global** | `~/.codex/config.toml` | User-wide configuration |
 
 **CLI Commands:**
+
 ```bash
 # Add MCP server
 codex mcp add viberag -- npx viberag-mcp
@@ -455,6 +485,7 @@ codex mcp remove viberag
 ```
 
 **Manual Configuration (`~/.codex/config.toml`):**
+
 ```toml
 [mcp_servers.viberag]
 command = "npx"
@@ -464,6 +495,7 @@ args = ["viberag-mcp"]
 **Note:** Codex uses TOML format, not JSON. Global config only.
 
 **Documentation Sources:**
+
 - [Codex MCP Configuration](https://github.com/context7/developers_openai_codex/blob/main/mcp.md) - Quote: "manually edit the `~/.codex/config.toml` file"
 - [Codex Local Config](https://github.com/context7/developers_openai_codex/blob/main/local-config.md)
 
@@ -473,27 +505,29 @@ args = ["viberag-mcp"]
 
 **Supports:** Global, Project
 
-| Scope | Path | Description |
-|-------|------|-------------|
-| **Global** | `~/.config/opencode/opencode.json` | User-wide settings |
-| **Project** | `opencode.json` | Project root |
-| **Custom** | `OPENCODE_CONFIG` env var | Custom config path |
+| Scope       | Path                               | Description        |
+| ----------- | ---------------------------------- | ------------------ |
+| **Global**  | `~/.config/opencode/opencode.json` | User-wide settings |
+| **Project** | `opencode.json`                    | Project root       |
+| **Custom**  | `OPENCODE_CONFIG` env var          | Custom config path |
 
 **Global Configuration (`~/.config/opencode/opencode.json`):**
+
 ```json
 {
-  "$schema": "https://opencode.ai/config.json",
-  "mcp": {
-    "viberag": {
-      "type": "local",
-      "command": ["npx", "-y", "viberag-mcp"],
-      "enabled": true
-    }
-  }
+	"$schema": "https://opencode.ai/config.json",
+	"mcp": {
+		"viberag": {
+			"type": "local",
+			"command": ["npx", "-y", "viberag-mcp"],
+			"enabled": true
+		}
+	}
 }
 ```
 
 **Special Requirements:**
+
 - Uses `type: "local"` for stdio servers
 - Command is an ARRAY (not string): `["npx", "-y", "viberag-mcp"]`
 - Uses `mcp` key (not `mcpServers`)
@@ -501,6 +535,7 @@ args = ["viberag-mcp"]
 **Precedence:** `OPENCODE_CONFIG` > Project > Global
 
 **Documentation Sources:**
+
 - [OpenCode Configuration](https://github.com/sst/opencode/blob/dev/packages/web/src/content/docs/config.mdx) - Quote: "Your global configuration should be placed in `~/.config/opencode/opencode.json`"
 - [OpenCode MCP Servers](https://github.com/context7/opencode_ai/blob/main/mcp-servers.md)
 
@@ -510,31 +545,38 @@ args = ["viberag-mcp"]
 
 **Supports:** Global (UI), Project
 
-| Scope | Path | Description |
-|-------|------|-------------|
-| **Global** | VS Code extension settings UI | Extension-wide settings |
-| **Project** | `.roo/mcp.json` | Project-specific |
+| Scope       | Path                          | Description             |
+| ----------- | ----------------------------- | ----------------------- |
+| **Global**  | VS Code extension settings UI | Extension-wide settings |
+| **Project** | `.roo/mcp.json`               | Project-specific        |
 
 **Project Configuration (`.roo/mcp.json`):**
+
 ```json
 {
-  "mcpServers": {
-    "viberag": {
-      "command": "npx",
-      "args": ["-y", "viberag-mcp"]
-    }
-  }
+	"mcpServers": {
+		"viberag": {
+			"command": "npx",
+			"args": ["-y", "viberag-mcp"]
+		}
+	}
 }
 ```
 
 **Global Configuration (via UI):**
+
 1. Click the MCP icon (server icon) in Roo Code pane header
 2. Click "Edit Global MCP"
 3. Add server configuration
 
+**Implementation Note (Auto-Config Limitation):**
+
+Roo Code stores global MCP configuration via its VS Code extension UI, not a standalone config file. The MCP setup wizard shows **manual instructions for global scope** while providing **auto-configuration for project scope** only (`.roo/mcp.json`).
+
 **Precedence:** Project-level takes precedence over global
 
 **Documentation Sources:**
+
 - [Roo Code MCP Usage](https://github.com/roocodeinc/roo-code-docs/blob/main/docs/features/mcp/using-mcp-in-roo.mdx)
 - [Roo Code v3.11 Release Notes](https://github.com/roocodeinc/roo-code-docs/blob/main/docs/update-notes/v3.11.0.md) - Quote: "Project-Level MCP Config... using a `.roo/mcp.json` file within your project's root directory. This allows for tailored MCP setups specific to different projects and takes precedence over global MCP settings."
 
@@ -587,25 +629,25 @@ When adding a new editor/agent to the MCP wizard, follow this checklist:
 
 **Key information to extract:**
 
-| Field | Example (Gemini CLI) |
-|-------|---------------------|
-| Global config | `~/.gemini/settings.json` |
-| Project config | `.gemini/settings.json` |
-| JSON key | `mcpServers` |
-| Config format | JSON |
-| CLI command | `gemini mcp add` |
-| Precedence | Project > User > System defaults |
-| Special requirements | None |
-| Documentation URL | https://github.com/google-gemini/gemini-cli/blob/main/docs/tools/mcp-server.md |
+| Field                | Example (Gemini CLI)                                                           |
+| -------------------- | ------------------------------------------------------------------------------ |
+| Global config        | `~/.gemini/settings.json`                                                      |
+| Project config       | `.gemini/settings.json`                                                        |
+| JSON key             | `mcpServers`                                                                   |
+| Config format        | JSON                                                                           |
+| CLI command          | `gemini mcp add`                                                               |
+| Precedence           | Project > User > System defaults                                               |
+| Special requirements | None                                                                           |
+| Documentation URL    | https://github.com/google-gemini/gemini-cli/blob/main/docs/tools/mcp-server.md |
 
 ### Phase 2: Choose Config Scope Strategy
 
-| Editor Type | Default Scope | Offer Choice? |
-|-------------|---------------|---------------|
-| Supports both global + project | **Global** | Yes |
-| Global only | Global | No |
-| Project only | Project | No |
-| UI only | UI instructions | N/A |
+| Editor Type                    | Default Scope   | Offer Choice? |
+| ------------------------------ | --------------- | ------------- |
+| Supports both global + project | **Global**      | Yes           |
+| Global only                    | Global          | No            |
+| Project only                   | Project         | No            |
+| UI only                        | UI instructions | N/A           |
 
 ### Phase 3: Code Changes
 
@@ -640,12 +682,12 @@ For platform-specific global paths:
 
 ```typescript
 export function getNewEditorConfigPath(): string {
-  const platform = process.platform;
-  if (platform === 'darwin' || platform === 'linux') {
-    return path.join(os.homedir(), '.config/new-editor/config.json');
-  } else {
-    return path.join(os.homedir(), 'AppData/Roaming/NewEditor/config.json');
-  }
+	const platform = process.platform;
+	if (platform === 'darwin' || platform === 'linux') {
+		return path.join(os.homedir(), '.config/new-editor/config.json');
+	} else {
+		return path.join(os.homedir(), 'AppData/Roaming/NewEditor/config.json');
+	}
 }
 ```
 
@@ -654,19 +696,19 @@ export function getNewEditorConfigPath(): string {
 ```typescript
 // Example: Zed requires "source": "custom"
 export function generateZedViberagConfig(): object {
-  return {
-    source: 'custom',
-    command: 'npx',
-    args: ['viberag-mcp'],
-  };
+	return {
+		source: 'custom',
+		command: 'npx',
+		args: ['viberag-mcp'],
+	};
 }
 
 // Example: OpenCode requires array command and type field
 export function generateOpenCodeViberagConfig(): object {
-  return {
-    type: 'local',
-    command: ['npx', '-y', 'viberag-mcp'],
-  };
+	return {
+		type: 'local',
+		command: ['npx', '-y', 'viberag-mcp'],
+	};
 }
 ```
 
@@ -676,18 +718,27 @@ The `/clean` command and `CleanWizard` remove viberag from configured editors. K
 
 ```typescript
 // Remove viberag from a parsed config object
-export function removeViberagFromConfig(existing: object, editor: EditorConfig): object | null
+export function removeViberagFromConfig(
+	existing: object,
+	editor: EditorConfig,
+): object | null;
 
 // Remove viberag from an editor's config file
-export async function removeViberagConfig(editor: EditorConfig, projectRoot: string): Promise<McpRemovalResult>
+export async function removeViberagConfig(
+	editor: EditorConfig,
+	projectRoot: string,
+): Promise<McpRemovalResult>;
 
 // Find all editors that have viberag configured
-export async function findConfiguredEditors(projectRoot: string): Promise<{projectScope: EditorConfig[]; globalScope: EditorConfig[]}>
+export async function findConfiguredEditors(
+	projectRoot: string,
+): Promise<{projectScope: EditorConfig[]; globalScope: EditorConfig[]}>;
 ```
 
 **Important:** Removal uses the same `readJsonConfig()` which handles JSONC. This ensures removal works for Zed/VS Code configs with comments.
 
 **Removal behavior:**
+
 - **Works for both global AND project configs** — `findConfiguredEditors()` scans both scopes
 - Removes only the `viberag` key from the servers object
 - Preserves all other MCP servers and settings
@@ -695,11 +746,13 @@ export async function findConfiguredEditors(projectRoot: string): Promise<{proje
 - Returns `McpRemovalResult` with success/failure status
 
 **Scope handling in CleanWizard:**
+
 - Scans all configured editors in both project and global scopes
 - Shows user which configs will be removed (grouped by scope)
 - Removes from each config file independently
 
 **For editors with CLI commands:**
+
 ```bash
 # Claude Code
 claude mcp remove viberag

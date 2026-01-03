@@ -30,12 +30,18 @@ export interface EditorConfig {
 	id: EditorId;
 	/** Display name */
 	name: string;
-	/** Config file path (null = no file config, ~ expanded at runtime) */
-	configPath: string | null;
+	/** Global config path (null = no global file config, ~ expanded at runtime) */
+	globalConfigPath: string | null;
+	/** Project config path (null = no project file config) */
+	projectConfigPath: string | null;
 	/** Config file format */
 	configFormat: 'json' | 'toml' | 'ui';
-	/** Configuration scope */
-	scope: 'project' | 'global' | 'ui';
+	/** Whether editor supports global config */
+	supportsGlobal: boolean;
+	/** Whether editor supports project config */
+	supportsProject: boolean;
+	/** Default/recommended scope */
+	defaultScope: 'global' | 'project' | 'ui';
 	/** Whether we can auto-create the config */
 	canAutoCreate: boolean;
 	/** CLI command if available (null = none) */
@@ -44,12 +50,12 @@ export interface EditorConfig {
 	docsUrl: string;
 	/** JSON key for servers object */
 	jsonKey: string;
-	/** Short description for wizard */
-	description: string;
 	/** Restart/reload instructions */
 	restartInstructions: string;
 	/** Verification steps */
 	verificationSteps: string[];
+	/** Instructions for UI-only global setup (VS Code, Roo Code) */
+	globalUiInstructions?: string;
 }
 
 /**
@@ -60,14 +66,16 @@ export const EDITORS: EditorConfig[] = [
 	{
 		id: 'claude-code',
 		name: 'Claude Code',
-		configPath: '.mcp.json',
+		globalConfigPath: '~/.claude.json',
+		projectConfigPath: '.mcp.json',
 		configFormat: 'json',
-		scope: 'project',
+		supportsGlobal: true,
+		supportsProject: true,
+		defaultScope: 'global',
 		canAutoCreate: true,
 		cliCommand: 'claude mcp add viberag -- npx viberag-mcp',
 		docsUrl: 'https://code.claude.com/docs/en/mcp',
 		jsonKey: 'mcpServers',
-		description: 'auto-setup',
 		restartInstructions:
 			'Restart Claude Code or run: claude mcp restart viberag',
 		verificationSteps: [
@@ -78,14 +86,16 @@ export const EDITORS: EditorConfig[] = [
 	{
 		id: 'cursor',
 		name: 'Cursor',
-		configPath: '.cursor/mcp.json',
+		globalConfigPath: '~/.cursor/mcp.json',
+		projectConfigPath: '.cursor/mcp.json',
 		configFormat: 'json',
-		scope: 'project',
+		supportsGlobal: true,
+		supportsProject: true,
+		defaultScope: 'global',
 		canAutoCreate: true,
 		cliCommand: null,
 		docsUrl: 'https://cursor.com/docs/context/mcp',
 		jsonKey: 'mcpServers',
-		description: 'auto-setup',
 		restartInstructions: 'Restart Cursor or reload window',
 		verificationSteps: [
 			'Settings → Cursor Settings → MCP',
@@ -95,14 +105,16 @@ export const EDITORS: EditorConfig[] = [
 	{
 		id: 'gemini-cli',
 		name: 'Gemini CLI',
-		configPath: '~/.gemini/settings.json',
+		globalConfigPath: '~/.gemini/settings.json',
+		projectConfigPath: '.gemini/settings.json',
 		configFormat: 'json',
-		scope: 'global',
+		supportsGlobal: true,
+		supportsProject: true,
+		defaultScope: 'global',
 		canAutoCreate: false, // Has CLI command
 		cliCommand: 'gemini mcp add viberag -- npx viberag-mcp',
 		docsUrl: 'https://geminicli.com/docs/tools/mcp-server/',
 		jsonKey: 'mcpServers',
-		description: 'global config',
 		restartInstructions: 'Restart Gemini CLI session',
 		verificationSteps: [
 			'Run /mcp in Gemini CLI',
@@ -112,14 +124,16 @@ export const EDITORS: EditorConfig[] = [
 	{
 		id: 'jetbrains',
 		name: 'JetBrains IDEs',
-		configPath: null, // UI-only configuration
+		globalConfigPath: null, // UI-only configuration
+		projectConfigPath: null,
 		configFormat: 'ui',
-		scope: 'ui',
+		supportsGlobal: true, // UI-based
+		supportsProject: false,
+		defaultScope: 'ui',
 		canAutoCreate: false,
 		cliCommand: null,
 		docsUrl: 'https://www.jetbrains.com/help/ai-assistant/mcp.html',
 		jsonKey: 'mcpServers',
-		description: 'manual setup',
 		restartInstructions: 'No restart needed - changes apply immediately',
 		verificationSteps: [
 			'Settings → Tools → AI Assistant → MCP',
@@ -129,14 +143,16 @@ export const EDITORS: EditorConfig[] = [
 	{
 		id: 'codex',
 		name: 'OpenAI Codex',
-		configPath: '~/.codex/config.toml',
+		globalConfigPath: '~/.codex/config.toml',
+		projectConfigPath: null,
 		configFormat: 'toml',
-		scope: 'global',
+		supportsGlobal: true,
+		supportsProject: false,
+		defaultScope: 'global',
 		canAutoCreate: false, // Has CLI command
 		cliCommand: 'codex mcp add viberag -- npx viberag-mcp',
 		docsUrl: 'https://developers.openai.com/codex/mcp/',
 		jsonKey: 'mcp_servers', // TOML section name
-		description: 'global config',
 		restartInstructions: 'Restart Codex session',
 		verificationSteps: [
 			'Run /mcp in Codex TUI',
@@ -146,14 +162,16 @@ export const EDITORS: EditorConfig[] = [
 	{
 		id: 'opencode',
 		name: 'OpenCode',
-		configPath: '~/.config/opencode/opencode.json',
+		globalConfigPath: '~/.config/opencode/opencode.json',
+		projectConfigPath: 'opencode.json',
 		configFormat: 'json',
-		scope: 'global',
+		supportsGlobal: true,
+		supportsProject: true,
+		defaultScope: 'global',
 		canAutoCreate: false,
 		cliCommand: null,
 		docsUrl: 'https://opencode.ai/docs/mcp-servers/',
 		jsonKey: 'mcp',
-		description: 'global config',
 		restartInstructions: 'Restart OpenCode session',
 		verificationSteps: [
 			'Check MCP servers list in OpenCode',
@@ -163,50 +181,59 @@ export const EDITORS: EditorConfig[] = [
 	{
 		id: 'roo-code',
 		name: 'Roo Code',
-		configPath: '.roo/mcp.json',
+		globalConfigPath: null, // Global is UI-only
+		projectConfigPath: '.roo/mcp.json',
 		configFormat: 'json',
-		scope: 'project',
-		canAutoCreate: true,
+		supportsGlobal: true, // But UI-only
+		supportsProject: true,
+		defaultScope: 'global',
+		canAutoCreate: true, // For project scope only
 		cliCommand: null,
 		docsUrl: 'https://docs.roocode.com/features/mcp/using-mcp-in-roo',
 		jsonKey: 'mcpServers',
-		description: 'auto-setup',
 		restartInstructions: 'Reload VS Code window',
 		verificationSteps: [
 			'Click MCP icon in Roo Code pane header',
 			'Verify "viberag" appears in server list',
 		],
+		globalUiInstructions:
+			'Click MCP icon → Edit Global MCP → Add viberag config',
 	},
 	{
 		id: 'vscode',
 		name: 'VS Code Copilot',
-		configPath: '.vscode/mcp.json',
+		globalConfigPath: null, // Global requires manual settings.json edit
+		projectConfigPath: '.vscode/mcp.json',
 		configFormat: 'json',
-		scope: 'project',
-		canAutoCreate: true,
+		supportsGlobal: true, // But manual only (no auto-config)
+		supportsProject: true,
+		defaultScope: 'global',
+		canAutoCreate: true, // For project scope only
 		cliCommand: null,
 		docsUrl:
 			'https://code.visualstudio.com/docs/copilot/customization/mcp-servers',
 		jsonKey: 'servers', // VS Code uses 'servers', not 'mcpServers'
-		description: 'auto-setup',
 		restartInstructions:
 			'Reload VS Code window (Cmd/Ctrl+Shift+P → "Reload Window")',
 		verificationSteps: [
 			'Cmd/Ctrl+Shift+P → "MCP: List Servers"',
 			'Verify "viberag" appears with status',
 		],
+		globalUiInstructions: 'Open Settings (JSON) and add under "mcp.servers"',
 	},
 	{
 		id: 'windsurf',
 		name: 'Windsurf',
-		configPath: '~/.codeium/windsurf/mcp_config.json',
+		globalConfigPath: '~/.codeium/windsurf/mcp_config.json',
+		projectConfigPath: null,
 		configFormat: 'json',
-		scope: 'global',
+		supportsGlobal: true,
+		supportsProject: false,
+		defaultScope: 'global',
 		canAutoCreate: false, // Needs merge with existing config
 		cliCommand: null,
 		docsUrl: 'https://docs.windsurf.com/windsurf/cascade/mcp',
 		jsonKey: 'mcpServers',
-		description: 'global config',
 		restartInstructions: 'Click refresh in Cascade Plugins panel, then restart',
 		verificationSteps: [
 			'Click Plugins icon in Cascade panel',
@@ -216,14 +243,16 @@ export const EDITORS: EditorConfig[] = [
 	{
 		id: 'zed',
 		name: 'Zed',
-		configPath: '~/.config/zed/settings.json', // Linux default, resolved at runtime
+		globalConfigPath: '~/.config/zed/settings.json', // Resolved at runtime via getZedSettingsPath
+		projectConfigPath: '.zed/settings.json',
 		configFormat: 'json',
-		scope: 'global',
-		canAutoCreate: false, // Needs merge with existing config
+		supportsGlobal: true,
+		supportsProject: true,
+		defaultScope: 'global',
+		canAutoCreate: false, // JSONC merge required
 		cliCommand: null,
 		docsUrl: 'https://zed.dev/docs/ai/mcp',
 		jsonKey: 'context_servers',
-		description: 'global config',
 		restartInstructions: 'Restart Zed',
 		verificationSteps: [
 			'Open Agent Panel settings',
@@ -237,20 +266,6 @@ export const EDITORS: EditorConfig[] = [
  */
 export function getEditor(id: EditorId): EditorConfig | undefined {
 	return EDITORS.find(e => e.id === id);
-}
-
-/**
- * Get editors that support auto-creation of project-level config.
- */
-export function getAutoCreateEditors(): EditorConfig[] {
-	return EDITORS.filter(e => e.canAutoCreate && e.scope === 'project');
-}
-
-/**
- * Get editors that require global config merging.
- */
-export function getGlobalConfigEditors(): EditorConfig[] {
-	return EDITORS.filter(e => e.scope === 'global');
 }
 
 /**
@@ -271,25 +286,71 @@ export function expandPath(configPath: string): string {
 }
 
 /**
- * Get the absolute config path for an editor.
- * For project-scope editors, projectRoot is required.
+ * Check if scope selection is needed for this editor.
+ * Returns true if editor supports both global and project scopes.
+ */
+export function needsScopeSelection(editor: EditorConfig): boolean {
+	return editor.supportsGlobal && editor.supportsProject;
+}
+
+/**
+ * Get available scopes for an editor.
+ */
+export function getAvailableScopes(
+	editor: EditorConfig,
+): ('global' | 'project')[] {
+	const scopes: ('global' | 'project')[] = [];
+	if (editor.supportsGlobal && editor.defaultScope !== 'ui') {
+		scopes.push('global');
+	}
+	if (editor.supportsProject) {
+		scopes.push('project');
+	}
+	return scopes;
+}
+
+/**
+ * Check if global config requires manual setup (no auto-config).
+ * True for VS Code (settings.json) and Roo Code (UI-based global).
+ */
+export function isGlobalManualOnly(editor: EditorConfig): boolean {
+	return editor.supportsGlobal && !editor.globalConfigPath;
+}
+
+/**
+ * Get the absolute config path for an editor based on scope.
+ * For project scope, projectRoot is required.
  */
 export function getConfigPath(
 	editor: EditorConfig,
+	scope: 'global' | 'project',
 	projectRoot?: string,
 ): string | null {
-	if (!editor.configPath) {
-		return null;
-	}
-
-	if (editor.scope === 'project') {
+	if (scope === 'project') {
+		if (!editor.projectConfigPath) return null;
 		if (!projectRoot) {
-			throw new Error(`Project root required for ${editor.name}`);
+			throw new Error(
+				`Project root required for ${editor.name} project config`,
+			);
 		}
-		return path.join(projectRoot, editor.configPath);
+		return path.join(projectRoot, editor.projectConfigPath);
 	}
 
-	return expandPath(editor.configPath);
+	// Global scope - handle platform-specific paths
+	if (!editor.globalConfigPath) return null;
+
+	// Special platform handling for specific editors
+	if (editor.id === 'zed') {
+		return getZedSettingsPath();
+	}
+	if (editor.id === 'windsurf') {
+		return getWindsurfConfigPath();
+	}
+	if (editor.id === 'opencode') {
+		return getOpenCodeConfigPath();
+	}
+
+	return expandPath(editor.globalConfigPath);
 }
 
 /**

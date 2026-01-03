@@ -8,11 +8,12 @@
 import React, {useState, useEffect, useCallback} from 'react';
 import {Box, Text, useInput} from 'ink';
 import SelectInput from 'ink-select-input';
-import {EDITORS, type EditorConfig} from '../data/mcp-editors.js';
+import {EDITORS, getConfigPath} from '../data/mcp-editors.js';
 import {
 	findConfiguredEditors,
 	removeViberagConfig,
 	type McpRemovalResult,
+	type ConfiguredEditorInfo,
 } from '../commands/mcp-setup.js';
 
 type CleanStep = 'confirm' | 'mcp-cleanup' | 'processing' | 'summary';
@@ -49,12 +50,12 @@ export function CleanWizard({
 	addOutput,
 }: Props): React.ReactElement {
 	const [step, setStep] = useState<CleanStep>('confirm');
-	const [projectScopeEditors, setProjectScopeEditors] = useState<
-		EditorConfig[]
+	const [projectScopeConfigs, setProjectScopeConfigs] = useState<
+		ConfiguredEditorInfo[]
 	>([]);
-	const [globalScopeEditors, setGlobalScopeEditors] = useState<EditorConfig[]>(
-		[],
-	);
+	const [globalScopeConfigs, setGlobalScopeConfigs] = useState<
+		ConfiguredEditorInfo[]
+	>([]);
 	const [mcpResults, setMcpResults] = useState<McpRemovalResult[]>([]);
 	const [viberagRemoved, setViberagRemoved] = useState(false);
 
@@ -68,8 +69,8 @@ export function CleanWizard({
 	// Find configured editors on mount
 	useEffect(() => {
 		findConfiguredEditors(projectRoot).then(({projectScope, globalScope}) => {
-			setProjectScopeEditors(projectScope);
-			setGlobalScopeEditors(globalScope);
+			setProjectScopeConfigs(projectScope);
+			setGlobalScopeConfigs(globalScope);
 		});
 	}, [projectRoot]);
 
@@ -82,7 +83,7 @@ export function CleanWizard({
 			}
 
 			// If there are project-scope MCP configs, ask about cleanup
-			if (projectScopeEditors.length > 0) {
+			if (projectScopeConfigs.length > 0) {
 				setStep('mcp-cleanup');
 			} else {
 				// No MCP configs to clean, go straight to processing
@@ -91,7 +92,7 @@ export function CleanWizard({
 			}
 		},
 		// eslint-disable-next-line react-hooks/exhaustive-deps -- performCleanup is stable
-		[projectScopeEditors, onCancel],
+		[projectScopeConfigs, onCancel],
 	);
 
 	// Perform the actual cleanup
@@ -113,8 +114,8 @@ export function CleanWizard({
 			// Clean MCP configs if requested
 			if (cleanMcp) {
 				const results: McpRemovalResult[] = [];
-				for (const editor of projectScopeEditors) {
-					const result = await removeViberagConfig(editor, projectRoot);
+				for (const {editor, scope} of projectScopeConfigs) {
+					const result = await removeViberagConfig(editor, scope, projectRoot);
 					results.push(result);
 				}
 				setMcpResults(results);
@@ -122,7 +123,7 @@ export function CleanWizard({
 
 			setStep('summary');
 		},
-		[viberagDir, projectScopeEditors, projectRoot, addOutput],
+		[viberagDir, projectScopeConfigs, projectRoot, addOutput],
 	);
 
 	// Handle MCP cleanup choice
@@ -134,6 +135,12 @@ export function CleanWizard({
 		[performCleanup],
 	);
 
+	// Helper to get display path for a configured editor
+	const getDisplayPath = (info: ConfiguredEditorInfo): string => {
+		const path = getConfigPath(info.editor, info.scope, projectRoot);
+		return path ?? info.editor.projectConfigPath ?? 'unknown';
+	};
+
 	// Step: Confirm
 	if (step === 'confirm') {
 		return (
@@ -144,19 +151,20 @@ export function CleanWizard({
 				<Box marginTop={1} flexDirection="column">
 					<Text>This will remove:</Text>
 					<Text dimColor> • {viberagDir}/ (index and config)</Text>
-					{projectScopeEditors.length > 0 && (
+					{projectScopeConfigs.length > 0 && (
 						<Text dimColor>
 							{' '}
-							• MCP configs ({projectScopeEditors.map(e => e.name).join(', ')})
+							• MCP configs (
+							{projectScopeConfigs.map(c => c.editor.name).join(', ')})
 						</Text>
 					)}
 				</Box>
-				{globalScopeEditors.length > 0 && (
+				{globalScopeConfigs.length > 0 && (
 					<Box marginTop={1}>
 						<Text color="blue">
 							Note: Global MCP configs (
-							{globalScopeEditors.map(e => e.name).join(', ')}){'\n'}will NOT be
-							modified. Remove manually if needed.
+							{globalScopeConfigs.map(c => c.editor.name).join(', ')}){'\n'}will
+							NOT be modified. Remove manually if needed.
 						</Text>
 					</Box>
 				)}
@@ -180,10 +188,10 @@ export function CleanWizard({
 				</Text>
 				<Box marginTop={1} flexDirection="column">
 					<Text>Found viberag in these project MCP configs:</Text>
-					{projectScopeEditors.map(editor => (
-						<Text key={editor.id} dimColor>
+					{projectScopeConfigs.map(info => (
+						<Text key={`${info.editor.id}-${info.scope}`} dimColor>
 							{' '}
-							• {editor.name} ({editor.configPath})
+							• {info.editor.name} ({getDisplayPath(info)})
 						</Text>
 					))}
 				</Box>
@@ -237,14 +245,15 @@ export function CleanWizard({
 						);
 					})}
 				</Box>
-				{globalScopeEditors.length > 0 && (
+				{globalScopeConfigs.length > 0 && (
 					<Box marginTop={1} flexDirection="column">
 						<Text bold color="blue">
 							Manual cleanup needed:
 						</Text>
-						{globalScopeEditors.map(editor => (
-							<Text key={editor.id} dimColor>
-								• {editor.name}: Remove "viberag" from {editor.configPath}
+						{globalScopeConfigs.map(info => (
+							<Text key={`${info.editor.id}-${info.scope}`} dimColor>
+								• {info.editor.name}: Remove "viberag" from{' '}
+								{getDisplayPath(info)}
 							</Text>
 						))}
 					</Box>

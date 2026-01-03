@@ -90,9 +90,7 @@ import {
 	type EditorConfig,
 	type EditorId,
 	getConfigPath,
-	getZedSettingsPath,
-	getWindsurfConfigPath,
-	getOpenCodeConfigPath,
+	isGlobalManualOnly,
 } from '../data/mcp-editors.js';
 
 /**
@@ -240,28 +238,19 @@ export function hasViberagConfig(
  */
 export async function writeMcpConfig(
 	editor: EditorConfig,
+	scope: 'global' | 'project',
 	projectRoot: string,
 ): Promise<McpSetupResult> {
 	try {
-		// Get the config path
-		let configPath: string;
-		if (editor.id === 'zed') {
-			configPath = getZedSettingsPath();
-		} else if (editor.id === 'windsurf') {
-			configPath = getWindsurfConfigPath();
-		} else if (editor.id === 'opencode') {
-			configPath = getOpenCodeConfigPath();
-		} else {
-			const path = getConfigPath(editor, projectRoot);
-			if (!path) {
-				return {
-					success: false,
-					editor: editor.id,
-					method: 'instructions-shown',
-					error: 'No config path for this editor',
-				};
-			}
-			configPath = path;
+		// Get the config path using scope
+		const configPath = getConfigPath(editor, scope, projectRoot);
+		if (!configPath) {
+			return {
+				success: false,
+				editor: editor.id,
+				method: 'instructions-shown',
+				error: `${editor.name} does not support ${scope} configuration`,
+			};
 		}
 
 		// Ensure parent directory exists
@@ -330,30 +319,49 @@ export async function writeMcpConfig(
  */
 export function getManualInstructions(
 	editor: EditorConfig,
+	scope: 'global' | 'project',
 	projectRoot: string,
 ): string {
 	const lines: string[] = [];
 
-	lines.push(`## ${editor.name} MCP Setup`);
+	lines.push(`## ${editor.name} MCP Setup (${scope})`);
 	lines.push('');
 
-	if (editor.cliCommand) {
+	// Check for manual-only global (VS Code, Roo Code)
+	if (scope === 'global' && isGlobalManualOnly(editor)) {
+		if (editor.globalUiInstructions) {
+			lines.push(editor.globalUiInstructions);
+			lines.push('');
+		}
+		if (editor.id === 'vscode') {
+			lines.push('Add to your User settings.json:');
+			lines.push('');
+			lines.push('  "mcp": {');
+			lines.push('    "servers": {');
+			lines.push('      "viberag": {');
+			lines.push('        "command": "npx",');
+			lines.push('        "args": ["viberag-mcp"]');
+			lines.push('      }');
+			lines.push('    }');
+			lines.push('  }');
+			lines.push('');
+		} else if (editor.id === 'roo-code') {
+			lines.push('1. Click the MCP icon in Roo Code pane header');
+			lines.push('2. Click "Edit Global MCP"');
+			lines.push('3. Add the viberag server configuration');
+			lines.push('');
+		}
+	} else if (editor.cliCommand) {
 		lines.push('Run this command:');
 		lines.push('');
 		lines.push(`  ${editor.cliCommand}`);
 		lines.push('');
 	} else if (editor.configFormat === 'json') {
-		let configPath: string;
-		if (editor.id === 'opencode') {
-			configPath = getOpenCodeConfigPath();
-		} else if (editor.scope === 'project') {
-			configPath = editor.configPath!;
-		} else {
-			const resolvedPath = getConfigPath(editor, projectRoot);
-			configPath = resolvedPath ?? editor.configPath!;
-		}
+		const configPath = getConfigPath(editor, scope, projectRoot);
 
-		lines.push(`Add to ${configPath}:`);
+		lines.push(
+			`Add to ${configPath ?? (scope === 'project' ? editor.projectConfigPath : editor.globalConfigPath)}:`,
+		);
 		lines.push('');
 
 		const config = generateMcpConfig(editor);
@@ -366,7 +374,7 @@ export function getManualInstructions(
 		);
 		lines.push('');
 	} else if (editor.configFormat === 'toml') {
-		lines.push(`Add to ${editor.configPath}:`);
+		lines.push(`Add to ${editor.globalConfigPath}:`);
 		lines.push('');
 		lines.push(
 			generateTomlConfig()
@@ -406,21 +414,12 @@ export function getManualInstructions(
  */
 export async function getMergeDiff(
 	editor: EditorConfig,
+	scope: 'global' | 'project',
 	projectRoot: string,
 ): Promise<{before: string; after: string; configPath: string} | null> {
 	try {
-		let configPath: string;
-		if (editor.id === 'zed') {
-			configPath = getZedSettingsPath();
-		} else if (editor.id === 'windsurf') {
-			configPath = getWindsurfConfigPath();
-		} else if (editor.id === 'opencode') {
-			configPath = getOpenCodeConfigPath();
-		} else {
-			const path = getConfigPath(editor, projectRoot);
-			if (!path) return null;
-			configPath = path;
-		}
+		const configPath = getConfigPath(editor, scope, projectRoot);
+		if (!configPath) return null;
 
 		const exists = await configExists(configPath);
 		if (!exists) {
@@ -447,25 +446,16 @@ export async function getMergeDiff(
 }
 
 /**
- * Check if viberag is already configured for an editor.
+ * Check if viberag is already configured for an editor at a specific scope.
  */
 export async function isAlreadyConfigured(
 	editor: EditorConfig,
+	scope: 'global' | 'project',
 	projectRoot: string,
 ): Promise<boolean> {
 	try {
-		let configPath: string;
-		if (editor.id === 'zed') {
-			configPath = getZedSettingsPath();
-		} else if (editor.id === 'windsurf') {
-			configPath = getWindsurfConfigPath();
-		} else if (editor.id === 'opencode') {
-			configPath = getOpenCodeConfigPath();
-		} else {
-			const path = getConfigPath(editor, projectRoot);
-			if (!path) return false;
-			configPath = path;
-		}
+		const configPath = getConfigPath(editor, scope, projectRoot);
+		if (!configPath) return false;
 
 		const exists = await configExists(configPath);
 		if (!exists) return false;
@@ -477,6 +467,24 @@ export async function isAlreadyConfigured(
 	} catch {
 		return false;
 	}
+}
+
+/**
+ * Check if viberag is configured at any scope for an editor.
+ * Returns info about which scopes are configured.
+ */
+export async function getConfiguredScopes(
+	editor: EditorConfig,
+	projectRoot: string,
+): Promise<{global: boolean; project: boolean}> {
+	const globalConfigured = editor.supportsGlobal
+		? await isAlreadyConfigured(editor, 'global', projectRoot)
+		: false;
+	const projectConfigured = editor.supportsProject
+		? await isAlreadyConfigured(editor, 'project', projectRoot)
+		: false;
+
+	return {global: globalConfigured, project: projectConfigured};
 }
 
 /**
@@ -528,27 +536,18 @@ export interface McpRemovalResult {
  */
 export async function removeViberagConfig(
 	editor: EditorConfig,
+	scope: 'global' | 'project',
 	projectRoot: string,
 ): Promise<McpRemovalResult> {
 	try {
-		// Get the config path
-		let configPath: string;
-		if (editor.id === 'zed') {
-			configPath = getZedSettingsPath();
-		} else if (editor.id === 'windsurf') {
-			configPath = getWindsurfConfigPath();
-		} else if (editor.id === 'opencode') {
-			configPath = getOpenCodeConfigPath();
-		} else {
-			const p = getConfigPath(editor, projectRoot);
-			if (!p) {
-				return {
-					success: false,
-					editor: editor.id,
-					error: 'No config path for this editor',
-				};
-			}
-			configPath = p;
+		// Get the config path using scope
+		const configPath = getConfigPath(editor, scope, projectRoot);
+		if (!configPath) {
+			return {
+				success: false,
+				editor: editor.id,
+				error: `${editor.name} does not support ${scope} configuration`,
+			};
 		}
 
 		// Check if file exists
@@ -611,22 +610,46 @@ export async function removeViberagConfig(
 }
 
 /**
- * Find all editors that have viberag configured.
- * Returns both project-scope and global-scope editors.
+ * Info about a configured editor and its scope.
  */
-export async function findConfiguredEditors(
-	projectRoot: string,
-): Promise<{projectScope: EditorConfig[]; globalScope: EditorConfig[]}> {
-	const projectScope: EditorConfig[] = [];
-	const globalScope: EditorConfig[] = [];
+export interface ConfiguredEditorInfo {
+	editor: EditorConfig;
+	scope: 'global' | 'project';
+}
+
+/**
+ * Find all editors that have viberag configured.
+ * Returns both project-scope and global-scope configurations.
+ */
+export async function findConfiguredEditors(projectRoot: string): Promise<{
+	projectScope: ConfiguredEditorInfo[];
+	globalScope: ConfiguredEditorInfo[];
+}> {
+	const projectScope: ConfiguredEditorInfo[] = [];
+	const globalScope: ConfiguredEditorInfo[] = [];
 
 	for (const editor of EDITORS) {
-		const isConfigured = await isAlreadyConfigured(editor, projectRoot);
-		if (isConfigured) {
-			if (editor.scope === 'project') {
-				projectScope.push(editor);
-			} else if (editor.scope === 'global') {
-				globalScope.push(editor);
+		// Check global scope
+		if (editor.supportsGlobal && editor.globalConfigPath) {
+			const isGlobalConfigured = await isAlreadyConfigured(
+				editor,
+				'global',
+				projectRoot,
+			);
+			if (isGlobalConfigured) {
+				globalScope.push({editor, scope: 'global'});
+			}
+		}
+
+		// Check project scope
+		if (editor.supportsProject && editor.projectConfigPath) {
+			const isProjectConfigured = await isAlreadyConfigured(
+				editor,
+				'project',
+				projectRoot,
+			);
+			if (isProjectConfigured) {
+				projectScope.push({editor, scope: 'project'});
 			}
 		}
 	}

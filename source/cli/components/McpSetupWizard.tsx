@@ -1,20 +1,25 @@
 /**
  * MCP Setup Wizard Component
  *
- * Multi-step wizard for configuring VibeRAG's MCP server
- * across various AI coding tools.
+ * Single-editor wizard for configuring VibeRAG's MCP server
+ * with scope selection (global vs project).
  */
 
 import React, {useState, useCallback, useEffect} from 'react';
 import {Box, Text, useInput} from 'ink';
 import SelectInput from 'ink-select-input';
-import {EDITORS, type EditorId} from '../data/mcp-editors.js';
+import {
+	EDITORS,
+	type EditorId,
+	needsScopeSelection,
+	isGlobalManualOnly,
+	getConfigPath,
+} from '../data/mcp-editors.js';
 import {
 	writeMcpConfig,
 	getManualInstructions,
-	isAlreadyConfigured,
+	getConfiguredScopes,
 	addToGitignore,
-	getProjectConfigPaths,
 	type McpSetupResult,
 } from '../commands/mcp-setup.js';
 
@@ -23,16 +28,18 @@ import {
  */
 export type McpSetupStep =
 	| 'prompt' // Post-init prompt (Yes/Skip)
-	| 'select' // Multi-select editors
-	| 'configure' // Per-editor configuration
+	| 'select' // Single-select editor
+	| 'scope' // Global vs Project selection
+	| 'configure' // Configuration action
 	| 'summary'; // Final summary
 
 /**
  * Wizard configuration.
  */
 export interface McpSetupWizardConfig {
-	selectedEditors: EditorId[];
-	results: McpSetupResult[];
+	selectedEditor: EditorId | null;
+	selectedScope: 'global' | 'project' | null;
+	result: McpSetupResult | null;
 }
 
 type Props = {
@@ -65,90 +72,6 @@ const PROMPT_ITEMS: SelectItem<'yes' | 'skip'>[] = [
 ];
 
 /**
- * Action items for each editor.
- */
-const PROJECT_ACTION_ITEMS: SelectItem<'auto' | 'manual' | 'skip'>[] = [
-	{label: 'Auto-configure (Recommended)', value: 'auto'},
-	{label: 'Show manual instructions', value: 'manual'},
-	{label: 'Skip this editor', value: 'skip'},
-];
-
-const GLOBAL_ACTION_ITEMS: SelectItem<'auto' | 'manual' | 'skip'>[] = [
-	{label: 'Auto-update config (Recommended)', value: 'auto'},
-	{label: 'Show config to copy manually', value: 'manual'},
-	{label: 'Skip this editor', value: 'skip'},
-];
-
-const UI_ACTION_ITEMS: SelectItem<'manual' | 'skip'>[] = [
-	{label: 'Show setup instructions', value: 'manual'},
-	{label: 'Skip this editor', value: 'skip'},
-];
-
-/**
- * Multi-select checkbox list component.
- */
-function MultiSelect({
-	items,
-	selected,
-	onToggle,
-	onSubmit,
-	highlightIndex,
-	onHighlightChange,
-	disabledItems,
-}: {
-	items: {id: EditorId; label: string; description: string}[];
-	selected: Set<EditorId>;
-	onToggle: (id: EditorId) => void;
-	onSubmit: () => void;
-	highlightIndex: number;
-	onHighlightChange: (index: number) => void;
-	disabledItems?: Set<EditorId>;
-}): React.ReactElement {
-	useInput((input, key) => {
-		if (key.upArrow) {
-			onHighlightChange(Math.max(0, highlightIndex - 1));
-		} else if (key.downArrow) {
-			onHighlightChange(Math.min(items.length - 1, highlightIndex + 1));
-		} else if (input === ' ') {
-			const item = items[highlightIndex];
-			if (item && !disabledItems?.has(item.id)) {
-				onToggle(item.id);
-			}
-		} else if (key.return && selected.size > 0) {
-			onSubmit();
-		}
-	});
-
-	return (
-		<Box flexDirection="column">
-			{items.map((item, index) => {
-				const isSelected = selected.has(item.id);
-				const isHighlighted = index === highlightIndex;
-				const isDisabled = disabledItems?.has(item.id);
-				const checkbox = isSelected ? '[x]' : '[ ]';
-
-				return (
-					<Box key={item.id}>
-						<Text
-							color={isDisabled ? 'gray' : isHighlighted ? 'cyan' : undefined}
-							bold={isHighlighted}
-							dimColor={isDisabled}
-						>
-							{isHighlighted ? '> ' : '  '}
-							{checkbox} {item.label}
-							<Text dimColor> ({item.description})</Text>
-							{isDisabled ? (
-								<Text color="yellow"> (already configured)</Text>
-							) : null}
-						</Text>
-					</Box>
-				);
-			})}
-		</Box>
-	);
-}
-
-/**
  * MCP Setup Wizard main component.
  */
 export function McpSetupWizard({
@@ -161,35 +84,28 @@ export function McpSetupWizard({
 	onCancel,
 	addOutput,
 }: Props): React.ReactElement {
-	// Multi-select state
-	const [selected, setSelected] = useState<Set<EditorId>>(
-		new Set(config.selectedEditors ?? []),
-	);
-	const [highlightIndex, setHighlightIndex] = useState(0);
-	const [configuredEditors, setConfiguredEditors] = useState<Set<EditorId>>(
-		new Set(),
-	);
+	// Track which editors are already configured (at any scope)
+	const [configuredEditors, setConfiguredEditors] = useState<
+		Map<EditorId, {global: boolean; project: boolean}>
+	>(new Map());
 
-	// Per-editor configuration state
-	const [currentEditorIndex, setCurrentEditorIndex] = useState(0);
-	const [results, setResults] = useState<McpSetupResult[]>(
-		config.results ?? [],
-	);
+	// Processing state
 	const [isProcessing, setIsProcessing] = useState(false);
 
-	// Gitignore prompt state
+	// Gitignore prompt state (for project scope)
 	const [gitignoreHandled, setGitignoreHandled] = useState(false);
-	const [gitignoreAdded, setGitignoreAdded] = useState<string[]>([]);
+	const [gitignoreAdded, setGitignoreAdded] = useState<string | null>(null);
 
-	// Check which editors are already configured
+	// Check which editors are already configured at each scope
 	useEffect(() => {
 		const checkConfigured = async () => {
-			const configured = new Set<EditorId>();
+			const configured = new Map<
+				EditorId,
+				{global: boolean; project: boolean}
+			>();
 			for (const editor of EDITORS) {
-				const isConfigured = await isAlreadyConfigured(editor, projectRoot);
-				if (isConfigured) {
-					configured.add(editor.id);
-				}
+				const scopes = await getConfiguredScopes(editor, projectRoot);
+				configured.set(editor.id, scopes);
 			}
 			setConfiguredEditors(configured);
 		};
@@ -203,34 +119,15 @@ export function McpSetupWizard({
 		}
 	});
 
-	// Toggle selection
-	const handleToggle = useCallback((id: EditorId) => {
-		setSelected(prev => {
-			const next = new Set(prev);
-			if (next.has(id)) {
-				next.delete(id);
-			} else {
-				next.add(id);
-			}
-			return next;
-		});
-	}, []);
-
-	// Submit selection
-	const handleSubmitSelection = useCallback(() => {
-		onStepChange('configure', {selectedEditors: Array.from(selected)});
-		setCurrentEditorIndex(0);
-	}, [selected, onStepChange]);
-
-	// Get current editor being configured
-	const selectedEditorIds = config.selectedEditors ?? [];
-	const currentEditorId = selectedEditorIds[currentEditorIndex];
-	const currentEditor = EDITORS.find(e => e.id === currentEditorId);
+	// Get current editor
+	const currentEditor = config.selectedEditor
+		? EDITORS.find(e => e.id === config.selectedEditor)
+		: null;
 
 	// Handle editor action
 	const handleEditorAction = useCallback(
 		async (action: 'auto' | 'manual' | 'skip') => {
-			if (!currentEditor) return;
+			if (!currentEditor || !config.selectedScope) return;
 			setIsProcessing(true);
 
 			let result: McpSetupResult;
@@ -244,7 +141,11 @@ export function McpSetupWizard({
 				};
 			} else if (action === 'manual') {
 				// Show manual instructions
-				const instructions = getManualInstructions(currentEditor, projectRoot);
+				const instructions = getManualInstructions(
+					currentEditor,
+					config.selectedScope,
+					projectRoot,
+				);
 				if (addOutput) {
 					addOutput('system', instructions);
 				}
@@ -255,65 +156,37 @@ export function McpSetupWizard({
 				};
 			} else {
 				// Auto setup
-				result = await writeMcpConfig(currentEditor, projectRoot);
+				result = await writeMcpConfig(
+					currentEditor,
+					config.selectedScope,
+					projectRoot,
+				);
 			}
 
-			const newResults = [...results, result];
-			setResults(newResults);
-
-			// Move to next editor or summary
-			if (currentEditorIndex < selectedEditorIds.length - 1) {
-				setCurrentEditorIndex(currentEditorIndex + 1);
-			} else {
-				onStepChange('summary', {results: newResults});
-			}
+			onStepChange('summary', {result});
 			setIsProcessing(false);
 		},
-		[
-			currentEditor,
-			projectRoot,
-			results,
-			currentEditorIndex,
-			selectedEditorIds.length,
-			onStepChange,
-			addOutput,
-		],
+		[currentEditor, config.selectedScope, projectRoot, onStepChange, addOutput],
 	);
 
-	// Build editor items for multi-select
-	const editorItems = EDITORS.map(editor => ({
-		id: editor.id,
-		label: editor.name,
-		description: editor.description,
-	}));
-
-	// Get project-scope configs for gitignore prompt (computed from results)
-	// NOTE: This must be before early returns to maintain consistent hook order
-	const projectConfigs = getProjectConfigPaths(results);
-
-	// Handle gitignore action
+	// Handle gitignore action (for project scope)
 	const handleGitignore = useCallback(
 		async (action: 'yes' | 'no') => {
-			if (action === 'yes') {
-				const added: string[] = [];
-				for (const configPath of projectConfigs) {
-					const success = await addToGitignore(projectRoot, configPath);
-					if (success) {
-						added.push(configPath);
-					}
+			if (action === 'yes' && config.result?.configPath) {
+				// Extract relative path for gitignore
+				const relativePath = config.result.configPath.startsWith(projectRoot)
+					? config.result.configPath.slice(projectRoot.length + 1)
+					: config.result.configPath;
+
+				const success = await addToGitignore(projectRoot, relativePath);
+				if (success) {
+					setGitignoreAdded(relativePath);
 				}
-				setGitignoreAdded(added);
 			}
 			setGitignoreHandled(true);
 		},
-		[projectConfigs, projectRoot],
+		[config.result, projectRoot],
 	);
-
-	// Gitignore action items
-	const gitignoreItems: SelectItem<'yes' | 'no'>[] = [
-		{label: 'Yes, add to .gitignore (Recommended)', value: 'yes'},
-		{label: 'No, keep in version control', value: 'no'},
-	];
 
 	// Step: Prompt (post-init)
 	if (step === 'prompt' && showPrompt) {
@@ -345,34 +218,60 @@ export function McpSetupWizard({
 		);
 	}
 
-	// Step: Multi-select editors
+	// Step: Single-select editor
 	if (step === 'select') {
+		// Build editor items with configuration status
+		const editorItems = EDITORS.map(editor => {
+			const scopes = configuredEditors.get(editor.id);
+			const isConfiguredAnywhere = scopes?.global || scopes?.project;
+
+			let label = editor.name;
+			if (isConfiguredAnywhere) {
+				const configuredAt = [];
+				if (scopes?.global) configuredAt.push('global');
+				if (scopes?.project) configuredAt.push('project');
+				label += ` (configured: ${configuredAt.join(', ')})`;
+			}
+
+			return {
+				label,
+				value: editor.id,
+			};
+		});
+
 		return (
 			<Box flexDirection="column" borderStyle="round" paddingX={2} paddingY={1}>
 				<Text bold>MCP Setup Wizard</Text>
 				<Box marginTop={1}>
-					<Text>
-						Select AI coding tool(s) to configure:{'\n'}
-						<Text dimColor>(Space to toggle, Enter to confirm)</Text>
-					</Text>
+					<Text>Select an AI coding tool to configure:</Text>
 				</Box>
 				<Box marginTop={1}>
-					<MultiSelect
+					<SelectInput
 						items={editorItems}
-						selected={selected}
-						onToggle={handleToggle}
-						onSubmit={handleSubmitSelection}
-						highlightIndex={highlightIndex}
-						onHighlightChange={setHighlightIndex}
-						disabledItems={configuredEditors}
+						onSelect={item => {
+							const editor = EDITORS.find(e => e.id === item.value);
+							if (!editor) return;
+
+							if (needsScopeSelection(editor)) {
+								// Editor supports both scopes - let user choose
+								onStepChange('scope', {selectedEditor: item.value});
+							} else if (editor.defaultScope === 'ui') {
+								// UI-only editor (JetBrains) - skip to configure
+								onStepChange('configure', {
+									selectedEditor: item.value,
+									selectedScope: null,
+								});
+							} else {
+								// Single scope - use default
+								onStepChange('configure', {
+									selectedEditor: item.value,
+									selectedScope: editor.supportsGlobal ? 'global' : 'project',
+								});
+							}
+						}}
 					/>
 				</Box>
-				<Box marginTop={1}>
-					<Text dimColor>
-						{selected.size} selected | ↑/↓ move, Space toggle,{' '}
-						{selected.size > 0 ? 'Enter confirm, ' : ''}Esc cancel
-					</Text>
-				</Box>
+				<Text dimColor>↑/↓ navigate, Enter select, Esc cancel</Text>
 				<Box marginTop={1}>
 					<Text dimColor>
 						Manual setup:
@@ -383,7 +282,57 @@ export function McpSetupWizard({
 		);
 	}
 
-	// Step: Configure each editor
+	// Step: Scope selection (global vs project)
+	if (step === 'scope' && currentEditor) {
+		const scopes = configuredEditors.get(currentEditor.id);
+
+		// Build scope items
+		const scopeItems: SelectItem<'global' | 'project'>[] = [];
+
+		if (currentEditor.supportsGlobal && currentEditor.defaultScope !== 'ui') {
+			const isConfigured = scopes?.global;
+
+			scopeItems.push({
+				label: `Global (Recommended)${isConfigured ? ' - already configured' : ''}`,
+				value: 'global',
+			});
+		}
+
+		if (currentEditor.supportsProject) {
+			const isConfigured = scopes?.project;
+			scopeItems.push({
+				label: `This project only${isConfigured ? ' - already configured' : ''}`,
+				value: 'project',
+			});
+		}
+
+		return (
+			<Box flexDirection="column" borderStyle="round" paddingX={2} paddingY={1}>
+				<Text bold>{currentEditor.name} - Choose Scope</Text>
+				<Box marginTop={1} flexDirection="column">
+					<Text>
+						<Text color="cyan">Global:</Text> Works across all projects
+						(one-time setup)
+					</Text>
+					<Text>
+						<Text color="cyan">Project:</Text> Only for this project
+						(per-project setup)
+					</Text>
+				</Box>
+				<Box marginTop={1}>
+					<SelectInput
+						items={scopeItems}
+						onSelect={item => {
+							onStepChange('configure', {selectedScope: item.value});
+						}}
+					/>
+				</Box>
+				<Text dimColor>↑/↓ navigate, Enter select, Esc cancel</Text>
+			</Box>
+		);
+	}
+
+	// Step: Configure editor
 	if (step === 'configure' && currentEditor) {
 		if (isProcessing) {
 			return (
@@ -401,48 +350,59 @@ export function McpSetupWizard({
 			);
 		}
 
-		const actionItems =
-			currentEditor.scope === 'ui'
-				? UI_ACTION_ITEMS
-				: currentEditor.scope === 'global'
-					? GLOBAL_ACTION_ITEMS
-					: PROJECT_ACTION_ITEMS;
+		const scope = config.selectedScope;
 
-		const configPathDisplay =
-			currentEditor.scope === 'project'
-				? currentEditor.configPath
-				: currentEditor.scope === 'global'
-					? `${currentEditor.configPath}`
-					: 'IDE Settings';
+		// Determine config path based on scope
+		const configPath = scope
+			? getConfigPath(currentEditor, scope, projectRoot)
+			: null;
+
+		// Determine if this is a manual-only configuration
+		const isUiOnly = currentEditor.defaultScope === 'ui'; // JetBrains
+		const isManualOnlyGlobal =
+			scope === 'global' && isGlobalManualOnly(currentEditor); // VS Code, Roo Code
+
+		// Choose action items based on config type
+		type ActionValue = 'auto' | 'manual' | 'skip';
+		let actionItems: SelectItem<ActionValue>[];
+		if (isUiOnly || isManualOnlyGlobal) {
+			actionItems = [
+				{label: 'Show setup instructions', value: 'manual'},
+				{label: 'Skip', value: 'skip'},
+			];
+		} else {
+			actionItems = [
+				{label: 'Auto-configure (Recommended)', value: 'auto'},
+				{label: 'Show manual instructions', value: 'manual'},
+				{label: 'Skip', value: 'skip'},
+			];
+		}
+
+		// Determine display text
+		let configDescription: string;
+		if (isUiOnly) {
+			configDescription = `${currentEditor.name} requires manual configuration in IDE settings.`;
+		} else if (isManualOnlyGlobal) {
+			configDescription =
+				currentEditor.globalUiInstructions ??
+				'Manual global configuration required.';
+		} else if (configPath) {
+			configDescription = `Configure ${scope === 'global' ? 'globally' : 'for this project'} at:\n${configPath}`;
+		} else {
+			configDescription = 'Configuration path not available.';
+		}
 
 		return (
 			<Box flexDirection="column" borderStyle="round" paddingX={2} paddingY={1}>
-				<Text bold>
-					{currentEditor.name} MCP Setup ({currentEditorIndex + 1}/
-					{selectedEditorIds.length})
-				</Text>
-				<Box marginTop={1} flexDirection="column">
-					{currentEditor.scope === 'project' ? (
-						<Text>
-							VibeRAG can create or update{' '}
-							<Text color="cyan">{configPathDisplay}</Text> automatically.
-						</Text>
-					) : currentEditor.scope === 'global' ? (
-						<Text>
-							{currentEditor.name} uses a global config at:{'\n'}
-							<Text color="cyan">{configPathDisplay}</Text>
-						</Text>
-					) : (
-						<Text>
-							{currentEditor.name} requires manual configuration in the IDE.
-						</Text>
-					)}
+				<Text bold>{currentEditor.name} MCP Setup</Text>
+				<Box marginTop={1}>
+					<Text>{configDescription}</Text>
 				</Box>
 				<Box marginTop={1}>
 					<SelectInput
 						items={actionItems}
 						onSelect={item => {
-							handleEditorAction(item.value as 'auto' | 'manual' | 'skip');
+							handleEditorAction(item.value);
 						}}
 					/>
 				</Box>
@@ -452,17 +412,20 @@ export function McpSetupWizard({
 	}
 
 	// Step: Summary
-	if (step === 'summary') {
-		const successResults = results.filter(
-			r => r.success && r.method !== 'instructions-shown',
-		);
-		const instructionResults = results.filter(
-			r => r.success && r.method === 'instructions-shown',
-		);
-		const skippedResults = results.filter(r => !r.success);
+	if (step === 'summary' && config.result) {
+		const result = config.result;
+		const editor = EDITORS.find(e => e.id === result.editor);
+		const scope = config.selectedScope;
 
-		// Show gitignore prompt if we have project configs and haven't handled yet
-		if (projectConfigs.length > 0 && !gitignoreHandled) {
+		// Check if we need to show gitignore prompt (project scope only)
+		const isProjectScope = scope === 'project';
+		const needsGitignorePrompt =
+			isProjectScope &&
+			result.success &&
+			(result.method === 'file-created' || result.method === 'file-merged') &&
+			!gitignoreHandled;
+
+		if (needsGitignorePrompt) {
 			return (
 				<Box
 					flexDirection="column"
@@ -471,16 +434,11 @@ export function McpSetupWizard({
 					paddingY={1}
 				>
 					<Text bold color="yellow">
-						Add MCP configs to .gitignore?
+						Add MCP config to .gitignore?
 					</Text>
 					<Box marginTop={1} flexDirection="column">
-						<Text>These project-local MCP config files were created:</Text>
-						{projectConfigs.map(p => (
-							<Text key={p} dimColor>
-								{'  '}
-								{p}
-							</Text>
-						))}
+						<Text>Project-local MCP config file was created:</Text>
+						<Text dimColor> {result.configPath}</Text>
 					</Box>
 					<Box marginTop={1}>
 						<Text dimColor>
@@ -490,8 +448,11 @@ export function McpSetupWizard({
 					</Box>
 					<Box marginTop={1}>
 						<SelectInput
-							items={gitignoreItems}
-							onSelect={item => handleGitignore(item.value)}
+							items={[
+								{label: 'Yes, add to .gitignore (Recommended)', value: 'yes'},
+								{label: 'No, keep in version control', value: 'no'},
+							]}
+							onSelect={item => handleGitignore(item.value as 'yes' | 'no')}
 						/>
 					</Box>
 				</Box>
@@ -504,71 +465,49 @@ export function McpSetupWizard({
 					MCP Setup Complete
 				</Text>
 				<Box marginTop={1} flexDirection="column">
-					{successResults.map(r => {
-						const editor = EDITORS.find(e => e.id === r.editor);
-						return (
-							<Text key={r.editor}>
-								<Text color="green">✓</Text> {editor?.name ?? r.editor}
-								<Text dimColor>
-									{' '}
-									{r.method === 'file-created'
-										? `Created ${r.configPath}`
-										: r.method === 'file-merged'
-											? `Updated ${r.configPath}`
-											: 'CLI command'}
-								</Text>
-							</Text>
-						);
-					})}
-					{instructionResults.map(r => {
-						const editor = EDITORS.find(e => e.id === r.editor);
-						return (
-							<Text key={r.editor}>
-								<Text color="blue">ℹ</Text> {editor?.name ?? r.editor}
+					{result.success ? (
+						result.method === 'instructions-shown' ? (
+							<Text>
+								<Text color="blue">ℹ</Text> {editor?.name ?? result.editor}
 								<Text dimColor> Instructions shown above</Text>
 							</Text>
-						);
-					})}
-					{skippedResults.map(r => {
-						const editor = EDITORS.find(e => e.id === r.editor);
-						return (
-							<Text key={r.editor}>
-								<Text color="gray">-</Text> {editor?.name ?? r.editor}
-								<Text dimColor> Skipped</Text>
+						) : (
+							<Text>
+								<Text color="green">✓</Text> {editor?.name ?? result.editor}
+								<Text dimColor>
+									{' '}
+									{result.method === 'file-created'
+										? `Created ${result.configPath}`
+										: `Updated ${result.configPath}`}
+								</Text>
 							</Text>
-						);
-					})}
+						)
+					) : (
+						<Text>
+							<Text color="gray">-</Text> {editor?.name ?? result.editor}
+							<Text dimColor> {result.error ?? 'Skipped'}</Text>
+						</Text>
+					)}
 				</Box>
-				{gitignoreAdded.length > 0 && (
+				{gitignoreAdded && (
 					<Box marginTop={1}>
 						<Text color="green">✓</Text>
-						<Text dimColor>
-							{' '}
-							Added to .gitignore: {gitignoreAdded.join(', ')}
+						<Text dimColor> Added to .gitignore: {gitignoreAdded}</Text>
+					</Box>
+				)}
+				{result.success && result.method !== 'instructions-shown' && editor && (
+					<Box marginTop={1} flexDirection="column">
+						<Text bold>Verify setup:</Text>
+						<Text>
+							<Text color="cyan">{editor.name}:</Text>{' '}
+							{editor.verificationSteps[0]}
 						</Text>
 					</Box>
 				)}
-				{successResults.length > 0 && (
-					<Box marginTop={1} flexDirection="column">
-						<Text bold>Verify setup:</Text>
-						{successResults.map(r => {
-							const editor = EDITORS.find(e => e.id === r.editor);
-							if (!editor) return null;
-							return (
-								<Box key={r.editor} flexDirection="column">
-									<Text>
-										<Text color="cyan">{editor.name}:</Text>{' '}
-										{editor.verificationSteps[0]}
-									</Text>
-								</Box>
-							);
-						})}
-					</Box>
-				)}
-				{successResults.length > 0 && (
+				{result.success && result.method !== 'instructions-shown' && (
 					<Box marginTop={1} flexDirection="column">
 						<Text bold>Next steps:</Text>
-						<Text>1. Restart your editor(s) to load the MCP server</Text>
+						<Text>1. Restart your editor to load the MCP server</Text>
 						<Text>2. Verify using the steps above</Text>
 						<Text>3. Test codebase_search with a code query</Text>
 					</Box>
@@ -583,8 +522,9 @@ export function McpSetupWizard({
 						items={[{label: 'Done', value: 'done'}]}
 						onSelect={() => {
 							onComplete({
-								selectedEditors: selectedEditorIds,
-								results,
+								selectedEditor: config.selectedEditor ?? null,
+								selectedScope: config.selectedScope ?? null,
+								result: config.result ?? null,
 							});
 						}}
 					/>
