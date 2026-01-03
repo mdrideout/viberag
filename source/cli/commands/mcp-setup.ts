@@ -138,6 +138,22 @@ export function generateOpenCodeViberagConfig(): object {
 }
 
 /**
+ * Generate Roo Code-specific viberag MCP server configuration.
+ * Roo Code supports alwaysAllow for auto-approving common operations.
+ */
+export function generateRooCodeViberagConfig(): object {
+	return {
+		command: 'npx',
+		args: ['-y', 'viberag-mcp'],
+		alwaysAllow: [
+			'codebase_search',
+			'codebase_parallel_search',
+			'viberag_status',
+		],
+	};
+}
+
+/**
  * Generate complete MCP config for an editor.
  */
 export function generateMcpConfig(editor: EditorConfig): object {
@@ -146,7 +162,9 @@ export function generateMcpConfig(editor: EditorConfig): object {
 			? generateZedViberagConfig()
 			: editor.id === 'opencode'
 				? generateOpenCodeViberagConfig()
-				: generateViberagConfig();
+				: editor.id === 'roo-code'
+					? generateRooCodeViberagConfig()
+					: generateViberagConfig();
 
 	// Use the editor's specific key
 	return {
@@ -289,7 +307,9 @@ export function mergeConfig(existing: object, editor: EditorConfig): object {
 			? generateZedViberagConfig()
 			: editor.id === 'opencode'
 				? generateOpenCodeViberagConfig()
-				: generateViberagConfig();
+				: editor.id === 'roo-code'
+					? generateRooCodeViberagConfig()
+					: generateViberagConfig();
 	const jsonKey = editor.jsonKey;
 
 	// Get or create the servers object
