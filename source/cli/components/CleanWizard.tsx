@@ -148,7 +148,13 @@ export function CleanWizard({
 			setMcpResults(results);
 			setStep('summary');
 		},
-		[viberagDir, projectScopeConfigs, globalScopeConfigs, projectRoot, addOutput],
+		[
+			viberagDir,
+			projectScopeConfigs,
+			globalScopeConfigs,
+			projectRoot,
+			addOutput,
+		],
 	);
 
 	// Handle MCP cleanup choice
@@ -257,7 +263,8 @@ export function CleanWizard({
 				</Text>
 				<Box marginTop={1}>
 					<Text color="yellow">
-						Note: Other projects using this config will need to run /mcp-setup again.
+						Note: Other projects using this config will need to run /mcp-setup
+						again.
 					</Text>
 				</Box>
 				<Box marginTop={1} flexDirection="column">

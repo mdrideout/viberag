@@ -508,9 +508,7 @@ export function McpSetupWizard({
 					<Box marginTop={1} flexDirection="column">
 						<Text bold>Next steps:</Text>
 						<Text>1. Restart your editor to load the MCP server</Text>
-						<Text>
-							2. Enable the MCP server in your editor if required
-						</Text>
+						<Text>2. Enable the MCP server in your editor if required</Text>
 						<Text>3. Verify using the steps above</Text>
 						<Text>4. Test codebase_search with a code query</Text>
 					</Box>

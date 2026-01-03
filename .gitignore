@@ -8,3 +8,5 @@ local_cache/
 .mcp.json
 # MCP config (local, not committed)
 .roo
+# MCP config (local, not committed)
+.gemini/settings.json

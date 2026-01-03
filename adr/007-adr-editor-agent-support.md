@@ -157,38 +157,38 @@ cwd = "/path/to/project"
 
 After configuring an MCP server, **you may need to explicitly enable the MCP server inside the editor/IDE**. Each editor has different mechanisms for enabling MCP servers:
 
-| Editor          | Enablement Method                                            |
-| --------------- | ------------------------------------------------------------ |
-| Claude Code     | Automatic (servers start when configured)                    |
-| Cursor          | Settings → Features → MCP (toggle per server)                |
-| VS Code Copilot | Must enable `chat.agent.enabled: true` in VS Code settings   |
-| Windsurf        | Tools tab (toggle per tool)                                  |
-| Zed             | Agent settings: `agent.enabled` and per-profile controls     |
-| Gemini CLI      | Automatic (servers start when configured)                    |
-| JetBrains       | UI toggle in Settings → AI Assistant → MCP                   |
-| OpenAI Codex    | `enabled = true/false` in config.toml                        |
-| OpenCode        | `"enabled": true/false` in config                            |
-| Roo Code        | "Enable MCP Servers" checkbox + per-server `disabled` field  |
+| Editor          | Enablement Method                                           |
+| --------------- | ----------------------------------------------------------- |
+| Claude Code     | Automatic (servers start when configured)                   |
+| Cursor          | Settings → Features → MCP (toggle per server)               |
+| VS Code Copilot | Must enable `chat.agent.enabled: true` in VS Code settings  |
+| Windsurf        | Tools tab (toggle per tool)                                 |
+| Zed             | Agent settings: `agent.enabled` and per-profile controls    |
+| Gemini CLI      | Automatic (servers start when configured)                   |
+| JetBrains       | UI toggle in Settings → AI Assistant → MCP                  |
+| OpenAI Codex    | `enabled = true/false` in config.toml                       |
+| OpenCode        | `"enabled": true/false` in config                           |
+| Roo Code        | "Enable MCP Servers" checkbox + per-server `disabled` field |
 
 **Key Examples:**
 
 ```json
 // VS Code: Enable Agent Mode in User settings.json
 {
-  "chat.agent.enabled": true
+	"chat.agent.enabled": true
 }
 ```
 
 ```json
 // OpenCode: Enable/disable per server
 {
-  "mcp": {
-    "viberag": {
-      "type": "local",
-      "command": ["npx", "-y", "viberag-mcp"],
-      "enabled": true
-    }
-  }
+	"mcp": {
+		"viberag": {
+			"type": "local",
+			"command": ["npx", "-y", "viberag-mcp"],
+			"enabled": true
+		}
+	}
 }
 ```
 
