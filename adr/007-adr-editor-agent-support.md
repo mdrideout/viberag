@@ -147,7 +147,7 @@ This is the **standard pattern** for MCP servers. Each project gets its own MCP 
 # OpenAI Codex (~/.codex/config.toml)
 [mcp_servers.viberag]
 command = "npx"
-args = ["viberag-mcp"]
+args = ["-y", "viberag-mcp"]
 cwd = "/path/to/project"
 ```
 
@@ -196,7 +196,7 @@ After configuring an MCP server, **you may need to explicitly enable the MCP ser
 # OpenAI Codex: Enable/disable per server
 [mcp_servers.viberag]
 command = "npx"
-args = ["viberag-mcp"]
+args = ["-y", "viberag-mcp"]
 enabled = true
 ```
 
@@ -535,8 +535,8 @@ gemini mcp remove viberag
 **CLI Commands:**
 
 ```bash
-# Add MCP server
-codex mcp add viberag -- npx viberag-mcp
+# Add MCP server (note: -y flag is required for npx)
+codex mcp add viberag -- npx -y viberag-mcp
 
 # List servers
 codex mcp list
@@ -550,15 +550,21 @@ codex mcp remove viberag
 ```toml
 [mcp_servers.viberag]
 command = "npx"
-args = ["viberag-mcp"]
+args = ["-y", "viberag-mcp"]
 ```
 
-**Note:** Codex uses TOML format, not JSON. Global config only.
+**Important Notes:**
+
+- Codex uses **TOML format**, not JSON
+- Global config only (no project-level config)
+- The `-y` flag is **required** for npx to auto-confirm package installation
+- Access MCP servers in Codex TUI with `/mcp` command
 
 **Documentation Sources:**
 
-- [Codex MCP Configuration](https://github.com/context7/developers_openai_codex/blob/main/mcp.md) - Quote: "manually edit the `~/.codex/config.toml` file"
-- [Codex Local Config](https://github.com/context7/developers_openai_codex/blob/main/local-config.md)
+- [Codex MCP Configuration](https://platform.openai.com/docs/codex/mcp) - Official OpenAI docs
+- [Codex CLI Reference](https://github.com/openai/codex/blob/main/docs/config.md) - Config file format
+- [Context7 Codex Docs](https://github.com/context7/developers_openai_codex/blob/main/mcp.md) - Quote: "codex mcp add context7 -- npx -y @upstash/context7-mcp"
 
 ---
 

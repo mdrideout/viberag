@@ -152,8 +152,8 @@ export const EDITORS: EditorConfig[] = [
 		supportsProject: false,
 		defaultScope: 'global',
 		canAutoCreate: false, // Has CLI command
-		cliCommand: 'codex mcp add viberag -- npx viberag-mcp',
-		docsUrl: 'https://developers.openai.com/codex/mcp/',
+		cliCommand: 'codex mcp add viberag -- npx -y viberag-mcp',
+		docsUrl: 'https://platform.openai.com/docs/codex/mcp',
 		jsonKey: 'mcp_servers', // TOML section name
 		restartInstructions: 'Restart Codex session',
 		verificationSteps: [

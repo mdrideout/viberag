@@ -162,7 +162,7 @@ export function generateMcpConfig(editor: EditorConfig): object {
 export function generateTomlConfig(): string {
 	return `[mcp_servers.viberag]
 command = "npx"
-args = ["viberag-mcp"]
+args = ["-y", "viberag-mcp"]
 `;
 }
 

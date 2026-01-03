@@ -257,7 +257,7 @@ gemini mcp add viberag -- npx viberag-mcp
 **CLI Command:**
 
 ```bash
-codex mcp add viberag -- npx viberag-mcp
+codex mcp add viberag -- npx -y viberag-mcp
 ```
 
 **Global Config:** `~/.codex/config.toml`
@@ -265,8 +265,10 @@ codex mcp add viberag -- npx viberag-mcp
 ```toml
 [mcp_servers.viberag]
 command = "npx"
-args = ["viberag-mcp"]
+args = ["-y", "viberag-mcp"]
 ```
+
+> **Note:** The `-y` flag is required for npx to auto-confirm package installation
 
 **Verify:** Run `/mcp` in Codex TUI, look for "viberag" in server list
 
