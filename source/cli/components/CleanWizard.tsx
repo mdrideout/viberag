@@ -16,7 +16,12 @@ import {
 	type ConfiguredEditorInfo,
 } from '../commands/mcp-setup.js';
 
-type CleanStep = 'confirm' | 'mcp-cleanup' | 'processing' | 'summary';
+type CleanStep =
+	| 'confirm'
+	| 'mcp-cleanup'
+	| 'global-cleanup'
+	| 'processing'
+	| 'summary';
 
 type Props = {
 	projectRoot: string;
@@ -42,6 +47,11 @@ const MCP_CLEANUP_ITEMS: SelectItem<'yes' | 'no'>[] = [
 	{label: 'No, keep MCP configurations', value: 'no'},
 ];
 
+const GLOBAL_CLEANUP_ITEMS: SelectItem<'yes' | 'no'>[] = [
+	{label: 'Yes, remove from global configs too', value: 'yes'},
+	{label: 'No, keep global configurations (Recommended)', value: 'no'},
+];
+
 export function CleanWizard({
 	projectRoot,
 	viberagDir,
@@ -58,6 +68,8 @@ export function CleanWizard({
 	>([]);
 	const [mcpResults, setMcpResults] = useState<McpRemovalResult[]>([]);
 	const [viberagRemoved, setViberagRemoved] = useState(false);
+	const [cleanProjectMcp, setCleanProjectMcp] = useState(false);
+	const [cleanedGlobalConfigs, setCleanedGlobalConfigs] = useState(false);
 
 	// Handle Escape to cancel
 	useInput((input, key) => {
@@ -85,19 +97,22 @@ export function CleanWizard({
 			// If there are project-scope MCP configs, ask about cleanup
 			if (projectScopeConfigs.length > 0) {
 				setStep('mcp-cleanup');
+			} else if (globalScopeConfigs.length > 0) {
+				// No project configs but have global configs
+				setStep('global-cleanup');
 			} else {
 				// No MCP configs to clean, go straight to processing
 				setStep('processing');
-				performCleanup(false);
+				performCleanup(false, false);
 			}
 		},
 		// eslint-disable-next-line react-hooks/exhaustive-deps -- performCleanup is stable
-		[projectScopeConfigs, onCancel],
+		[projectScopeConfigs, globalScopeConfigs, onCancel],
 	);
 
 	// Perform the actual cleanup
 	const performCleanup = useCallback(
-		async (cleanMcp: boolean) => {
+		async (cleanProjectMcpArg: boolean, cleanGlobalMcp: boolean) => {
 			const fs = await import('node:fs/promises');
 
 			// Remove .viberag directory
@@ -111,28 +126,55 @@ export function CleanWizard({
 				);
 			}
 
-			// Clean MCP configs if requested
-			if (cleanMcp) {
-				const results: McpRemovalResult[] = [];
+			const results: McpRemovalResult[] = [];
+
+			// Clean project MCP configs if requested
+			if (cleanProjectMcpArg) {
 				for (const {editor, scope} of projectScopeConfigs) {
 					const result = await removeViberagConfig(editor, scope, projectRoot);
 					results.push(result);
 				}
-				setMcpResults(results);
 			}
 
+			// Clean global MCP configs if requested
+			if (cleanGlobalMcp) {
+				setCleanedGlobalConfigs(true);
+				for (const {editor, scope} of globalScopeConfigs) {
+					const result = await removeViberagConfig(editor, scope, projectRoot);
+					results.push(result);
+				}
+			}
+
+			setMcpResults(results);
 			setStep('summary');
 		},
-		[viberagDir, projectScopeConfigs, projectRoot, addOutput],
+		[viberagDir, projectScopeConfigs, globalScopeConfigs, projectRoot, addOutput],
 	);
 
 	// Handle MCP cleanup choice
 	const handleMcpCleanup = useCallback(
 		(action: 'yes' | 'no') => {
-			setStep('processing');
-			performCleanup(action === 'yes');
+			const shouldCleanProject = action === 'yes';
+			setCleanProjectMcp(shouldCleanProject);
+
+			// If there are global configs, ask about those next
+			if (globalScopeConfigs.length > 0) {
+				setStep('global-cleanup');
+			} else {
+				setStep('processing');
+				performCleanup(shouldCleanProject, false);
+			}
 		},
-		[performCleanup],
+		[globalScopeConfigs, performCleanup],
+	);
+
+	// Handle Global cleanup choice
+	const handleGlobalCleanup = useCallback(
+		(action: 'yes' | 'no') => {
+			setStep('processing');
+			performCleanup(cleanProjectMcp, action === 'yes');
+		},
+		[cleanProjectMcp, performCleanup],
 	);
 
 	// Helper to get display path for a configured editor
@@ -162,9 +204,9 @@ export function CleanWizard({
 				{globalScopeConfigs.length > 0 && (
 					<Box marginTop={1}>
 						<Text color="blue">
-							Note: Global MCP configs (
+							Global MCP configs (
 							{globalScopeConfigs.map(c => c.editor.name).join(', ')}){'\n'}will
-							NOT be modified. Remove manually if needed.
+							be addressed in a separate step.
 						</Text>
 					</Box>
 				)}
@@ -199,6 +241,38 @@ export function CleanWizard({
 					<SelectInput
 						items={MCP_CLEANUP_ITEMS}
 						onSelect={item => handleMcpCleanup(item.value)}
+					/>
+				</Box>
+				<Text dimColor>↑/↓ navigate, Enter select, Esc cancel</Text>
+			</Box>
+		);
+	}
+
+	// Step: Global Cleanup choice
+	if (step === 'global-cleanup') {
+		return (
+			<Box flexDirection="column" borderStyle="round" paddingX={2} paddingY={1}>
+				<Text bold color="yellow">
+					Remove from Global MCP configs?
+				</Text>
+				<Box marginTop={1}>
+					<Text color="yellow">
+						Note: Other projects using this config will need to run /mcp-setup again.
+					</Text>
+				</Box>
+				<Box marginTop={1} flexDirection="column">
+					<Text>Found viberag in these global configs:</Text>
+					{globalScopeConfigs.map(info => (
+						<Text key={`${info.editor.id}-${info.scope}`} dimColor>
+							{' '}
+							• {info.editor.name} ({getDisplayPath(info)})
+						</Text>
+					))}
+				</Box>
+				<Box marginTop={1}>
+					<SelectInput
+						items={GLOBAL_CLEANUP_ITEMS}
+						onSelect={item => handleGlobalCleanup(item.value)}
 					/>
 				</Box>
 				<Text dimColor>↑/↓ navigate, Enter select, Esc cancel</Text>
@@ -245,7 +319,7 @@ export function CleanWizard({
 						);
 					})}
 				</Box>
-				{globalScopeConfigs.length > 0 && (
+				{globalScopeConfigs.length > 0 && !cleanedGlobalConfigs && (
 					<Box marginTop={1} flexDirection="column">
 						<Text bold color="blue">
 							Manual cleanup needed:
