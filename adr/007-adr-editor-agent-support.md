@@ -670,6 +670,47 @@ export function generateOpenCodeViberagConfig(): object {
 }
 ```
 
+#### 3.4 Handle Removal/Cleanup
+
+The `/clean` command and `CleanWizard` remove viberag from configured editors. Key functions in `mcp-setup.ts`:
+
+```typescript
+// Remove viberag from a parsed config object
+export function removeViberagFromConfig(existing: object, editor: EditorConfig): object | null
+
+// Remove viberag from an editor's config file
+export async function removeViberagConfig(editor: EditorConfig, projectRoot: string): Promise<McpRemovalResult>
+
+// Find all editors that have viberag configured
+export async function findConfiguredEditors(projectRoot: string): Promise<{projectScope: EditorConfig[]; globalScope: EditorConfig[]}>
+```
+
+**Important:** Removal uses the same `readJsonConfig()` which handles JSONC. This ensures removal works for Zed/VS Code configs with comments.
+
+**Removal behavior:**
+- **Works for both global AND project configs** — `findConfiguredEditors()` scans both scopes
+- Removes only the `viberag` key from the servers object
+- Preserves all other MCP servers and settings
+- Keeps the config file even if servers object becomes empty
+- Returns `McpRemovalResult` with success/failure status
+
+**Scope handling in CleanWizard:**
+- Scans all configured editors in both project and global scopes
+- Shows user which configs will be removed (grouped by scope)
+- Removes from each config file independently
+
+**For editors with CLI commands:**
+```bash
+# Claude Code
+claude mcp remove viberag
+
+# Gemini CLI
+gemini mcp remove viberag
+
+# OpenAI Codex
+codex mcp remove viberag
+```
+
 ### Phase 4: Documentation Updates
 
 1. Update this ADR with new editor section including:
@@ -684,11 +725,21 @@ export function generateOpenCodeViberagConfig(): object {
 ### Phase 5: Testing
 
 ```
+Setup Testing
 [ ] Global config creation works
 [ ] Global config merge works (doesn't overwrite existing)
+[ ] Global config merge works with JSONC (comments, trailing commas)
 [ ] Project config creation works (if supported)
 [ ] Scope selection UI works correctly
 [ ] Editor recognizes the MCP server
+[ ] Special config format is correct (e.g., Zed's "source": "custom")
+
+Removal Testing
+[ ] Removal from global config works
+[ ] Removal from project config works (if supported)
+[ ] Removal preserves other MCP servers
+[ ] Removal works with JSONC configs
+[ ] findConfiguredEditors() detects the editor
 ```
 
 ---
@@ -742,6 +793,9 @@ Documentation
 Testing
 [ ] Test global config creation
 [ ] Test global config merge
+[ ] Test JSONC handling (if editor uses comments)
+[ ] Test removal from global config
+[ ] Test removal from project config
 [ ] Test project config creation (if supported)
 [ ] Test scope selection in wizard
 ```
