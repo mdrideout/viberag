@@ -480,7 +480,12 @@ export function getManualInstructions(
 		} else if (editor.id === 'roo-code') {
 			lines.push('1. Click the MCP icon in Roo Code pane header');
 			lines.push('2. Click "Edit Global MCP"');
-			lines.push('3. Add the viberag server configuration');
+			lines.push('3. Add inside the "mcpServers": { } object:');
+			lines.push('');
+			lines.push('  "viberag": {');
+			lines.push('    "command": "npx",');
+			lines.push('    "args": ["viberag-mcp"]');
+			lines.push('  }');
 			lines.push('');
 		}
 	} else if (editor.cliCommand) {
