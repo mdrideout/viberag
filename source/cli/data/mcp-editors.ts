@@ -75,7 +75,7 @@ export const EDITORS: EditorConfig[] = [
 		supportsProject: true,
 		defaultScope: 'global',
 		canAutoCreate: true,
-		cliCommand: 'claude mcp add viberag -- npx viberag-mcp',
+		cliCommand: 'claude mcp add viberag -- npx -y viberag-mcp',
 		docsUrl: 'https://code.claude.com/docs/en/mcp',
 		jsonKey: 'mcpServers',
 		restartInstructions:
@@ -114,7 +114,7 @@ export const EDITORS: EditorConfig[] = [
 		supportsProject: true,
 		defaultScope: 'global',
 		canAutoCreate: false, // Has CLI command
-		cliCommand: 'gemini mcp add viberag -- npx viberag-mcp',
+		cliCommand: 'gemini mcp add viberag -- npx -y viberag-mcp',
 		docsUrl: 'https://geminicli.com/docs/tools/mcp-server/',
 		jsonKey: 'mcpServers',
 		restartInstructions: 'Restart Gemini CLI session',

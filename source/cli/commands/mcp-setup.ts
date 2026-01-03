@@ -110,7 +110,7 @@ export interface McpSetupResult {
 export function generateViberagConfig(): object {
 	return {
 		command: 'npx',
-		args: ['viberag-mcp'],
+		args: ['-y', 'viberag-mcp'],
 	};
 }
 
@@ -122,7 +122,7 @@ export function generateZedViberagConfig(): object {
 	return {
 		source: 'custom',
 		command: 'npx',
-		args: ['viberag-mcp'],
+		args: ['-y', 'viberag-mcp'],
 	};
 }
 
@@ -472,7 +472,7 @@ export function getManualInstructions(
 			lines.push('    "servers": {');
 			lines.push('      "viberag": {');
 			lines.push('        "command": "npx",');
-			lines.push('        "args": ["viberag-mcp"]');
+			lines.push('        "args": ["-y", "viberag-mcp"]');
 			lines.push('      }');
 			lines.push('    }');
 			lines.push('  }');
@@ -484,7 +484,7 @@ export function getManualInstructions(
 			lines.push('');
 			lines.push('  "viberag": {');
 			lines.push('    "command": "npx",');
-			lines.push('    "args": ["viberag-mcp"]');
+			lines.push('    "args": ["-y", "viberag-mcp"]');
 			lines.push('  }');
 			lines.push('');
 		}
@@ -527,7 +527,7 @@ export function getManualInstructions(
 		lines.push('2. Click "Add Server"');
 		lines.push('3. Set name: viberag');
 		lines.push('4. Set command: npx');
-		lines.push('5. Set args: viberag-mcp');
+		lines.push('5. Set args: -y viberag-mcp');
 		lines.push('');
 	}
 

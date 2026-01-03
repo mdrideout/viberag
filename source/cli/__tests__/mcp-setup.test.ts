@@ -88,7 +88,7 @@ describe('MCP Config Generation', () => {
 
 		expect(config).toEqual({
 			command: 'npx',
-			args: ['viberag-mcp'],
+			args: ['-y', 'viberag-mcp'],
 		});
 	});
 
