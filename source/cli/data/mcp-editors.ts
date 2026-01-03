@@ -56,6 +56,8 @@ export interface EditorConfig {
 	verificationSteps: string[];
 	/** Instructions for UI-only global setup (VS Code, Roo Code) */
 	globalUiInstructions?: string;
+	/** Required post-setup steps (e.g., enabling agent mode in VS Code) */
+	postSetupInstructions?: string[];
 }
 
 /**
@@ -220,6 +222,9 @@ export const EDITORS: EditorConfig[] = [
 			'Verify "viberag" appears with status',
 		],
 		globalUiInstructions: 'Open Settings (JSON) and add under "mcp.servers"',
+		postSetupInstructions: [
+			'Enable Agent Mode: Settings → "chat.agent.enabled" → check the box',
+		],
 	},
 	{
 		id: 'windsurf',

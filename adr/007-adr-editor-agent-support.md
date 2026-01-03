@@ -151,6 +151,67 @@ args = ["viberag-mcp"]
 cwd = "/path/to/project"
 ```
 
+### Post-Setup Enablement Requirements
+
+> **Last Updated:** January 2026 (via Context7 research)
+
+After configuring an MCP server, **you may need to explicitly enable the MCP server inside the editor/IDE**. Each editor has different mechanisms for enabling MCP servers:
+
+| Editor          | Enablement Method                                            |
+| --------------- | ------------------------------------------------------------ |
+| Claude Code     | Automatic (servers start when configured)                    |
+| Cursor          | Settings → Features → MCP (toggle per server)                |
+| VS Code Copilot | Must enable `chat.agent.enabled: true` in VS Code settings   |
+| Windsurf        | Tools tab (toggle per tool)                                  |
+| Zed             | Agent settings: `agent.enabled` and per-profile controls     |
+| Gemini CLI      | Automatic (servers start when configured)                    |
+| JetBrains       | UI toggle in Settings → AI Assistant → MCP                   |
+| OpenAI Codex    | `enabled = true/false` in config.toml                        |
+| OpenCode        | `"enabled": true/false` in config                            |
+| Roo Code        | "Enable MCP Servers" checkbox + per-server `disabled` field  |
+
+**Key Examples:**
+
+```json
+// VS Code: Enable Agent Mode in User settings.json
+{
+  "chat.agent.enabled": true
+}
+```
+
+```json
+// OpenCode: Enable/disable per server
+{
+  "mcp": {
+    "viberag": {
+      "type": "local",
+      "command": ["npx", "-y", "viberag-mcp"],
+      "enabled": true
+    }
+  }
+}
+```
+
+```toml
+# OpenAI Codex: Enable/disable per server
+[mcp_servers.viberag]
+command = "npx"
+args = ["viberag-mcp"]
+enabled = true
+```
+
+**Documentation Sources:**
+
+- **VS Code Copilot**: [VS Code Agent Mode](https://github.com/microsoft/vscode-docs/blob/main/blogs/2025/04/07/agentMode.md) — Quote: "set `setting(chat.agent.enabled:true)` in your settings"
+- **Cursor**: [Cursor MCP Docs](https://cursor.com/docs/context/mcp) — Quote: "Click the toggle next to any server to enable/disable"
+- **Roo Code**: [Roo Code MCP Usage](https://github.com/roocodeinc/roo-code-docs/blob/main/docs/features/mcp/using-mcp-in-roo.mdx) — Quote: "Click the server icon → Check/Uncheck 'Enable MCP Servers'"
+- **OpenCode**: [OpenCode MCP Servers](https://github.com/sst/opencode/blob/dev/packages/web/src/content/docs/mcp-servers.mdx) — Quote: "You can disable a server by setting `enabled` to `false`"
+- **OpenAI Codex**: [Codex MCP Config](https://github.com/context7/developers_openai_codex/blob/main/mcp.md) — Quote: "You can disable a configured server without removing it by setting `enabled = false`"
+
+**Implications for VibeRAG Wizard:**
+
+The wizard should display a general note that users may need to enable the MCP server inside their editor after configuration.
+
 ---
 
 ## Detailed Editor Documentation

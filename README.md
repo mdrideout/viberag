@@ -368,6 +368,11 @@ args = ["viberag-mcp"]
 
 > **Note:** VS Code uses `"servers"` instead of `"mcpServers"`
 
+> **Required:** Enable Agent Mode in VS Code settings:
+>
+> - Settings → search `chat.agent.enabled` → check the box, OR
+> - Add `"chat.agent.enabled": true` to your User `settings.json`
+
 **Verify:** Cmd/Ctrl+Shift+P → "MCP: List Servers", verify "viberag" appears
 
 [Documentation](https://code.visualstudio.com/docs/copilot/chat/mcp-servers)
