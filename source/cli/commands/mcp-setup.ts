@@ -167,6 +167,91 @@ args = ["-y", "viberag-mcp"]
 }
 
 /**
+ * Read existing TOML config file.
+ * Returns the raw content string.
+ */
+export async function readTomlConfig(
+	configPath: string,
+): Promise<string | null> {
+	try {
+		return await fs.readFile(configPath, 'utf-8');
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Check if viberag is already configured in a TOML config.
+ * Looks for [mcp_servers.viberag] section.
+ */
+export function hasViberagTomlConfig(content: string): boolean {
+	// Match [mcp_servers.viberag] section header
+	return /^\s*\[mcp_servers\.viberag\]/m.test(content);
+}
+
+/**
+ * Merge viberag config into existing TOML content.
+ * Appends the viberag section if not present.
+ */
+export function mergeTomlConfig(existing: string): string {
+	if (hasViberagTomlConfig(existing)) {
+		return existing;
+	}
+
+	// Ensure there's a newline before appending
+	const needsNewline = existing.length > 0 && !existing.endsWith('\n');
+	const separator = needsNewline ? '\n\n' : existing.length > 0 ? '\n' : '';
+
+	return existing + separator + generateTomlConfig();
+}
+
+/**
+ * Remove viberag from a TOML config.
+ * Returns the modified content, or null if nothing to remove.
+ */
+export function removeViberagFromTomlConfig(content: string): string | null {
+	if (!hasViberagTomlConfig(content)) {
+		return null;
+	}
+
+	// Split into lines and rebuild without the viberag section
+	const lines = content.split('\n');
+	const result: string[] = [];
+	let inViberagSection = false;
+
+	for (const line of lines) {
+		// Check if this line starts a new section
+		const isSectionHeader = /^\s*\[/.test(line);
+
+		if (isSectionHeader) {
+			// Check if this is the viberag section
+			if (/^\s*\[mcp_servers\.viberag\]/.test(line)) {
+				inViberagSection = true;
+				continue;
+			} else {
+				// A different section starts
+				inViberagSection = false;
+			}
+		}
+
+		// Skip lines that are part of the viberag section
+		if (inViberagSection) {
+			continue;
+		}
+
+		result.push(line);
+	}
+
+	let modified = result.join('\n');
+
+	// Clean up extra blank lines
+	modified = modified.replace(/\n{3,}/g, '\n\n');
+	modified = modified.replace(/^\n+/, '');
+
+	return modified;
+}
+
+/**
  * Check if a config file exists.
  */
 export async function configExists(configPath: string): Promise<boolean> {
@@ -260,6 +345,53 @@ export async function writeMcpConfig(
 		// Check if file exists
 		const exists = await configExists(configPath);
 
+		// Handle TOML format (Codex)
+		if (editor.configFormat === 'toml') {
+			if (exists) {
+				const existing = await readTomlConfig(configPath);
+				if (existing === null) {
+					return {
+						success: false,
+						editor: editor.id,
+						method: 'instructions-shown',
+						error: 'Could not read existing config file',
+					};
+				}
+
+				// Check if already configured
+				if (hasViberagTomlConfig(existing)) {
+					return {
+						success: true,
+						editor: editor.id,
+						method: 'file-merged',
+						configPath,
+						error: 'Already configured',
+					};
+				}
+
+				const merged = mergeTomlConfig(existing);
+				await fs.writeFile(configPath, merged);
+
+				return {
+					success: true,
+					editor: editor.id,
+					method: 'file-merged',
+					configPath,
+				};
+			} else {
+				// Create new TOML config
+				await fs.writeFile(configPath, generateTomlConfig());
+
+				return {
+					success: true,
+					editor: editor.id,
+					method: 'file-created',
+					configPath,
+				};
+			}
+		}
+
+		// Handle JSON format (all other editors)
 		if (exists) {
 			// Merge with existing config
 			const existing = await readJsonConfig(configPath);
@@ -422,6 +554,30 @@ export async function getMergeDiff(
 		if (!configPath) return null;
 
 		const exists = await configExists(configPath);
+
+		// Handle TOML format (Codex)
+		if (editor.configFormat === 'toml') {
+			if (!exists) {
+				return {
+					before: '(file does not exist)',
+					after: generateTomlConfig(),
+					configPath,
+				};
+			}
+
+			const existing = await readTomlConfig(configPath);
+			if (!existing) return null;
+
+			const merged = mergeTomlConfig(existing);
+
+			return {
+				before: existing,
+				after: merged,
+				configPath,
+			};
+		}
+
+		// Handle JSON format
 		if (!exists) {
 			return {
 				before: '(file does not exist)',
@@ -460,6 +616,14 @@ export async function isAlreadyConfigured(
 		const exists = await configExists(configPath);
 		if (!exists) return false;
 
+		// Handle TOML format (Codex)
+		if (editor.configFormat === 'toml') {
+			const content = await readTomlConfig(configPath);
+			if (!content) return false;
+			return hasViberagTomlConfig(content);
+		}
+
+		// Handle JSON format
 		const config = await readJsonConfig(configPath);
 		if (!config) return false;
 
@@ -560,6 +724,47 @@ export async function removeViberagConfig(
 			};
 		}
 
+		// Handle TOML format (Codex)
+		if (editor.configFormat === 'toml') {
+			const content = await readTomlConfig(configPath);
+			if (!content) {
+				return {
+					success: false,
+					editor: editor.id,
+					configPath,
+					error: 'Could not read config file',
+				};
+			}
+
+			if (!hasViberagTomlConfig(content)) {
+				return {
+					success: false,
+					editor: editor.id,
+					configPath,
+					error: 'Viberag not configured in this file',
+				};
+			}
+
+			const modified = removeViberagFromTomlConfig(content);
+			if (modified === null) {
+				return {
+					success: false,
+					editor: editor.id,
+					configPath,
+					error: 'Failed to remove viberag from config',
+				};
+			}
+
+			await fs.writeFile(configPath, modified);
+
+			return {
+				success: true,
+				editor: editor.id,
+				configPath,
+			};
+		}
+
+		// Handle JSON format
 		// Read existing config
 		const existing = await readJsonConfig(configPath);
 		if (!existing) {

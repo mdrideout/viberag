@@ -16,11 +16,14 @@ import {
 	generateTomlConfig,
 	readJsonConfig,
 	mergeConfig,
+	mergeTomlConfig,
 	hasViberagConfig,
+	hasViberagTomlConfig,
 	isAlreadyConfigured,
 	configExists,
 	removeViberagConfig,
 	removeViberagFromConfig,
+	removeViberagFromTomlConfig,
 	findConfiguredEditors,
 } from '../commands/mcp-setup.js';
 import {EDITORS, getEditor} from '../data/mcp-editors.js';
@@ -128,7 +131,102 @@ describe('MCP Config Generation', () => {
 
 		expect(toml).toContain('[mcp_servers.viberag]');
 		expect(toml).toContain('command = "npx"');
-		expect(toml).toContain('args = ["viberag-mcp"]');
+		expect(toml).toContain('args = ["-y", "viberag-mcp"]');
+	});
+});
+
+// =============================================================================
+// TOML Config Tests (OpenAI Codex)
+// =============================================================================
+
+describe('TOML Config Functions', () => {
+	it('hasViberagTomlConfig detects viberag section', () => {
+		const toml = `[mcp_servers.viberag]
+command = "npx"
+args = ["-y", "viberag-mcp"]
+`;
+		expect(hasViberagTomlConfig(toml)).toBe(true);
+	});
+
+	it('hasViberagTomlConfig returns false when viberag missing', () => {
+		const toml = `[mcp_servers.other]
+command = "other-cmd"
+`;
+		expect(hasViberagTomlConfig(toml)).toBe(false);
+	});
+
+	it('hasViberagTomlConfig handles empty content', () => {
+		expect(hasViberagTomlConfig('')).toBe(false);
+	});
+
+	it('mergeTomlConfig appends viberag to existing config', () => {
+		const existing = `[mcp_servers.context7]
+command = "npx"
+args = ["context7-mcp"]
+`;
+		const merged = mergeTomlConfig(existing);
+
+		expect(merged).toContain('[mcp_servers.context7]');
+		expect(merged).toContain('[mcp_servers.viberag]');
+		expect(merged).toContain('args = ["-y", "viberag-mcp"]');
+	});
+
+	it('mergeTomlConfig does not duplicate if viberag exists', () => {
+		const existing = generateTomlConfig();
+		const merged = mergeTomlConfig(existing);
+
+		expect(merged).toBe(existing);
+	});
+
+	it('mergeTomlConfig handles empty file', () => {
+		const merged = mergeTomlConfig('');
+
+		expect(merged).toContain('[mcp_servers.viberag]');
+	});
+
+	it('removeViberagFromTomlConfig removes viberag section', () => {
+		const toml = `[mcp_servers.context7]
+command = "npx"
+args = ["context7-mcp"]
+
+[mcp_servers.viberag]
+command = "npx"
+args = ["-y", "viberag-mcp"]
+`;
+		const result = removeViberagFromTomlConfig(toml);
+
+		expect(result).not.toBeNull();
+		expect(result).toContain('[mcp_servers.context7]');
+		expect(result).not.toContain('[mcp_servers.viberag]');
+	});
+
+	it('removeViberagFromTomlConfig returns null if viberag not present', () => {
+		const toml = `[mcp_servers.context7]
+command = "npx"
+args = ["context7-mcp"]
+`;
+		const result = removeViberagFromTomlConfig(toml);
+
+		expect(result).toBeNull();
+	});
+
+	it('removeViberagFromTomlConfig preserves other sections', () => {
+		const toml = `[general]
+api_key = "test"
+
+[mcp_servers.viberag]
+command = "npx"
+args = ["-y", "viberag-mcp"]
+
+[other_section]
+value = 123
+`;
+		const result = removeViberagFromTomlConfig(toml);
+
+		expect(result).not.toBeNull();
+		expect(result).toContain('[general]');
+		expect(result).toContain('[other_section]');
+		expect(result).not.toContain('[mcp_servers.viberag]');
 	});
 });
 
@@ -568,14 +666,25 @@ describe('Edge Cases', () => {
 // =============================================================================
 
 describe('Editor Configuration Data', () => {
-	it('editors with canAutoCreate true support project scope', () => {
-		// All editors that can auto-create should support project scope
-		// (we only auto-create project configs, not global)
-		const autoCreateEditors = EDITORS.filter(e => e.canAutoCreate);
+	it('JSON editors with canAutoCreate true support project scope', () => {
+		// JSON editors that can auto-create should support project scope
+		// TOML editors (like Codex) may only support global scope
+		const autoCreateJsonEditors = EDITORS.filter(
+			e => e.canAutoCreate && e.configFormat === 'json',
+		);
 
-		for (const editor of autoCreateEditors) {
+		for (const editor of autoCreateJsonEditors) {
 			expect(editor.supportsProject).toBe(true);
 		}
+	});
+
+	it('Codex editor supports TOML auto-create for global scope only', () => {
+		const codex = EDITORS.find(e => e.id === 'codex');
+		expect(codex).toBeDefined();
+		expect(codex!.configFormat).toBe('toml');
+		expect(codex!.canAutoCreate).toBe(true);
+		expect(codex!.supportsGlobal).toBe(true);
+		expect(codex!.supportsProject).toBe(false);
 	});
 
 	it('all editors have valid docsUrl', () => {

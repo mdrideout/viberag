@@ -151,7 +151,7 @@ export const EDITORS: EditorConfig[] = [
 		supportsGlobal: true,
 		supportsProject: false,
 		defaultScope: 'global',
-		canAutoCreate: false, // Has CLI command
+		canAutoCreate: true, // Now supports TOML editing
 		cliCommand: 'codex mcp add viberag -- npx -y viberag-mcp',
 		docsUrl: 'https://platform.openai.com/docs/codex/mcp',
 		jsonKey: 'mcp_servers', // TOML section name
