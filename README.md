@@ -369,8 +369,9 @@ args = ["viberag-mcp"]
 
 </details>
 
+---
 
-### Exposed MCP Tools
+## Exposed MCP Tools
 
 | Tool                       | Description                                          |
 | -------------------------- | ---------------------------------------------------- |
