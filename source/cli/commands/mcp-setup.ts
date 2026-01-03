@@ -484,7 +484,12 @@ export function getManualInstructions(
 			lines.push('');
 			lines.push('  "viberag": {');
 			lines.push('    "command": "npx",');
-			lines.push('    "args": ["-y", "viberag-mcp"]');
+			lines.push('    "args": ["-y", "viberag-mcp"],');
+			lines.push('    "alwaysAllow": [');
+			lines.push('      "codebase_search",');
+			lines.push('      "codebase_parallel_search",');
+			lines.push('      "viberag_status"');
+			lines.push('    ]');
 			lines.push('  }');
 			lines.push('');
 		}
