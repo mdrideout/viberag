@@ -247,6 +247,10 @@ export class Indexer {
 
 	/**
 	 * Process a batch of files: read, chunk, embed, and prepare CodeChunks.
+	 *
+	 * Error handling strategy:
+	 * - File read/parse errors: Log and continue (file-specific, recoverable)
+	 * - Embedding/storage errors: Let propagate (fatal, affects all files)
 	 */
 	private async processFileBatch(
 		filepaths: string[],
@@ -258,83 +262,92 @@ export class Indexer {
 		const allChunks: CodeChunk[] = [];
 
 		for (const filepath of filepaths) {
+			// Phase 1: File reading and chunking (recoverable errors)
+			let content: string;
+			let fileHash: string;
+			let chunks: Awaited<ReturnType<typeof chunker.chunkFile>>;
+
 			try {
 				const absolutePath = path.join(this.projectRoot, filepath);
-				const content = await fs.readFile(absolutePath, 'utf-8');
-				const fileHash = (await import('../merkle/hash.js')).computeStringHash(
+				content = await fs.readFile(absolutePath, 'utf-8');
+				fileHash = (await import('../merkle/hash.js')).computeStringHash(
 					content,
 				);
 
 				// Chunk the file (with size limits from config)
-				const chunks = await chunker.chunkFile(
+				chunks = await chunker.chunkFile(
 					filepath,
 					content,
 					this.config!.chunkMaxSize,
 				);
-
-				// Check embedding cache for each chunk
-				const contentHashes = chunks.map(c => c.contentHash);
-				const cachedEmbeddings =
-					await storage.getCachedEmbeddings(contentHashes);
-
-				// Compute embeddings for cache misses
-				const missingChunks = chunks.filter(
-					c => !cachedEmbeddings.has(c.contentHash),
-				);
-
-				if (missingChunks.length > 0) {
-					// Embed contextHeader + text for semantic relevance
-					const texts = missingChunks.map(c =>
-						c.contextHeader ? `${c.contextHeader}\n${c.text}` : c.text,
-					);
-					const newEmbeddings = await embeddings.embed(texts);
-					stats.embeddingsComputed += missingChunks.length;
-
-					// Cache the new embeddings
-					const cacheEntries = missingChunks.map((chunk, i) => ({
-						contentHash: chunk.contentHash,
-						vector: newEmbeddings[i]!,
-						createdAt: new Date().toISOString(),
-					}));
-					await storage.cacheEmbeddings(cacheEntries);
-
-					// Add to cachedEmbeddings map
-					missingChunks.forEach((chunk, i) => {
-						cachedEmbeddings.set(chunk.contentHash, newEmbeddings[i]!);
-					});
-				}
-
-				stats.embeddingsCached += chunks.length - missingChunks.length;
-
-				// Build CodeChunk objects
-				const filename = path.basename(filepath);
-				const extension = path.extname(filepath);
-
-				for (const chunk of chunks) {
-					const vector = cachedEmbeddings.get(chunk.contentHash)!;
-					allChunks.push({
-						id: `${filepath}:${chunk.startLine}`,
-						vector,
-						text: chunk.text,
-						contentHash: chunk.contentHash,
-						filepath,
-						filename,
-						extension,
-						type: chunk.type,
-						name: chunk.name,
-						startLine: chunk.startLine,
-						endLine: chunk.endLine,
-						fileHash,
-						// New metadata fields from schema v2
-						signature: chunk.signature,
-						docstring: chunk.docstring,
-						isExported: chunk.isExported,
-						decoratorNames: chunk.decoratorNames,
-					});
-				}
 			} catch (error) {
-				this.log('warn', `Failed to process file: ${filepath}`, error as Error);
-				// Continue with other files
+				// File-specific error (read/parse) - log and continue with other files
+				this.log('warn', `Failed to read/parse file: ${filepath}`, error as Error);
+				continue;
+			}
+
+			// Phase 2: Embedding and storage (fatal errors - let propagate)
+			// NO try-catch here - API/storage errors should stop indexing
+
+			// Check embedding cache for each chunk
+			const contentHashes = chunks.map(c => c.contentHash);
+			const cachedEmbeddings =
+				await storage.getCachedEmbeddings(contentHashes);
+
+			// Compute embeddings for cache misses
+			const missingChunks = chunks.filter(
+				c => !cachedEmbeddings.has(c.contentHash),
+			);
+
+			if (missingChunks.length > 0) {
+				// Embed contextHeader + text for semantic relevance
+				const texts = missingChunks.map(c =>
+					c.contextHeader ? `${c.contextHeader}\n${c.text}` : c.text,
+				);
+				const newEmbeddings = await embeddings.embed(texts);
+				stats.embeddingsComputed += missingChunks.length;
+
+				// Cache the new embeddings
+				const cacheEntries = missingChunks.map((chunk, i) => ({
+					contentHash: chunk.contentHash,
+					vector: newEmbeddings[i]!,
+					createdAt: new Date().toISOString(),
+				}));
+				await storage.cacheEmbeddings(cacheEntries);
+
+				// Add to cachedEmbeddings map
+				missingChunks.forEach((chunk, i) => {
+					cachedEmbeddings.set(chunk.contentHash, newEmbeddings[i]!);
+				});
+			}
+
+			stats.embeddingsCached += chunks.length - missingChunks.length;
+
+			// Build CodeChunk objects
+			const filename = path.basename(filepath);
+			const extension = path.extname(filepath);
+
+			for (const chunk of chunks) {
+				const vector = cachedEmbeddings.get(chunk.contentHash)!;
+				allChunks.push({
+					id: `${filepath}:${chunk.startLine}`,
+					vector,
+					text: chunk.text,
+					contentHash: chunk.contentHash,
+					filepath,
+					filename,
+					extension,
+					type: chunk.type,
+					name: chunk.name,
+					startLine: chunk.startLine,
+					endLine: chunk.endLine,
+					fileHash,
+					// New metadata fields from schema v2
+					signature: chunk.signature,
+					docstring: chunk.docstring,
+					isExported: chunk.isExported,
+					decoratorNames: chunk.decoratorNames,
+				});
 			}
 		}
 

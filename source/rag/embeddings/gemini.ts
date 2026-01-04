@@ -26,7 +26,8 @@ export class GeminiEmbeddingProvider implements EmbeddingProvider {
 	private initialized = false;
 
 	constructor(apiKey?: string) {
-		this.apiKey = apiKey ?? '';
+		// Trim the key to remove any accidental whitespace
+		this.apiKey = (apiKey ?? '').trim();
 	}
 
 	async initialize(_onProgress?: ModelProgressCallback): Promise<void> {
@@ -80,8 +81,23 @@ export class GeminiEmbeddingProvider implements EmbeddingProvider {
 		});
 
 		if (!response.ok) {
-			const error = await response.text();
-			throw new Error(`Gemini API error: ${response.status} - ${error}`);
+			const errorText = await response.text();
+			let errorMessage: string;
+			try {
+				const errorJson = JSON.parse(errorText) as {error?: {message?: string}};
+				errorMessage = errorJson.error?.message || errorText;
+			} catch {
+				errorMessage = errorText;
+			}
+
+			if (response.status === 400 || response.status === 403) {
+				throw new Error(
+					`Gemini API authentication failed (${response.status}). ` +
+					`Verify your API key at https://aistudio.google.com/apikey. Error: ${errorMessage}`,
+				);
+			}
+
+			throw new Error(`Gemini API error (${response.status}): ${errorMessage}`);
 		}
 
 		const data = (await response.json()) as {
@@ -114,8 +130,23 @@ export class GeminiEmbeddingProvider implements EmbeddingProvider {
 		});
 
 		if (!response.ok) {
-			const error = await response.text();
-			throw new Error(`Gemini API error: ${response.status} - ${error}`);
+			const errorText = await response.text();
+			let errorMessage: string;
+			try {
+				const errorJson = JSON.parse(errorText) as {error?: {message?: string}};
+				errorMessage = errorJson.error?.message || errorText;
+			} catch {
+				errorMessage = errorText;
+			}
+
+			if (response.status === 400 || response.status === 403) {
+				throw new Error(
+					`Gemini API authentication failed (${response.status}). ` +
+					`Verify your API key at https://aistudio.google.com/apikey. Error: ${errorMessage}`,
+				);
+			}
+
+			throw new Error(`Gemini API error (${response.status}): ${errorMessage}`);
 		}
 
 		const data = (await response.json()) as {

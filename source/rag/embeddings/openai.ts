@@ -21,13 +21,20 @@ export class OpenAIEmbeddingProvider implements EmbeddingProvider {
 	private initialized = false;
 
 	constructor(apiKey?: string) {
-		this.apiKey = apiKey ?? '';
+		// Trim the key to remove any accidental whitespace
+		this.apiKey = (apiKey ?? '').trim();
 	}
 
 	async initialize(_onProgress?: ModelProgressCallback): Promise<void> {
 		if (!this.apiKey) {
 			throw new Error(
 				'OpenAI API key required. Run /init to configure your API key.',
+			);
+		}
+		// Validate key format (should start with sk-)
+		if (!this.apiKey.startsWith('sk-')) {
+			throw new Error(
+				`Invalid OpenAI API key format. Key should start with "sk-" but got "${this.apiKey.slice(0, 3)}..."`,
 			);
 		}
 		this.initialized = true;
@@ -68,8 +75,25 @@ export class OpenAIEmbeddingProvider implements EmbeddingProvider {
 		});
 
 		if (!response.ok) {
-			const error = await response.text();
-			throw new Error(`OpenAI API error: ${response.status} - ${error}`);
+			const errorText = await response.text();
+			let errorMessage: string;
+			try {
+				const errorJson = JSON.parse(errorText) as {error?: {message?: string; type?: string}};
+				errorMessage = errorJson.error?.message || errorText;
+			} catch {
+				errorMessage = errorText;
+			}
+
+			// Provide helpful context for common errors
+			if (response.status === 401) {
+				const keyPreview = `${this.apiKey.slice(0, 7)}...${this.apiKey.slice(-4)}`;
+				throw new Error(
+					`OpenAI API authentication failed (401). Key format: ${keyPreview}. ` +
+					`Verify your API key at https://platform.openai.com/api-keys. Error: ${errorMessage}`,
+				);
+			}
+
+			throw new Error(`OpenAI API error (${response.status}): ${errorMessage}`);
 		}
 
 		const data = (await response.json()) as {

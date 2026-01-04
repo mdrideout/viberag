@@ -146,10 +146,14 @@ export class Storage {
 		this.ensureConnected();
 		if (chunks.length === 0) return;
 
+		if (!this.chunksTable) {
+			throw new Error('Chunks table not available. Call connect() first.');
+		}
+
 		const rows = chunks.map(chunkToRow) as unknown as Record<string, unknown>[];
 
 		// Use merge insert for upsert behavior
-		await this.chunksTable!.mergeInsert('id')
+		await this.chunksTable.mergeInsert('id')
 			.whenMatchedUpdateAll()
 			.whenNotMatchedInsertAll()
 			.execute(rows);
@@ -158,27 +162,21 @@ export class Storage {
 	/**
 	 * Add chunks to the database (no merge, just insert).
 	 * Use this after resetChunksTable() to avoid schema mismatch issues.
-	 * Creates the table from data if it doesn't exist.
 	 */
 	async addChunks(chunks: CodeChunk[]): Promise<void> {
 		this.ensureConnected();
 		if (chunks.length === 0) return;
+
+		if (!this.chunksTable) {
+			throw new Error('Chunks table not available. Call connect() first.');
+		}
 
 		const rows = chunks.map(chunkToRow) as unknown as Record<string, unknown>[];
 		const schema = createCodeChunksSchema(this.dimensions);
 
 		// Use makeArrowTable to properly convert data with schema
 		const arrowTable = makeArrowTable(rows, {schema});
-
-		// If table was reset (null), create from Arrow table
-		if (!this.chunksTable) {
-			this.chunksTable = await this.db!.createTable(
-				TABLE_NAMES.CODE_CHUNKS,
-				arrowTable,
-			);
-		} else {
-			await this.chunksTable.add(arrowTable);
-		}
+		await this.chunksTable.add(arrowTable);
 	}
 
 	/**
@@ -187,10 +185,11 @@ export class Storage {
 	 */
 	async deleteChunksByFilepath(filepath: string): Promise<number> {
 		this.ensureConnected();
+		if (!this.chunksTable) return 0;
 
-		const countBefore = await this.chunksTable!.countRows();
-		await this.chunksTable!.delete(`filepath = '${escapeString(filepath)}'`);
-		const countAfter = await this.chunksTable!.countRows();
+		const countBefore = await this.chunksTable.countRows();
+		await this.chunksTable.delete(`filepath = '${escapeString(filepath)}'`);
+		const countAfter = await this.chunksTable.countRows();
 
 		return countBefore - countAfter;
 	}
@@ -202,14 +201,15 @@ export class Storage {
 	async deleteChunksByFilepaths(filepaths: string[]): Promise<number> {
 		this.ensureConnected();
 		if (filepaths.length === 0) return 0;
+		if (!this.chunksTable) return 0;
 
-		const countBefore = await this.chunksTable!.countRows();
+		const countBefore = await this.chunksTable.countRows();
 
 		// Build IN clause with escaped strings
 		const escaped = filepaths.map(fp => `'${escapeString(fp)}'`).join(', ');
-		await this.chunksTable!.delete(`filepath IN (${escaped})`);
+		await this.chunksTable.delete(`filepath IN (${escaped})`);
 
-		const countAfter = await this.chunksTable!.countRows();
+		const countAfter = await this.chunksTable.countRows();
 		return countBefore - countAfter;
 	}
 
@@ -218,8 +218,9 @@ export class Storage {
 	 */
 	async getChunksByFilepath(filepath: string): Promise<CodeChunk[]> {
 		this.ensureConnected();
+		if (!this.chunksTable) return [];
 
-		const results = await this.chunksTable!.query()
+		const results = await this.chunksTable.query()
 			.where(`filepath = '${escapeString(filepath)}'`)
 			.toArray();
 
@@ -231,9 +232,10 @@ export class Storage {
 	 */
 	async getAllFilepaths(): Promise<Set<string>> {
 		this.ensureConnected();
+		if (!this.chunksTable) return new Set();
 
 		// Query all rows but only need filepath column
-		const results = await this.chunksTable!.query()
+		const results = await this.chunksTable.query()
 			.select(['filepath'])
 			.toArray();
 
@@ -250,7 +252,11 @@ export class Storage {
 	 */
 	async countChunks(): Promise<number> {
 		this.ensureConnected();
-		return this.chunksTable!.countRows();
+		// Table may be null after resetChunksTable() if no chunks added yet
+		if (!this.chunksTable) {
+			return 0;
+		}
+		return this.chunksTable.countRows();
 	}
 
 	// ============================================================
@@ -320,13 +326,14 @@ export class Storage {
 	 */
 	async clearAll(): Promise<void> {
 		this.ensureConnected();
+		if (!this.chunksTable) return;
 
 		// Delete all rows from chunks table
 		// LanceDB doesn't have a truncate, so we delete all
-		const count = await this.chunksTable!.countRows();
+		const count = await this.chunksTable.countRows();
 		if (count > 0) {
 			// Delete with a condition that matches all rows
-			await this.chunksTable!.delete('id IS NOT NULL');
+			await this.chunksTable.delete('id IS NOT NULL');
 		}
 	}
 
@@ -337,12 +344,19 @@ export class Storage {
 	async resetChunksTable(): Promise<void> {
 		this.ensureConnected();
 
-		// Drop existing table
-		await this.db!.dropTable(TABLE_NAMES.CODE_CHUNKS);
+		// Drop existing table if it exists
+		const tableNames = await this.db!.tableNames();
+		if (tableNames.includes(TABLE_NAMES.CODE_CHUNKS)) {
+			await this.db!.dropTable(TABLE_NAMES.CODE_CHUNKS);
+		}
 
-		// Don't pre-create - let it be created from first data insert
-		// This avoids Arrow schema mismatch issues
-		this.chunksTable = null;
+		// Create empty table with correct schema
+		// This ensures chunksTable is never null after reset
+		const schema = createCodeChunksSchema(this.dimensions);
+		this.chunksTable = await this.db!.createEmptyTable(
+			TABLE_NAMES.CODE_CHUNKS,
+			schema,
+		);
 	}
 
 	/**
@@ -359,10 +373,16 @@ export class Storage {
 
 	/**
 	 * Get the chunks table for direct querying (e.g., search).
+	 * @throws Error if table doesn't exist (not indexed yet)
 	 */
 	getChunksTable(): Table {
 		this.ensureConnected();
-		return this.chunksTable!;
+		if (!this.chunksTable) {
+			throw new Error(
+				'Chunks table not available. Run indexing first or the index may be empty.',
+			);
+		}
+		return this.chunksTable;
 	}
 }
 

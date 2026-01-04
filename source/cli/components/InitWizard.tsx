@@ -271,6 +271,8 @@ const API_KEY_ACTION_ITEMS: SelectItem<'keep' | 'new'>[] = [
 
 /**
  * Simple text input component for API key entry.
+ * Uses a ref to accumulate input, which handles paste better than
+ * relying on React state updates between rapid useInput calls.
  */
 function ApiKeyInputStep({
 	providerName,
@@ -283,26 +285,42 @@ function ApiKeyInputStep({
 	setApiKeyInput: (value: string) => void;
 	onSubmit: (key: string) => void;
 }): React.ReactElement {
+	// Use a ref to accumulate input - avoids closure stale state issues during rapid paste
+	const inputRef = React.useRef(apiKeyInput);
+	inputRef.current = apiKeyInput;
+
 	// Handle text input (supports paste)
 	useInput((input, key) => {
 		if (key.return) {
-			onSubmit(apiKeyInput);
+			onSubmit(inputRef.current);
 		} else if (key.backspace || key.delete) {
-			setApiKeyInput(apiKeyInput.slice(0, -1));
+			setApiKeyInput(inputRef.current.slice(0, -1));
 		} else if (!key.ctrl && !key.meta && input) {
 			// Add printable characters (supports multi-char paste)
-			setApiKeyInput(apiKeyInput + input);
+			// Filter out control characters that might slip through
+			const printable = input.replace(/[\x00-\x1F\x7F]/g, '');
+			if (printable) {
+				setApiKeyInput(inputRef.current + printable);
+			}
 		}
 	});
+
+	// Mask API key display (show first 7 and last 4 chars)
+	const maskedKey = apiKeyInput.length > 15
+		? `${apiKeyInput.slice(0, 7)}${'•'.repeat(Math.min(apiKeyInput.length - 11, 20))}${apiKeyInput.slice(-4)}`
+		: apiKeyInput;
 
 	return (
 		<Box marginTop={1} flexDirection="column">
 			<Text>Enter your {providerName} API key:</Text>
 			<Box marginTop={1}>
 				<Text color="blue">&gt; </Text>
-				<Text>{apiKeyInput}</Text>
+				<Text>{maskedKey}</Text>
 				<Text color="gray">█</Text>
 			</Box>
+			{apiKeyInput.length > 0 && (
+				<Text dimColor>Length: {apiKeyInput.length} characters</Text>
+			)}
 			{apiKeyInput.trim() === '' && (
 				<Text color="yellow" dimColor>
 					API key is required

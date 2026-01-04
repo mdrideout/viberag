@@ -21,7 +21,8 @@ export class MistralEmbeddingProvider implements EmbeddingProvider {
 	private initialized = false;
 
 	constructor(apiKey?: string) {
-		this.apiKey = apiKey ?? '';
+		// Trim the key to remove any accidental whitespace
+		this.apiKey = (apiKey ?? '').trim();
 	}
 
 	async initialize(_onProgress?: ModelProgressCallback): Promise<void> {
@@ -68,8 +69,23 @@ export class MistralEmbeddingProvider implements EmbeddingProvider {
 		});
 
 		if (!response.ok) {
-			const error = await response.text();
-			throw new Error(`Mistral API error: ${response.status} - ${error}`);
+			const errorText = await response.text();
+			let errorMessage: string;
+			try {
+				const errorJson = JSON.parse(errorText) as {message?: string; detail?: string};
+				errorMessage = errorJson.message || errorJson.detail || errorText;
+			} catch {
+				errorMessage = errorText;
+			}
+
+			if (response.status === 401) {
+				throw new Error(
+					`Mistral API authentication failed (401). ` +
+					`Verify your API key at https://console.mistral.ai/api-keys. Error: ${errorMessage}`,
+				);
+			}
+
+			throw new Error(`Mistral API error (${response.status}): ${errorMessage}`);
 		}
 
 		const data = (await response.json()) as {

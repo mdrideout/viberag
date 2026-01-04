@@ -109,7 +109,9 @@ export {
 	GeminiEmbeddingProvider,
 	MistralEmbeddingProvider,
 	OpenAIEmbeddingProvider,
+	validateApiKey,
 	type EmbeddingProvider,
+	type ValidationResult,
 } from './embeddings/index.js';
 
 // Search
