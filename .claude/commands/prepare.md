@@ -96,4 +96,15 @@ Examples: use naked functions over unnecessary classes and abstractions.
 
 ## Documentation Updates
 
-When making changes to the CLI / wizard / MCP tools - ensure we keep user documentation and the @README.md updated with what we've implemented in the code. 
+When making changes to the CLI / wizard / MCP tools - ensure we keep user documentation, experience (cli / wizard), ADR documents, and the @README.md updated with what we've implemented in the code.
+
+### Documentation Website
+
+This repository also includes an AstroJS powered documentation website using the starlight theme.
+
+- Created with: `npm create astro@latest -- --template starlight/tailwind`
+- Located inside @docs/
+- Must have light / dark mode compatibility
+- URL / Navigation:
+  - The homepage is published to https://viberag.ai
+  - The starlight documentation is published to https://viberag.ai/docs
