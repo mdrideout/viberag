@@ -1,4 +1,5 @@
-# VibeRAG - Local Code RAG MCP Server
+# VibeRAG /prepare Task:
+Prepare to work on the viberag codebase.
 
 Check the current date and time.
 License: AGPL-3.0 license
