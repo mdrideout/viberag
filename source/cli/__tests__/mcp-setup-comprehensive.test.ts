@@ -20,7 +20,25 @@ import {
 	hasViberagConfig,
 	generateMcpConfig,
 } from '../commands/mcp-setup.js';
-import {getEditor, getConfigPath} from '../data/mcp-editors.js';
+import {getEditor, getConfigPath, type EditorId} from '../data/mcp-editors.js';
+
+// Type definitions for config objects
+interface ServerConfig {
+	command?: string;
+	args?: string[];
+	source?: string;
+	settings?: Record<string, unknown>;
+	[key: string]: unknown;
+}
+
+interface McpConfigObject {
+	theme?: string;
+	mcpServers?: Record<string, ServerConfig>;
+	servers?: Record<string, ServerConfig>;
+	context_servers?: Record<string, ServerConfig>;
+	mcp?: Record<string, ServerConfig>;
+	[key: string]: unknown;
+}
 
 // =============================================================================
 // Test Helpers
@@ -96,7 +114,7 @@ describe('Project Scope - All Editors', () => {
 	describe('Create Config', () => {
 		for (const {id, path: configPath, key} of projectEditors) {
 			it(`creates ${configPath} for ${id}`, async () => {
-				const editor = getEditor(id as any)!;
+				const editor = getEditor(id as EditorId)!;
 
 				// Skip if editor doesn't support auto-create for project
 				if (!editor.canAutoCreate || !editor.supportsProject) {
@@ -123,7 +141,7 @@ describe('Project Scope - All Editors', () => {
 	describe('Update/Merge Config', () => {
 		for (const {id, path: configPath, key} of projectEditors) {
 			it(`merges into existing ${configPath} for ${id}`, async () => {
-				const editor = getEditor(id as any)!;
+				const editor = getEditor(id as EditorId)!;
 
 				// Skip if editor doesn't support auto-create for project
 				if (!editor.canAutoCreate || !editor.supportsProject) {
@@ -152,7 +170,7 @@ describe('Project Scope - All Editors', () => {
 			});
 
 			it(`reports already configured for ${id} when viberag exists`, async () => {
-				const editor = getEditor(id as any)!;
+				const editor = getEditor(id as EditorId)!;
 
 				if (!editor.canAutoCreate || !editor.supportsProject) {
 					return;
@@ -177,7 +195,7 @@ describe('Project Scope - All Editors', () => {
 	describe('Remove Config', () => {
 		for (const {id, path: configPath, key} of projectEditors) {
 			it(`removes viberag from ${configPath} for ${id}`, async () => {
-				const editor = getEditor(id as any)!;
+				const editor = getEditor(id as EditorId)!;
 
 				if (!editor.supportsProject) {
 					return;
@@ -205,7 +223,7 @@ describe('Project Scope - All Editors', () => {
 			});
 
 			it(`returns error when viberag not in ${configPath} for ${id}`, async () => {
-				const editor = getEditor(id as any)!;
+				const editor = getEditor(id as EditorId)!;
 
 				if (!editor.supportsProject) {
 					return;
@@ -260,8 +278,8 @@ describe('JSONC Handling (Comments)', () => {
 		const config = await readJsonConfig(configPath);
 
 		expect(config).not.toBeNull();
-		expect((config as any).theme).toBe('One Dark');
-		expect((config as any).context_servers?.other).toBeDefined();
+		expect((config as McpConfigObject).theme).toBe('One Dark');
+		expect((config as McpConfigObject).context_servers?.other).toBeDefined();
 	});
 
 	it('reads VS Code config with /* */ comments', async () => {
@@ -281,7 +299,7 @@ describe('JSONC Handling (Comments)', () => {
 		const config = await readJsonConfig(configPath);
 
 		expect(config).not.toBeNull();
-		expect((config as any).servers?.existing).toBeDefined();
+		expect((config as McpConfigObject).servers?.existing).toBeDefined();
 	});
 
 	it('merges into Zed config with comments', async () => {
@@ -308,7 +326,7 @@ describe('JSONC Handling (Comments)', () => {
 
 		expect(config).not.toBeNull();
 		// The original content should still be readable
-		expect((config as any).theme).toBe('One Dark');
+		expect((config as McpConfigObject).theme).toBe('One Dark');
 	});
 
 	it('handles config with trailing commas', async () => {
@@ -325,7 +343,7 @@ describe('JSONC Handling (Comments)', () => {
 		const config = await readJsonConfig(configPath);
 
 		expect(config).not.toBeNull();
-		expect((config as any).servers?.existing).toBeDefined();
+		expect((config as McpConfigObject).servers?.existing).toBeDefined();
 	});
 });
 
@@ -353,7 +371,7 @@ describe('isAlreadyConfigured - All Editors', () => {
 
 	for (const {id, path: configPath, key} of projectEditors) {
 		it(`detects viberag in ${id} project config`, async () => {
-			const editor = getEditor(id as any)!;
+			const editor = getEditor(id as EditorId)!;
 
 			// Setup: Create config with viberag
 			const existingConfig: Record<string, Record<string, object>> = {};
@@ -367,7 +385,7 @@ describe('isAlreadyConfigured - All Editors', () => {
 		});
 
 		it(`returns false when ${id} project config missing viberag`, async () => {
-			const editor = getEditor(id as any)!;
+			const editor = getEditor(id as EditorId)!;
 
 			// Setup: Create config without viberag
 			const existingConfig: Record<string, Record<string, object>> = {};
@@ -381,7 +399,7 @@ describe('isAlreadyConfigured - All Editors', () => {
 		});
 
 		it(`returns false when ${id} project config doesn't exist`, async () => {
-			const editor = getEditor(id as any)!;
+			const editor = getEditor(id as EditorId)!;
 
 			const result = await isAlreadyConfigured(editor, 'project', ctx.dir);
 			expect(result).toBe(false);
@@ -402,7 +420,7 @@ describe('hasViberagConfig - All Editor Formats', () => {
 		};
 
 		for (const id of ['claude-code', 'cursor', 'gemini-cli', 'roo-code']) {
-			const editor = getEditor(id as any)!;
+			const editor = getEditor(id as EditorId)!;
 			expect(hasViberagConfig(config, editor)).toBe(true);
 		}
 	});
@@ -451,7 +469,7 @@ describe('hasViberagConfig - All Editor Formats', () => {
 		const editors = ['claude-code', 'vscode', 'zed', 'opencode'];
 
 		for (let i = 0; i < editors.length; i++) {
-			const editor = getEditor(editors[i] as any)!;
+			const editor = getEditor(editors[i] as EditorId)!;
 			expect(hasViberagConfig(configs[i]!, editor)).toBe(false);
 		}
 	});
@@ -470,42 +488,42 @@ describe('generateMcpConfig - All Editor Formats', () => {
 			'roo-code',
 			'windsurf',
 		]) {
-			const editor = getEditor(id as any)!;
-			const config = generateMcpConfig(editor) as Record<string, unknown>;
+			const editor = getEditor(id as EditorId)!;
+			const config = generateMcpConfig(editor) as McpConfigObject;
 
 			expect(config).toHaveProperty('mcpServers');
-			expect((config['mcpServers'] as any).viberag).toBeDefined();
-			expect((config['mcpServers'] as any).viberag.command).toBe('npx');
+			expect(config.mcpServers?.viberag).toBeDefined();
+			expect(config.mcpServers?.viberag?.command).toBe('npx');
 		}
 	});
 
 	it('generates servers format for VS Code', () => {
 		const editor = getEditor('vscode')!;
-		const config = generateMcpConfig(editor) as Record<string, unknown>;
+		const config = generateMcpConfig(editor) as McpConfigObject;
 
 		expect(config).toHaveProperty('servers');
 		expect(config).not.toHaveProperty('mcpServers');
-		expect((config['servers'] as any).viberag).toBeDefined();
+		expect(config.servers?.viberag).toBeDefined();
 	});
 
 	it('generates context_servers format for Zed with source:custom', () => {
 		const editor = getEditor('zed')!;
-		const config = generateMcpConfig(editor) as Record<string, unknown>;
+		const config = generateMcpConfig(editor) as McpConfigObject;
 
 		expect(config).toHaveProperty('context_servers');
-		const zedConfig = (config['context_servers'] as any).viberag;
-		expect(zedConfig.source).toBe('custom');
-		expect(zedConfig.command).toBe('npx');
+		const zedConfig = config.context_servers?.viberag;
+		expect(zedConfig?.source).toBe('custom');
+		expect(zedConfig?.command).toBe('npx');
 	});
 
 	it('generates mcp format for OpenCode with type:local and array command', () => {
 		const editor = getEditor('opencode')!;
-		const config = generateMcpConfig(editor) as Record<string, unknown>;
+		const config = generateMcpConfig(editor) as McpConfigObject;
 
 		expect(config).toHaveProperty('mcp');
-		const openCodeConfig = (config['mcp'] as any).viberag;
-		expect(openCodeConfig.type).toBe('local');
-		expect(openCodeConfig.command).toEqual(['npx', '-y', 'viberag-mcp']);
+		const openCodeConfig = config.mcp?.viberag;
+		expect(openCodeConfig?.type).toBe('local');
+		expect(openCodeConfig?.command).toEqual(['npx', '-y', 'viberag-mcp']);
 		expect(openCodeConfig).not.toHaveProperty('args');
 	});
 });
@@ -530,7 +548,7 @@ describe('getConfigPath - All Editors', () => {
 
 		for (const {id, expected} of projectPaths) {
 			it(`returns correct project path for ${id}`, () => {
-				const editor = getEditor(id as any)!;
+				const editor = getEditor(id as EditorId)!;
 				const configPath = getConfigPath(editor, 'project', testProjectRoot);
 
 				expect(configPath).toBe(path.join(testProjectRoot, expected));
@@ -592,7 +610,7 @@ describe('Error Handling', () => {
 		const paths = ['.mcp.json', '.vscode/mcp.json', '.cursor/mcp.json'];
 
 		for (let i = 0; i < editors.length; i++) {
-			const editor = getEditor(editors[i] as any)!;
+			const editor = getEditor(editors[i] as EditorId)!;
 			await writeTestConfig(ctx.dir, paths[i]!, '{ invalid json }');
 
 			const result = await writeMcpConfig(editor, 'project', ctx.dir);

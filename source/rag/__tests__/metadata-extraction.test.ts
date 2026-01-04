@@ -61,10 +61,11 @@ describe('Metadata Extraction', () => {
 		}, 60_000);
 
 		it('extracts class signature', async () => {
-			// Use semantic search with class filter
+			// Use semantic search with class filter, limited to TypeScript
+			// (PHP/Kotlin have interfaces that are also typed as 'class')
 			const results = await search.search('UserService class service', {
 				mode: 'semantic',
-				filters: {type: ['class']},
+				filters: {type: ['class'], extension: ['.ts']},
 			});
 
 			// Should find some classes with signatures

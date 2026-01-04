@@ -15,7 +15,26 @@ import {
 	removeViberagConfig,
 	isAlreadyConfigured,
 } from '../commands/mcp-setup.js';
-import {getEditor, getConfigPath} from '../data/mcp-editors.js';
+import {getEditor, getConfigPath, type EditorId} from '../data/mcp-editors.js';
+
+// Type definitions for config objects
+interface ServerConfig {
+	command?: string;
+	args?: string[];
+	source?: string;
+	settings?: Record<string, unknown>;
+	[key: string]: unknown;
+}
+
+interface McpConfigObject {
+	theme?: string;
+	buffer_font_size?: number;
+	mcpServers?: Record<string, ServerConfig>;
+	servers?: Record<string, ServerConfig>;
+	context_servers?: Record<string, ServerConfig>;
+	mcp?: Record<string, ServerConfig>;
+	[key: string]: unknown;
+}
 
 // =============================================================================
 // Test Helpers
@@ -478,9 +497,9 @@ describe('Zed Global Config (JSONC)', () => {
 		const config = await readJsonConfig(configPath);
 
 		expect(config).not.toBeNull();
-		expect((config as any).theme).toBe('One Dark');
-		expect((config as any).buffer_font_size).toBe(14);
-		expect((config as any).context_servers?.postgres).toBeDefined();
+		expect((config as McpConfigObject).theme).toBe('One Dark');
+		expect((config as McpConfigObject).buffer_font_size).toBe(14);
+		expect((config as McpConfigObject).context_servers?.postgres).toBeDefined();
 	});
 
 	it('detects existing viberag in Zed config with comments', async () => {
@@ -846,7 +865,7 @@ describe('Global Config Path Resolution', () => {
 
 	for (const {id, expected} of globalPathTests) {
 		it(`resolves correct global path for ${id}`, () => {
-			const editor = getEditor(id as any)!;
+			const editor = getEditor(id as EditorId)!;
 			const configPath = getConfigPath(editor, 'global');
 
 			expect(configPath).toBe(path.join(ctx.tempHome, expected));

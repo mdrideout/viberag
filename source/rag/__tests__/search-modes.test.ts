@@ -45,10 +45,11 @@ describe('Search Modes', () => {
 		}, 60_000);
 
 		it('finds class definition by name', async () => {
-			// Use semantic search to find class - definition mode uses exact name match
+			// Use semantic search to find class - limited to TypeScript
+			// (PHP/Kotlin have interfaces that are also typed as 'class')
 			const results = await search.search('UserService class', {
 				mode: 'semantic',
-				filters: {type: ['class']},
+				filters: {type: ['class'], extension: ['.ts']},
 			});
 
 			// Should find the class in exported.ts

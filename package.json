@@ -28,7 +28,18 @@
 		"test": "prettier --check . && eslint . && vitest run",
 		"test:smoke": "vitest run --testNamePattern='Grammar Smoke'",
 		"lint": "eslint .",
-		"lint:fix": "eslint . --fix"
+		"lint:fix": "eslint . --fix",
+		"format": "prettier --write .",
+		"prepare": "husky"
+	},
+	"lint-staged": {
+		"*.{ts,tsx,js,jsx}": [
+			"prettier --write",
+			"eslint --fix"
+		],
+		"*.{json,md,yml,yaml}": [
+			"prettier --write"
+		]
 	},
 	"files": [
 		"dist",
@@ -64,7 +75,9 @@
 		"eslint-plugin-react": "^7.37.5",
 		"eslint-plugin-react-hooks": "^7.0.1",
 		"globals": "^16.5.0",
+		"husky": "^9.1.7",
 		"ink-testing-library": "^3.0.0",
+		"lint-staged": "^16.2.7",
 		"prettier": "^3.7.4",
 		"react-devtools-core": "^6.1.2",
 		"ts-node": "^10.9.1",

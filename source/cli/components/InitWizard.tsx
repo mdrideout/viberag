@@ -298,6 +298,7 @@ function ApiKeyInputStep({
 		} else if (!key.ctrl && !key.meta && input) {
 			// Add printable characters (supports multi-char paste)
 			// Filter out control characters that might slip through
+			// eslint-disable-next-line no-control-regex
 			const printable = input.replace(/[\x00-\x1F\x7F]/g, '');
 			if (printable) {
 				setApiKeyInput(inputRef.current + printable);
