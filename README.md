@@ -580,7 +580,7 @@ Choose your embedding provider during `/init`:
 | Provider | Model                  | Dims | Cost      | Get API Key                                             |
 | -------- | ---------------------- | ---- | --------- | ------------------------------------------------------- |
 | Gemini   | gemini-embedding-001   | 1536 | Free tier | [Google AI Studio](https://aistudio.google.com)         |
-| Mistral  | codestral-embed        | 1024 | $0.10/1M  | [Mistral Console](https://console.mistral.ai/api-keys/) |
+| Mistral  | codestral-embed        | 1536 | $0.10/1M  | [Mistral Console](https://console.mistral.ai/api-keys/) |
 | OpenAI   | text-embedding-3-small | 1536 | $0.02/1M  | [OpenAI Platform](https://platform.openai.com/api-keys) |
 
 - **Gemini** - Free tier available, great for getting started

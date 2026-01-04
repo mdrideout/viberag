@@ -34,6 +34,7 @@ export class Storage {
 	/**
 	 * Connect to the LanceDB database.
 	 * Creates tables if they don't exist.
+	 * Validates that existing tables have matching dimensions.
 	 */
 	async connect(): Promise<void> {
 		const dbPath = getLanceDbPath(this.projectRoot);
@@ -45,6 +46,21 @@ export class Storage {
 		// Open or create code_chunks table
 		if (tableNames.includes(TABLE_NAMES.CODE_CHUNKS)) {
 			this.chunksTable = await this.db.openTable(TABLE_NAMES.CODE_CHUNKS);
+
+			// Validate dimensions match - if mismatched, drop and recreate
+			// This handles provider changes (e.g., different dimension providers)
+			const tableDimensions = await this.getTableVectorDimensions(
+				this.chunksTable,
+			);
+			if (tableDimensions !== null && tableDimensions !== this.dimensions) {
+				// Dimension mismatch - drop and recreate with new schema
+				await this.db.dropTable(TABLE_NAMES.CODE_CHUNKS);
+				const schema = createCodeChunksSchema(this.dimensions);
+				this.chunksTable = await this.db.createEmptyTable(
+					TABLE_NAMES.CODE_CHUNKS,
+					schema,
+				);
+			}
 		} else {
 			const schema = createCodeChunksSchema(this.dimensions);
 			this.chunksTable = await this.db.createEmptyTable(
@@ -56,12 +72,45 @@ export class Storage {
 		// Open or create embedding_cache table
 		if (tableNames.includes(TABLE_NAMES.EMBEDDING_CACHE)) {
 			this.cacheTable = await this.db.openTable(TABLE_NAMES.EMBEDDING_CACHE);
+
+			// Validate dimensions match - if mismatched, drop and recreate
+			const cacheDimensions = await this.getTableVectorDimensions(
+				this.cacheTable,
+			);
+			if (cacheDimensions !== null && cacheDimensions !== this.dimensions) {
+				// Cache dimension mismatch - drop and recreate
+				await this.db.dropTable(TABLE_NAMES.EMBEDDING_CACHE);
+				const schema = createEmbeddingCacheSchema(this.dimensions);
+				this.cacheTable = await this.db.createEmptyTable(
+					TABLE_NAMES.EMBEDDING_CACHE,
+					schema,
+				);
+			}
 		} else {
 			const schema = createEmbeddingCacheSchema(this.dimensions);
 			this.cacheTable = await this.db.createEmptyTable(
 				TABLE_NAMES.EMBEDDING_CACHE,
 				schema,
 			);
+		}
+	}
+
+	/**
+	 * Get the vector column dimensions from a table schema.
+	 * Returns null if vector column not found.
+	 */
+	private async getTableVectorDimensions(table: Table): Promise<number | null> {
+		try {
+			const schema = await table.schema();
+			const vectorField = schema.fields.find(
+				(f: {name: string}) => f.name === 'vector',
+			);
+			if (vectorField && 'listSize' in vectorField.type) {
+				return (vectorField.type as {listSize: number}).listSize;
+			}
+			return null;
+		} catch {
+			return null;
 		}
 	}
 

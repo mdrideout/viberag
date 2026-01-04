@@ -69,8 +69,8 @@ export type IndexDisplayStats = {
  * - local-4b: Qwen3-Embedding-4B FP32 (2560d) - ~8GB download, ~8GB RAM
  *
  * API providers:
- * - gemini: gemini-embedding-001 (768d) - Free tier
- * - mistral: codestral-embed (1024d) - Code-optimized
+ * - gemini: gemini-embedding-001 (1536d) - Free tier
+ * - mistral: codestral-embed (1536d) - Code-optimized
  * - openai: text-embedding-3-small (1536d) - Fast API
  */
 export type EmbeddingProviderType =

@@ -3,7 +3,7 @@
  * Guides users through embedding provider selection and API key configuration.
  */
 
-import React, {useState} from 'react';
+import React, {useState, useEffect} from 'react';
 import {Box, Text, useInput} from 'ink';
 import SelectInput from 'ink-select-input';
 import type {
@@ -90,7 +90,7 @@ const PROVIDER_CONFIG: Record<
 		name: 'Gemini',
 		model: 'gemini-embedding-001',
 		modelFull: 'gemini-embedding-001',
-		dims: '768',
+		dims: '1536',
 		context: '2K',
 		cost: 'Free tier',
 		note: 'API key required',
@@ -100,7 +100,7 @@ const PROVIDER_CONFIG: Record<
 		name: 'Mistral',
 		model: 'codestral-embed',
 		modelFull: 'codestral-embed',
-		dims: '1024',
+		dims: '1536',
 		context: '8K',
 		cost: '$0.10/1M',
 		note: 'API key required',
@@ -143,13 +143,13 @@ const FRONTIER_MODELS_DATA = [
 	{
 		Provider: 'Gemini',
 		Model: 'gemini-embedding-001',
-		Dims: '768',
+		Dims: '1536',
 		Cost: 'Free tier',
 	},
 	{
 		Provider: 'Mistral',
 		Model: 'codestral-embed',
-		Dims: '1024',
+		Dims: '1536',
 		Cost: '$0.10/1M',
 	},
 	{
@@ -342,15 +342,22 @@ export function InitWizard({
 	const currentProvider = config.provider ?? 'local';
 	const needsApiKey = isCloudProvider(currentProvider);
 
-	// Check if we have an existing API key for the same provider
-	const hasExistingKeyForProvider =
-		existingApiKey && existingProvider === currentProvider;
-
 	// Compute effective step (adjusted for non-reinit flow)
 	// Steps: 0=reinit confirm, 1=provider select, 2=api key (cloud only), 3=final confirm
 	const effectiveStep = normalizedIsReinit
 		? normalizedStep
 		: normalizedStep + 1;
+
+	// Auto-advance past API key step for local providers (must be in useEffect, not render)
+	useEffect(() => {
+		if (effectiveStep === 2 && !needsApiKey) {
+			onStepChange(normalizedStep + 1);
+		}
+	}, [effectiveStep, needsApiKey, normalizedStep, onStepChange]);
+
+	// Check if we have an existing API key for the same provider
+	const hasExistingKeyForProvider =
+		existingApiKey && existingProvider === currentProvider;
 
 	// Step 0 (reinit only): Confirmation
 	if (normalizedIsReinit && normalizedStep === 0) {
@@ -408,12 +415,10 @@ export function InitWizard({
 	}
 
 	// Step 2: API Key input (cloud providers only)
-	// For local providers, skip to step 3 (confirmation)
+	// For local providers, skip to step 3 (confirmation) - handled by useEffect above
 	if (effectiveStep === 2) {
-		// Skip API key step for local providers
+		// Show loading while useEffect auto-advances for local providers
 		if (!needsApiKey) {
-			// Auto-advance to confirmation
-			onStepChange(normalizedStep + 1);
 			return (
 				<Box>
 					<Text dimColor>Loading...</Text>

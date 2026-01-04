@@ -55,7 +55,7 @@ export const PROVIDER_CONFIGS: Record<
 	},
 	mistral: {
 		model: 'codestral-embed',
-		dimensions: 1024,
+		dimensions: 1536,
 	},
 	openai: {
 		model: 'text-embedding-3-small',
@@ -108,28 +108,56 @@ export const DEFAULT_CONFIG: ViberagConfig = {
  * Load config from disk, merging with defaults.
  * Returns DEFAULT_CONFIG if no config file exists.
  * Handles nested watch config merge for backward compatibility.
+ *
+ * IMPORTANT: If the config file exists but can't be read/parsed,
+ * this throws an error instead of silently falling back to defaults.
+ * This prevents dimension mismatches when switching providers.
  */
 export async function loadConfig(projectRoot: string): Promise<ViberagConfig> {
 	const configPath = getConfigPath(projectRoot);
 
+	// First check if the file exists
 	try {
-		const content = await fs.readFile(configPath, 'utf-8');
-		const loaded = JSON.parse(content) as Partial<ViberagConfig>;
-
-		// Deep merge watch config with defaults
-		const watchConfig: WatchConfig = {
-			...DEFAULT_WATCH_CONFIG,
-			...(loaded.watch ?? {}),
-		};
-
-		return {
-			...DEFAULT_CONFIG,
-			...loaded,
-			watch: watchConfig,
-		};
+		await fs.access(configPath);
 	} catch {
+		// Config doesn't exist - return defaults (expected for first run)
 		return {...DEFAULT_CONFIG};
 	}
+
+	// File exists - must be readable and valid
+	// Don't silently fall back to defaults as this could cause dimension mismatches
+	const content = await fs.readFile(configPath, 'utf-8');
+
+	let loaded: Partial<ViberagConfig>;
+	try {
+		loaded = JSON.parse(content) as Partial<ViberagConfig>;
+	} catch (parseError) {
+		throw new Error(
+			`Invalid config.json at ${configPath}: ${parseError instanceof Error ? parseError.message : String(parseError)}`,
+		);
+	}
+
+	// Validate embedding dimensions match provider
+	const provider = loaded.embeddingProvider ?? DEFAULT_CONFIG.embeddingProvider;
+	const expectedDimensions = PROVIDER_CONFIGS[provider]?.dimensions;
+	if (expectedDimensions && loaded.embeddingDimensions !== expectedDimensions) {
+		// Dimensions mismatch - this can happen after provider change
+		// Auto-correct to prevent search failures
+		loaded.embeddingDimensions = expectedDimensions;
+		loaded.embeddingModel = PROVIDER_CONFIGS[provider].model;
+	}
+
+	// Deep merge watch config with defaults
+	const watchConfig: WatchConfig = {
+		...DEFAULT_WATCH_CONFIG,
+		...(loaded.watch ?? {}),
+	};
+
+	return {
+		...DEFAULT_CONFIG,
+		...loaded,
+		watch: watchConfig,
+	};
 }
 
 /**
