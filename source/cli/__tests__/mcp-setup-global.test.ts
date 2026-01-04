@@ -499,7 +499,9 @@ describe('Zed Global Config (JSONC)', () => {
 		expect(config).not.toBeNull();
 		expect((config as McpConfigObject).theme).toBe('One Dark');
 		expect((config as McpConfigObject).buffer_font_size).toBe(14);
-		expect((config as McpConfigObject).context_servers?.postgres).toBeDefined();
+		expect(
+			(config as McpConfigObject).context_servers?.['postgres'],
+		).toBeDefined();
 	});
 
 	it('detects existing viberag in Zed config with comments', async () => {

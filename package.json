@@ -1,7 +1,19 @@
 {
 	"name": "viberag",
-	"version": "0.2.0",
-	"license": "AGPL-3.0-only",
+	"version": "0.3.0",
+	"description": "Local code RAG for AI coding assistants - semantic search via MCP server",
+	"license": "AGPL-3.0",
+	"keywords": [
+		"rag",
+		"mcp",
+		"semantic-search",
+		"code-search",
+		"embeddings",
+		"ai",
+		"claude",
+		"vscode",
+		"cursor"
+	],
 	"author": {
 		"name": "Matthew Rideout"
 	},
@@ -30,7 +42,9 @@
 		"lint": "eslint .",
 		"lint:fix": "eslint . --fix",
 		"format": "prettier --write .",
-		"prepare": "husky"
+		"prepare": "husky",
+		"prepublishOnly": "pinst --disable",
+		"postpublish": "pinst --enable"
 	},
 	"lint-staged": {
 		"*.{ts,tsx,js,jsx}": [
@@ -43,6 +57,7 @@
 	},
 	"files": [
 		"dist",
+		"!dist/**/__tests__",
 		"scripts"
 	],
 	"dependencies": {
@@ -78,6 +93,7 @@
 		"husky": "^9.1.7",
 		"ink-testing-library": "^3.0.0",
 		"lint-staged": "^16.2.7",
+		"pinst": "^3.0.0",
 		"prettier": "^3.7.4",
 		"react-devtools-core": "^6.1.2",
 		"ts-node": "^10.9.1",

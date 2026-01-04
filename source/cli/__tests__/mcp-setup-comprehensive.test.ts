@@ -279,7 +279,9 @@ describe('JSONC Handling (Comments)', () => {
 
 		expect(config).not.toBeNull();
 		expect((config as McpConfigObject).theme).toBe('One Dark');
-		expect((config as McpConfigObject).context_servers?.other).toBeDefined();
+		expect(
+			(config as McpConfigObject).context_servers?.['other'],
+		).toBeDefined();
 	});
 
 	it('reads VS Code config with /* */ comments', async () => {
@@ -299,7 +301,7 @@ describe('JSONC Handling (Comments)', () => {
 		const config = await readJsonConfig(configPath);
 
 		expect(config).not.toBeNull();
-		expect((config as McpConfigObject).servers?.existing).toBeDefined();
+		expect((config as McpConfigObject).servers?.['existing']).toBeDefined();
 	});
 
 	it('merges into Zed config with comments', async () => {
@@ -343,7 +345,7 @@ describe('JSONC Handling (Comments)', () => {
 		const config = await readJsonConfig(configPath);
 
 		expect(config).not.toBeNull();
-		expect((config as McpConfigObject).servers?.existing).toBeDefined();
+		expect((config as McpConfigObject).servers?.['existing']).toBeDefined();
 	});
 });
 
@@ -492,8 +494,8 @@ describe('generateMcpConfig - All Editor Formats', () => {
 			const config = generateMcpConfig(editor) as McpConfigObject;
 
 			expect(config).toHaveProperty('mcpServers');
-			expect(config.mcpServers?.viberag).toBeDefined();
-			expect(config.mcpServers?.viberag?.command).toBe('npx');
+			expect(config.mcpServers?.['viberag']).toBeDefined();
+			expect(config.mcpServers?.['viberag']?.command).toBe('npx');
 		}
 	});
 
@@ -503,7 +505,7 @@ describe('generateMcpConfig - All Editor Formats', () => {
 
 		expect(config).toHaveProperty('servers');
 		expect(config).not.toHaveProperty('mcpServers');
-		expect(config.servers?.viberag).toBeDefined();
+		expect(config.servers?.['viberag']).toBeDefined();
 	});
 
 	it('generates context_servers format for Zed with source:custom', () => {
@@ -511,7 +513,7 @@ describe('generateMcpConfig - All Editor Formats', () => {
 		const config = generateMcpConfig(editor) as McpConfigObject;
 
 		expect(config).toHaveProperty('context_servers');
-		const zedConfig = config.context_servers?.viberag;
+		const zedConfig = config.context_servers?.['viberag'];
 		expect(zedConfig?.source).toBe('custom');
 		expect(zedConfig?.command).toBe('npx');
 	});
@@ -521,8 +523,8 @@ describe('generateMcpConfig - All Editor Formats', () => {
 		const config = generateMcpConfig(editor) as McpConfigObject;
 
 		expect(config).toHaveProperty('mcp');
-		const openCodeConfig = config.mcp?.viberag;
-		expect(openCodeConfig?.type).toBe('local');
+		const openCodeConfig = config.mcp?.['viberag'];
+		expect(openCodeConfig?.['type']).toBe('local');
 		expect(openCodeConfig?.command).toEqual(['npx', '-y', 'viberag-mcp']);
 		expect(openCodeConfig).not.toHaveProperty('args');
 	});

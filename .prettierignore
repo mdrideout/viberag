@@ -2,3 +2,4 @@ dist
 .claude
 .viberag
 local_cache
+docs/.astro

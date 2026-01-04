@@ -1,16 +1,40 @@
 node_modules
 dist
+
 # Viberag index
 .viberag/
+
 # Embedding model cache
 local_cache/
-# MCP config (local, not committed)
+
+# MCP configs (local, not committed)
 .mcp.json
-# MCP config (local, not committed)
 .roo
-# MCP config (local, not committed)
-.gemini/settings.json
-# MCP config (local, not committed)
 .roo/mcp.json
-# MCP config (local, not committed)
+.gemini/settings.json
 .vscode/mcp.json
+
+# Astro generated files (docs/)
+.astro/
+
+# Build artifacts
+*.tsbuildinfo
+*.log
+
+# OS files
+.DS_Store
+
+# IDE/Editor
+.idea
+*.code-workspace
+
+# Environment files
+*.env
+.env.*
+
+# Cache files
+.eslintcache
+.turbo/
+
+# Test artifacts
+test-results/
