@@ -306,9 +306,10 @@ function ApiKeyInputStep({
 	});
 
 	// Mask API key display (show first 7 and last 4 chars)
-	const maskedKey = apiKeyInput.length > 15
-		? `${apiKeyInput.slice(0, 7)}${'•'.repeat(Math.min(apiKeyInput.length - 11, 20))}${apiKeyInput.slice(-4)}`
-		: apiKeyInput;
+	const maskedKey =
+		apiKeyInput.length > 15
+			? `${apiKeyInput.slice(0, 7)}${'•'.repeat(Math.min(apiKeyInput.length - 11, 20))}${apiKeyInput.slice(-4)}`
+			: apiKeyInput;
 
 	return (
 		<Box marginTop={1} flexDirection="column">

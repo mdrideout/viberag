@@ -69,6 +69,7 @@ export class SearchEngine {
 	private embeddings: EmbeddingProvider | null = null;
 	private logger: Logger | null = null;
 	private initialized = false;
+	private initPromise: Promise<void> | null = null;
 
 	constructor(projectRoot: string, logger?: Logger) {
 		this.projectRoot = projectRoot;
@@ -457,22 +458,42 @@ export class SearchEngine {
 
 	/**
 	 * Initialize the search engine.
+	 * Uses idempotent promise pattern to prevent race conditions.
 	 */
 	private async ensureInitialized(): Promise<void> {
+		// Fast path: already initialized
 		if (this.initialized) return;
 
-		const config = await loadConfig(this.projectRoot);
+		// Idempotent: return existing promise if initialization in progress
+		if (this.initPromise) return this.initPromise;
 
-		// Initialize storage
-		this.storage = new Storage(this.projectRoot, config.embeddingDimensions);
-		await this.storage.connect();
+		// Start initialization and store promise
+		this.initPromise = this.doInitialize();
+		return this.initPromise;
+	}
 
-		// Initialize embeddings with config (includes apiKey for cloud providers)
-		this.embeddings = this.createEmbeddingProvider(config);
-		await this.embeddings.initialize();
+	/**
+	 * Perform actual initialization.
+	 */
+	private async doInitialize(): Promise<void> {
+		try {
+			const config = await loadConfig(this.projectRoot);
 
-		this.initialized = true;
-		this.log('info', 'SearchEngine initialized');
+			// Initialize storage
+			this.storage = new Storage(this.projectRoot, config.embeddingDimensions);
+			await this.storage.connect();
+
+			// Initialize embeddings with config (includes apiKey for cloud providers)
+			this.embeddings = this.createEmbeddingProvider(config);
+			await this.embeddings.initialize();
+
+			this.initialized = true;
+			this.log('info', 'SearchEngine initialized');
+		} catch (error) {
+			// Reset promise on failure to allow retry
+			this.initPromise = null;
+			throw error;
+		}
 	}
 
 	/**

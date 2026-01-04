@@ -16,7 +16,7 @@ import {configExists, Indexer} from '../rag/index.js';
 // Use current working directory as project root (same behavior as CLI)
 const projectRoot = process.cwd();
 
-const {server, startWatcher, stopWatcher, startWarmup} =
+const {server, startWatcher, stopWatcher, startWarmup, warmupManager} =
 	createMcpServer(projectRoot);
 
 // Handle shutdown signals
@@ -43,6 +43,14 @@ setImmediate(async () => {
 		if (await configExists(projectRoot)) {
 			startWarmup();
 			console.error('[viberag-mcp] Warmup started');
+
+			// Monitor warmup completion for logging (non-blocking)
+			warmupManager.getWarmupPromise()?.catch(error => {
+				console.error(
+					'[viberag-mcp] Warmup failed:',
+					error instanceof Error ? error.message : error,
+				);
+			});
 		}
 	} catch (error) {
 		console.error(

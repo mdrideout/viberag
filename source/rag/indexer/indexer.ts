@@ -62,6 +62,7 @@ export class Indexer {
 	private chunker: Chunker | null = null;
 	private embeddings: EmbeddingProvider | null = null;
 	private logger: Logger | null = null;
+	private indexPromise: Promise<IndexStats> | null = null;
 
 	constructor(projectRoot: string, logger?: Logger) {
 		this.projectRoot = projectRoot;
@@ -70,8 +71,27 @@ export class Indexer {
 
 	/**
 	 * Run the indexing pipeline.
+	 * Uses mutex to prevent concurrent index operations.
 	 */
 	async index(options: IndexOptions = {}): Promise<IndexStats> {
+		// If indexing is already in progress, wait for it
+		if (this.indexPromise) {
+			this.log('warn', 'Index already in progress, waiting for completion');
+			return this.indexPromise;
+		}
+
+		this.indexPromise = this.doIndex(options);
+		try {
+			return await this.indexPromise;
+		} finally {
+			this.indexPromise = null;
+		}
+	}
+
+	/**
+	 * Perform the actual indexing operation.
+	 */
+	private async doIndex(options: IndexOptions = {}): Promise<IndexStats> {
 		const stats = createEmptyIndexStats();
 		const {force = false, progressCallback} = options;
 
@@ -282,7 +302,11 @@ export class Indexer {
 				);
 			} catch (error) {
 				// File-specific error (read/parse) - log and continue with other files
-				this.log('warn', `Failed to read/parse file: ${filepath}`, error as Error);
+				this.log(
+					'warn',
+					`Failed to read/parse file: ${filepath}`,
+					error as Error,
+				);
 				continue;
 			}
 
@@ -291,8 +315,7 @@ export class Indexer {
 
 			// Check embedding cache for each chunk
 			const contentHashes = chunks.map(c => c.contentHash);
-			const cachedEmbeddings =
-				await storage.getCachedEmbeddings(contentHashes);
+			const cachedEmbeddings = await storage.getCachedEmbeddings(contentHashes);
 
 			// Compute embeddings for cache misses
 			const missingChunks = chunks.filter(

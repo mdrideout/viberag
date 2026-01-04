@@ -72,7 +72,10 @@ export class MistralEmbeddingProvider implements EmbeddingProvider {
 			const errorText = await response.text();
 			let errorMessage: string;
 			try {
-				const errorJson = JSON.parse(errorText) as {message?: string; detail?: string};
+				const errorJson = JSON.parse(errorText) as {
+					message?: string;
+					detail?: string;
+				};
 				errorMessage = errorJson.message || errorJson.detail || errorText;
 			} catch {
 				errorMessage = errorText;
@@ -81,11 +84,13 @@ export class MistralEmbeddingProvider implements EmbeddingProvider {
 			if (response.status === 401) {
 				throw new Error(
 					`Mistral API authentication failed (401). ` +
-					`Verify your API key at https://console.mistral.ai/api-keys. Error: ${errorMessage}`,
+						`Verify your API key at https://console.mistral.ai/api-keys. Error: ${errorMessage}`,
 				);
 			}
 
-			throw new Error(`Mistral API error (${response.status}): ${errorMessage}`);
+			throw new Error(
+				`Mistral API error (${response.status}): ${errorMessage}`,
+			);
 		}
 
 		const data = (await response.json()) as {

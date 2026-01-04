@@ -186,14 +186,23 @@ args = ["-y", "viberag-mcp"]
 
 /**
  * Read existing TOML config file.
- * Returns the raw content string.
+ * Returns the raw content string, or null if file doesn't exist or can't be read.
  */
 export async function readTomlConfig(
 	configPath: string,
 ): Promise<string | null> {
 	try {
 		return await fs.readFile(configPath, 'utf-8');
-	} catch {
+	} catch (error) {
+		// Log non-ENOENT errors to help with debugging
+		if (error instanceof Error && 'code' in error) {
+			const code = (error as NodeJS.ErrnoException).code;
+			if (code !== 'ENOENT') {
+				console.warn(
+					`[mcp-setup] Failed to read ${configPath}: ${code} - ${error.message}`,
+				);
+			}
+		}
 		return null;
 	}
 }
@@ -293,7 +302,23 @@ export async function readJsonConfig(
 		// Strip comments for JSONC support (Zed, VS Code)
 		const stripped = stripJsonComments(content);
 		return JSON.parse(stripped) as object;
-	} catch {
+	} catch (error) {
+		// Log non-ENOENT errors to help with debugging
+		if (error instanceof Error) {
+			if ('code' in error) {
+				const code = (error as NodeJS.ErrnoException).code;
+				if (code !== 'ENOENT') {
+					console.warn(
+						`[mcp-setup] Failed to read ${configPath}: ${code} - ${error.message}`,
+					);
+				}
+			} else if (error instanceof SyntaxError) {
+				// JSON parse error
+				console.warn(
+					`[mcp-setup] Failed to parse ${configPath}: ${error.message}`,
+				);
+			}
+		}
 		return null;
 	}
 }

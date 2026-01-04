@@ -61,12 +61,13 @@ export class GeminiEmbeddingProvider implements EmbeddingProvider {
 	}
 
 	private async embedBatch(texts: string[]): Promise<number[][]> {
-		const url = `${GEMINI_API_BASE}/${MODEL}:batchEmbedContents?key=${this.apiKey}`;
+		const url = `${GEMINI_API_BASE}/${MODEL}:batchEmbedContents`;
 
 		const response = await fetch(url, {
 			method: 'POST',
 			headers: {
 				'Content-Type': 'application/json',
+				'x-goog-api-key': this.apiKey,
 			},
 			body: JSON.stringify({
 				requests: texts.map(text => ({
@@ -93,7 +94,7 @@ export class GeminiEmbeddingProvider implements EmbeddingProvider {
 			if (response.status === 400 || response.status === 403) {
 				throw new Error(
 					`Gemini API authentication failed (${response.status}). ` +
-					`Verify your API key at https://aistudio.google.com/apikey. Error: ${errorMessage}`,
+						`Verify your API key at https://aistudio.google.com/apikey. Error: ${errorMessage}`,
 				);
 			}
 
@@ -112,12 +113,13 @@ export class GeminiEmbeddingProvider implements EmbeddingProvider {
 			await this.initialize();
 		}
 
-		const url = `${GEMINI_API_BASE}/${MODEL}:embedContent?key=${this.apiKey}`;
+		const url = `${GEMINI_API_BASE}/${MODEL}:embedContent`;
 
 		const response = await fetch(url, {
 			method: 'POST',
 			headers: {
 				'Content-Type': 'application/json',
+				'x-goog-api-key': this.apiKey,
 			},
 			body: JSON.stringify({
 				model: `models/${MODEL}`,
@@ -142,7 +144,7 @@ export class GeminiEmbeddingProvider implements EmbeddingProvider {
 			if (response.status === 400 || response.status === 403) {
 				throw new Error(
 					`Gemini API authentication failed (${response.status}). ` +
-					`Verify your API key at https://aistudio.google.com/apikey. Error: ${errorMessage}`,
+						`Verify your API key at https://aistudio.google.com/apikey. Error: ${errorMessage}`,
 				);
 			}
 

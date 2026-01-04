@@ -120,10 +120,24 @@ export function CleanWizard({
 				await fs.rm(viberagDir, {recursive: true, force: true});
 				setViberagRemoved(true);
 			} catch (error) {
-				addOutput(
-					'system',
-					`Failed to remove ${viberagDir}: ${error instanceof Error ? error.message : String(error)}`,
-				);
+				const message = error instanceof Error ? error.message : String(error);
+
+				// Check if directory just doesn't exist (not critical)
+				const isNotFound =
+					error instanceof Error &&
+					'code' in error &&
+					(error as NodeJS.ErrnoException).code === 'ENOENT';
+
+				if (isNotFound) {
+					// Directory doesn't exist - that's fine, consider it removed
+					setViberagRemoved(true);
+				} else {
+					// Critical failure (permission denied, etc.) - stop cleanup
+					addOutput('system', `Failed to remove ${viberagDir}: ${message}`);
+					addOutput('system', 'Stopping cleanup due to critical failure.');
+					setStep('summary');
+					return;
+				}
 			}
 
 			const results: McpRemovalResult[] = [];

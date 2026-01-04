@@ -86,6 +86,14 @@ export class WarmupManager {
 	}
 
 	/**
+	 * Get the warmup promise for external error monitoring.
+	 * Returns null if warmup hasn't started.
+	 */
+	getWarmupPromise(): Promise<SearchEngine> | null {
+		return this.warmupPromise;
+	}
+
+	/**
 	 * Start warmup if not already started.
 	 * Returns immediately - doesn't wait for completion.
 	 */

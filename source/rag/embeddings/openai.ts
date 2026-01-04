@@ -78,7 +78,9 @@ export class OpenAIEmbeddingProvider implements EmbeddingProvider {
 			const errorText = await response.text();
 			let errorMessage: string;
 			try {
-				const errorJson = JSON.parse(errorText) as {error?: {message?: string; type?: string}};
+				const errorJson = JSON.parse(errorText) as {
+					error?: {message?: string; type?: string};
+				};
 				errorMessage = errorJson.error?.message || errorText;
 			} catch {
 				errorMessage = errorText;
@@ -89,7 +91,7 @@ export class OpenAIEmbeddingProvider implements EmbeddingProvider {
 				const keyPreview = `${this.apiKey.slice(0, 7)}...${this.apiKey.slice(-4)}`;
 				throw new Error(
 					`OpenAI API authentication failed (401). Key format: ${keyPreview}. ` +
-					`Verify your API key at https://platform.openai.com/api-keys. Error: ${errorMessage}`,
+						`Verify your API key at https://platform.openai.com/api-keys. Error: ${errorMessage}`,
 				);
 			}
 

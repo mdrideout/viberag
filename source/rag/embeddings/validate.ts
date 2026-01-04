@@ -26,6 +26,24 @@ const ENDPOINTS = {
 } as const;
 
 /**
+ * Safely parse JSON response, logging parse failures instead of swallowing them.
+ */
+async function safeParseJson(
+	response: Response,
+	provider: string,
+): Promise<Record<string, unknown>> {
+	try {
+		return (await response.json()) as Record<string, unknown>;
+	} catch (error) {
+		console.warn(
+			`[${provider}] Failed to parse error response:`,
+			error instanceof Error ? error.message : String(error),
+		);
+		return {};
+	}
+}
+
+/**
  * Validate an API key by making a minimal test embedding call.
  *
  * @param provider - The embedding provider type
@@ -68,9 +86,12 @@ export async function validateApiKey(
  * Validate Gemini API key.
  */
 async function validateGeminiKey(apiKey: string): Promise<ValidationResult> {
-	const response = await fetch(`${ENDPOINTS.gemini}?key=${apiKey}`, {
+	const response = await fetch(ENDPOINTS.gemini, {
 		method: 'POST',
-		headers: {'Content-Type': 'application/json'},
+		headers: {
+			'Content-Type': 'application/json',
+			'x-goog-api-key': apiKey,
+		},
 		body: JSON.stringify({
 			content: {parts: [{text: 'test'}]},
 		}),
@@ -80,7 +101,7 @@ async function validateGeminiKey(apiKey: string): Promise<ValidationResult> {
 		return {valid: true};
 	}
 
-	const data = await response.json().catch(() => ({}));
+	const data = await safeParseJson(response, 'gemini');
 	const message =
 		(data as {error?: {message?: string}})?.error?.message ||
 		`HTTP ${response.status}`;
@@ -115,7 +136,7 @@ async function validateMistralKey(apiKey: string): Promise<ValidationResult> {
 		return {valid: true};
 	}
 
-	const data = await response.json().catch(() => ({}));
+	const data = await safeParseJson(response, 'mistral');
 	const message =
 		(data as {message?: string})?.message ||
 		(data as {detail?: string})?.detail ||
@@ -148,7 +169,7 @@ async function validateOpenAIKey(apiKey: string): Promise<ValidationResult> {
 		return {valid: true};
 	}
 
-	const data = await response.json().catch(() => ({}));
+	const data = await safeParseJson(response, 'openai');
 	const error = (data as {error?: {message?: string}})?.error;
 
 	if (response.status === 401) {
@@ -157,7 +178,10 @@ async function validateOpenAIKey(apiKey: string): Promise<ValidationResult> {
 	if (error?.message) {
 		// Truncate long error messages
 		const msg = error.message;
-		return {valid: false, error: msg.length > 100 ? msg.slice(0, 100) + '...' : msg};
+		return {
+			valid: false,
+			error: msg.length > 100 ? msg.slice(0, 100) + '...' : msg,
+		};
 	}
 
 	return {valid: false, error: `HTTP ${response.status}`};

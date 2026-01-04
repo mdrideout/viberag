@@ -190,28 +190,39 @@ export class Chunker {
 		// Create parser instance after init
 		this.parser = new Parser();
 
-		// Resolve the path to tree-sitter-wasms/out/
-		const wasmPackagePath = require.resolve('tree-sitter-wasms/package.json');
-		this.wasmBasePath = path.join(path.dirname(wasmPackagePath), 'out');
+		try {
+			// Resolve the path to tree-sitter-wasms/out/
+			const wasmPackagePath = require.resolve('tree-sitter-wasms/package.json');
+			this.wasmBasePath = path.join(path.dirname(wasmPackagePath), 'out');
 
-		// Load all language grammars sequentially (skip null entries like Dart)
-		// IMPORTANT: Must be sequential - web-tree-sitter has global state that
-		// gets corrupted when loading multiple WASM modules in parallel.
-		for (const [lang, wasmFile] of Object.entries(LANGUAGE_WASM_FILES)) {
-			if (!wasmFile) {
-				// Language temporarily disabled (e.g., Dart due to version mismatch)
-				continue;
+			// Load all language grammars sequentially (skip null entries like Dart)
+			// IMPORTANT: Must be sequential - web-tree-sitter has global state that
+			// gets corrupted when loading multiple WASM modules in parallel.
+			for (const [lang, wasmFile] of Object.entries(LANGUAGE_WASM_FILES)) {
+				if (!wasmFile) {
+					// Language temporarily disabled (e.g., Dart due to version mismatch)
+					continue;
+				}
+				try {
+					const wasmPath = path.join(this.wasmBasePath!, wasmFile);
+					const language = await Parser.Language.load(wasmPath);
+					this.languages.set(lang as SupportedLanguage, language);
+				} catch (error) {
+					// Log but don't fail - we can still work with other languages
+					console.error(`Failed to load ${lang} grammar:`, error);
+				}
 			}
-			try {
-				const wasmPath = path.join(this.wasmBasePath!, wasmFile);
-				const language = await Parser.Language.load(wasmPath);
-				this.languages.set(lang as SupportedLanguage, language);
-			} catch (error) {
-				// Log but don't fail - we can still work with other languages
-				console.error(`Failed to load ${lang} grammar:`, error);
+			this.initialized = true;
+		} catch (error) {
+			// Cleanup parser on failure to prevent resource leak
+			if (this.parser) {
+				this.parser.delete();
+				this.parser = null;
 			}
+			this.wasmBasePath = null;
+			this.languages.clear();
+			throw error;
 		}
-		this.initialized = true;
 	}
 
 	/**

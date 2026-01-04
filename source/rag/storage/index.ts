@@ -54,6 +54,11 @@ export class Storage {
 			);
 			if (tableDimensions !== null && tableDimensions !== this.dimensions) {
 				// Dimension mismatch - drop and recreate with new schema
+				console.warn(
+					`[Storage] Dimension mismatch for ${TABLE_NAMES.CODE_CHUNKS}: ` +
+						`existing=${tableDimensions}, required=${this.dimensions}. ` +
+						`Dropping table - re-indexing will be required.`,
+				);
 				await this.db.dropTable(TABLE_NAMES.CODE_CHUNKS);
 				const schema = createCodeChunksSchema(this.dimensions);
 				this.chunksTable = await this.db.createEmptyTable(
@@ -79,6 +84,11 @@ export class Storage {
 			);
 			if (cacheDimensions !== null && cacheDimensions !== this.dimensions) {
 				// Cache dimension mismatch - drop and recreate
+				console.warn(
+					`[Storage] Dimension mismatch for ${TABLE_NAMES.EMBEDDING_CACHE}: ` +
+						`existing=${cacheDimensions}, required=${this.dimensions}. ` +
+						`Dropping cache table.`,
+				);
 				await this.db.dropTable(TABLE_NAMES.EMBEDDING_CACHE);
 				const schema = createEmbeddingCacheSchema(this.dimensions);
 				this.cacheTable = await this.db.createEmptyTable(
@@ -134,6 +144,26 @@ export class Storage {
 		}
 	}
 
+	/**
+	 * Get the database connection with a clear error if not connected.
+	 */
+	private getDb(): Connection {
+		if (!this.db) {
+			throw new Error('Database not connected. Call connect() first.');
+		}
+		return this.db;
+	}
+
+	/**
+	 * Get the cache table with a clear error if not connected.
+	 */
+	private getCacheTable(): Table {
+		if (!this.cacheTable) {
+			throw new Error('Cache table not available. Call connect() first.');
+		}
+		return this.cacheTable;
+	}
+
 	// ============================================================
 	// Chunk Operations
 	// ============================================================
@@ -153,7 +183,8 @@ export class Storage {
 		const rows = chunks.map(chunkToRow) as unknown as Record<string, unknown>[];
 
 		// Use merge insert for upsert behavior
-		await this.chunksTable.mergeInsert('id')
+		await this.chunksTable
+			.mergeInsert('id')
 			.whenMatchedUpdateAll()
 			.whenNotMatchedInsertAll()
 			.execute(rows);
@@ -220,7 +251,8 @@ export class Storage {
 		this.ensureConnected();
 		if (!this.chunksTable) return [];
 
-		const results = await this.chunksTable.query()
+		const results = await this.chunksTable
+			.query()
 			.where(`filepath = '${escapeString(filepath)}'`)
 			.toArray();
 
@@ -235,7 +267,8 @@ export class Storage {
 		if (!this.chunksTable) return new Set();
 
 		// Query all rows but only need filepath column
-		const results = await this.chunksTable.query()
+		const results = await this.chunksTable
+			.query()
 			.select(['filepath'])
 			.toArray();
 
@@ -273,7 +306,8 @@ export class Storage {
 
 		// Build IN clause
 		const escaped = hashes.map(h => `'${escapeString(h)}'`).join(', ');
-		const results = await this.cacheTable!.query()
+		const results = await this.getCacheTable()
+			.query()
 			.where(`content_hash IN (${escaped})`)
 			.toArray();
 
@@ -303,7 +337,8 @@ export class Storage {
 		>[];
 
 		// Use merge insert for upsert behavior
-		await this.cacheTable!.mergeInsert('content_hash')
+		await this.getCacheTable()
+			.mergeInsert('content_hash')
 			.whenMatchedUpdateAll()
 			.whenNotMatchedInsertAll()
 			.execute(rows);
@@ -314,7 +349,7 @@ export class Storage {
 	 */
 	async countCachedEmbeddings(): Promise<number> {
 		this.ensureConnected();
-		return this.cacheTable!.countRows();
+		return this.getCacheTable().countRows();
 	}
 
 	// ============================================================
@@ -343,17 +378,18 @@ export class Storage {
 	 */
 	async resetChunksTable(): Promise<void> {
 		this.ensureConnected();
+		const db = this.getDb();
 
 		// Drop existing table if it exists
-		const tableNames = await this.db!.tableNames();
+		const tableNames = await db.tableNames();
 		if (tableNames.includes(TABLE_NAMES.CODE_CHUNKS)) {
-			await this.db!.dropTable(TABLE_NAMES.CODE_CHUNKS);
+			await db.dropTable(TABLE_NAMES.CODE_CHUNKS);
 		}
 
 		// Create empty table with correct schema
 		// This ensures chunksTable is never null after reset
 		const schema = createCodeChunksSchema(this.dimensions);
-		this.chunksTable = await this.db!.createEmptyTable(
+		this.chunksTable = await db.createEmptyTable(
 			TABLE_NAMES.CODE_CHUNKS,
 			schema,
 		);
@@ -364,10 +400,11 @@ export class Storage {
 	 */
 	async clearCache(): Promise<void> {
 		this.ensureConnected();
+		const cacheTable = this.getCacheTable();
 
-		const count = await this.cacheTable!.countRows();
+		const count = await cacheTable.countRows();
 		if (count > 0) {
-			await this.cacheTable!.delete('content_hash IS NOT NULL');
+			await cacheTable.delete('content_hash IS NOT NULL');
 		}
 	}
 
