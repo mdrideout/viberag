@@ -19,8 +19,33 @@
 	--color-terminal-header: #1a1d24;
 }
 
-/* Reset anchor tag default styles */
+/*
+ * CUSTOM PAGE BASE STYLES
+ * =======================
+ * The @astrojs/starlight-tailwind package intentionally omits Tailwind's Preflight
+ * to avoid conflicts with Starlight's own reset. However, custom pages (like index.astro)
+ * need these essential resets to prevent layout issues.
+ *
+ * Problem: Without box-sizing: border-box, padding ADDS to element width, causing
+ * child elements to overflow their parents when horizontal padding is applied.
+ *
+ * Solution: Restore the essential Preflight rules in @layer base. This works because:
+ * 1. Starlight pages have their own scoped styles that take precedence
+ * 2. Custom pages get the resets they need for proper box model behavior
+ *
+ * Reference: https://tailwindcss.com/docs/preflight
+ */
 @layer base {
+	/* Essential box model fix - prevents padding from causing overflow */
+	*,
+	::after,
+	::before,
+	::backdrop,
+	::file-selector-button {
+		box-sizing: border-box;
+	}
+
+	/* Reset anchor tag default styles */
 	a {
 		color: inherit;
 		text-decoration: none;
