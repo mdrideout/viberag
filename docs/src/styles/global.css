@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&family=VT323&display=swap');
+
 @layer base, starlight, theme, components, utilities;
 
 @import '@astrojs/starlight-tailwind';
@@ -5,13 +7,48 @@
 @import 'tailwindcss/utilities.css' layer(utilities);
 
 @theme {
-	/*
-	Configure your Tailwind theme that will be used by Starlight.
-	https://starlight.astro.build/guides/css-and-tailwind/#styling-starlight-with-tailwind
-	*/
+  --font-sans: 'Inter', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+  --font-vt323: 'VT323', monospace;
+
+  --color-brand-purple: #9D4EDD;
+  --color-brand-cyan: #00D9FF;
+  --color-brand-dark: #020617;
+
+  --color-terminal-bg: #0f1117;
+  --color-terminal-header: #1a1d24;
 }
 
-/*
-Add additional Tailwind styles to this file:
-https://tailwindcss.com/docs/adding-custom-styles#using-custom-css
-*/
+@keyframes cursor {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+@keyframes fadeIn {
+  0% { opacity: 0; transform: translateY(10px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes borderFlow {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+.animate-cursor { animation: cursor 1s infinite; }
+.animate-fade-in { animation: fadeIn 0.5s ease-out forwards; }
+.animate-border-flow { animation: borderFlow 3s ease infinite; }
+
+/* Custom scrollbar for terminal demo */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 8px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: #1a1d24;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #374151;
+  border-radius: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #4b5563;
+}

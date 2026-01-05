@@ -1,0 +1,633 @@
+---
+// React islands (interactive, hydrated with JS)
+import AgentDemo from '../components/homepage/AgentDemo.tsx';
+import VibeDemo from '../components/homepage/VibeDemo.tsx';
+
+import '../styles/global.css';
+
+// Static data
+const EDITORS = [
+  "Claude Code", "Cursor", "Gemini CLI", "JetBrains IDEs", "OpenAI Codex",
+  "OpenCode", "Roo Code", "VS Code Copilot", "Windsurf", "Zed", "and others..."
+];
+
+const TOOLS = [
+  { name: "codebase_search", desc: "Semantic, keyword, or hybrid search." },
+  { name: "codebase_parallel_search", desc: "Run multiple search strategies simultaneously." },
+  { name: "viberag_index", desc: "Manually trigger indexing (usually automatic)." },
+  { name: "viberag_status", desc: "Get index health and stats." },
+  { name: "viberag_watch_status", desc: "Check file watcher status." },
+];
+
+const LANGUAGES = [
+  { name: "JavaScript", ext: ".js, .mjs, .cjs" },
+  { name: "TypeScript", ext: ".ts, .mts, .cts" },
+  { name: "TSX", ext: ".tsx" },
+  { name: "Python", ext: ".py" },
+  { name: "Go", ext: ".go" },
+  { name: "Rust", ext: ".rs" },
+  { name: "Java", ext: ".java" },
+  { name: "C#", ext: ".cs" },
+  { name: "Swift", ext: ".swift" },
+  { name: "Kotlin", ext: ".kt, .kts" },
+  { name: "PHP", ext: ".php" },
+  { name: "Dart", ext: ".dart" },
+];
+---
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>VibeRAG | Local MCP Server for Codebase RAG</title>
+    <meta name="description" content="Free, open-source, local MCP server for semantic code search. Give your AI agents the context they deserve." />
+    <meta name="keywords" content="MCP, semantic search, code search, RAG, LanceDB, Claude, Cursor, VS Code" />
+    <link rel="canonical" href="https://viberag.dev/" />
+
+    <!-- Open Graph -->
+    <meta property="og:title" content="VibeRAG | Local MCP Server for Codebase RAG" />
+    <meta property="og:description" content="Free, open-source, local MCP server for semantic code search." />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://viberag.dev/" />
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  </head>
+  <body class="min-h-screen bg-[#020617] text-slate-50 font-sans selection:bg-[#9D4EDD]/30 selection:text-white overflow-x-hidden">
+
+    <!-- Navigation -->
+    <nav class="fixed w-full z-50 bg-transparent py-5" id="navbar">
+      <div class="container mx-auto px-6 flex items-center justify-between">
+        <div class="flex items-center gap-2 font-[VT323] font-bold text-3xl tracking-wide select-none">
+           <span class="text-transparent bg-clip-text bg-gradient-to-r from-[#9D4EDD] to-[#00D9FF]">VIBERAG</span>
+        </div>
+
+        <!-- Desktop Nav -->
+        <div class="hidden md:flex items-center gap-8 text-sm font-medium text-slate-400">
+          <a href="/docs" class="hover:text-[#00D9FF] transition-colors">Docs</a>
+          <a href="https://www.npmjs.com/package/viberag" target="_blank" rel="noopener noreferrer" class="hover:text-[#00D9FF] transition-colors">NPM</a>
+          <a href="https://github.com/mdrideout/viberag" target="_blank" rel="noopener noreferrer" class="flex items-center gap-2 text-white bg-slate-800 hover:bg-slate-700 px-4 py-2 rounded-md border border-slate-700 transition-all">
+            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+            <span>GitHub</span>
+          </a>
+        </div>
+
+        <!-- Mobile Menu Button -->
+        <button class="md:hidden p-2 text-slate-300" id="mobile-menu-btn">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+        </button>
+      </div>
+
+      <!-- Mobile Nav -->
+      <div class="md:hidden absolute top-full left-0 w-full bg-[#020617] border-b border-slate-800 p-6 flex-col gap-4 shadow-2xl hidden" id="mobile-menu">
+        <a href="/docs" class="text-slate-300 py-2 block">Documentation</a>
+        <a href="https://www.npmjs.com/package/viberag" target="_blank" rel="noopener noreferrer" class="text-slate-300 py-2 block">NPM</a>
+        <a href="https://github.com/mdrideout/viberag" target="_blank" rel="noopener noreferrer" class="w-full inline-flex items-center justify-center gap-2 px-4 py-2 border border-slate-600 text-slate-300 rounded-md hover:border-[#00D9FF] hover:text-[#00D9FF] transition-colors">
+          <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+          GitHub
+        </a>
+      </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <header class="relative pt-32 pb-20 md:pt-48 md:pb-32 overflow-hidden border-b border-slate-900/50">
+      <div class="container mx-auto px-6 relative z-10">
+          <div class="flex flex-col items-center text-center max-w-5xl mx-auto">
+            <div class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-slate-900 border border-slate-800 text-slate-400 text-xs font-mono mb-8 hover:border-[#9D4EDD]/50 transition-colors cursor-default">
+              <span class="w-2 h-2 rounded-full bg-[#00D9FF] animate-pulse shadow-[0_0_10px_#00D9FF]"></span>
+              v0.3.0 is now available
+            </div>
+
+            <pre class="font-mono text-[6px] xs:text-[8px] sm:text-[10px] md:text-sm lg:text-base leading-none font-bold tracking-widest lg:tracking-normal mb-8 text-transparent bg-clip-text bg-gradient-to-r from-[#9D4EDD] to-[#00D9FF] whitespace-pre select-none pointer-events-none">
+██╗   ██╗██╗██████╗ ███████╗██████╗  █████╗  ██████╗ 
+██║   ██║██║██╔══██╗██╔════╝██╔══██╗██╔══██╗██╔════╝ 
+██║   ██║██║██████╔╝█████╗  ██████╔╝███████║██║  ███╗
+╚██╗ ██╔╝██║██╔══██╗██╔══╝  ██╔══██╗██╔══██║██║   ██║
+ ╚████╔╝ ██║██████╔╝███████╗██║  ██║██║  ██║╚██████╔╝
+    ╚═══╝  ╚═╝╚═════╝ ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝   </pre>
+
+            <p class="text-lg md:text-2xl text-slate-400 mb-12 max-w-2xl leading-relaxed font-light">
+              VibeRAG is a free, open-source MCP server for semantic and hybrid search for your codebase.
+              <span class="block mt-2 text-slate-300">Faster, Exhaustive, Exploratory Search for Coding Agents.</span>
+            </p>
+
+            <!-- NPM Box -->
+            <div class="relative group w-full max-w-lg mx-auto mb-10 cursor-pointer" id="npm-box">
+              <div class="absolute -inset-1 bg-gradient-to-r from-[#9D4EDD] to-[#00D9FF] rounded-lg blur opacity-40 group-hover:opacity-100 transition duration-1000 group-hover:duration-200 animate-border-flow bg-[length:200%_200%]"></div>
+              <div class="relative w-full bg-[#090b11] rounded-lg items-center flex justify-between p-4 border border-slate-800 group-hover:border-transparent transition-all">
+                <div class="flex items-center gap-3 font-mono text-base md:text-lg text-slate-200">
+                  <span class="text-[#9D4EDD]">$</span>
+                  npm install -g viberag
+                </div>
+                <div class="text-xs font-mono text-slate-500 bg-slate-900 px-2 py-1 rounded group-hover:text-[#00D9FF] transition-colors" id="copy-text">
+                  COPY
+                </div>
+              </div>
+            </div>
+
+            <div class="flex gap-4">
+                <a href="/docs" class="inline-flex items-center justify-center font-medium transition-all duration-200 rounded-full focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-900 bg-gradient-to-r from-[#9D4EDD] to-[#9D4EDD] hover:to-[#00D9FF] text-white shadow-lg shadow-[#9D4EDD]/20 border border-transparent px-8 py-3.5 text-base">
+                    Get Started
+                    <svg class="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"></path></svg>
+                </a>
+            </div>
+          </div>
+      </div>
+
+      <!-- Background decorative elements -->
+      <div class="absolute top-0 left-0 w-full h-full overflow-hidden -z-10 opacity-30 pointer-events-none">
+          <div class="absolute top-[10%] left-[20%] w-[600px] h-[600px] bg-[#9D4EDD]/20 rounded-full blur-[120px]"></div>
+          <div class="absolute bottom-[10%] right-[20%] w-[500px] h-[500px] bg-[#00D9FF]/20 rounded-full blur-[100px]"></div>
+      </div>
+    </header>
+
+    <!-- Supported Editors Marquee -->
+    <div class="py-8 bg-[#090b11] border-b border-slate-900 overflow-hidden">
+      <div class="container mx-auto px-6 mb-4 text-center">
+          <span class="text-xs font-bold text-slate-500 uppercase tracking-widest">Powering Your Favorite Agents</span>
+      </div>
+      <div class="flex items-center justify-center flex-wrap gap-x-8 gap-y-4 px-6 opacity-70">
+          {EDITORS.map((editor) => (
+              <span class="text-sm md:text-base font-medium text-slate-300 hover:text-[#00D9FF] transition-colors cursor-default whitespace-nowrap">
+                  {editor}
+              </span>
+          ))}
+      </div>
+    </div>
+
+    <!-- Prompting Section with AgentDemo React island -->
+    <section class="py-24 bg-[#090b11] border-b border-slate-900">
+      <div class="container mx-auto px-6">
+          <div class="text-center mb-16 max-w-4xl mx-auto">
+              <div class="inline-flex items-center gap-2 text-[#9D4EDD] font-bold mb-4 uppercase tracking-wider text-sm">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path></svg>
+                  Unlock Deep Context
+              </div>
+              <h2 class="text-3xl md:text-5xl font-bold text-white mb-6">Supercharge Your Prompts</h2>
+              <p class="text-slate-400 text-lg leading-relaxed">
+                  Stop pasting file contents. Stop hoping your agent guesses the right filename.
+                  <br class="hidden md:block"/>
+                  Invoke the magic words <span class="font-bold text-transparent bg-clip-text bg-gradient-to-r from-[#9D4EDD] to-[#00D9FF]">use viberag</span> to let the semantic search find everything.
+              </p>
+          </div>
+
+          <div class="max-w-4xl mx-auto mb-16">
+              <AgentDemo client:load />
+          </div>
+
+          <div class="grid md:grid-cols-3 gap-8 max-w-6xl mx-auto">
+               <div class="bg-slate-950 border border-slate-800 p-6 rounded-xl">
+                  <div class="text-[#9D4EDD] mb-4">
+                      <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path></svg>
+                  </div>
+                  <h3 class="text-white font-bold text-lg mb-2">Intent-Based Retrieval</h3>
+                  <p class="text-slate-400 text-sm">
+                      You don't need to know the filename. Ask "how is billing handled?" and Viberag finds <code class="bg-slate-800 px-1 rounded">StripeService.ts</code> and <code class="bg-slate-800 px-1 rounded">Invoice.go</code> automatically.
+                  </p>
+               </div>
+               <div class="bg-slate-950 border border-slate-800 p-6 rounded-xl">
+                  <div class="text-[#00D9FF] mb-4">
+                      <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                  </div>
+                  <h3 class="text-white font-bold text-lg mb-2">Token Efficiency</h3>
+                  <p class="text-slate-400 text-sm">
+                      Instead of dumping entire directories into context, Viberag retrieves only the 20-30 relevant code chunks, saving tokens and improving accuracy.
+                  </p>
+               </div>
+               <div class="bg-slate-950 border border-slate-800 p-6 rounded-xl">
+                  <div class="text-green-400 mb-4">
+                      <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                  </div>
+                  <h3 class="text-white font-bold text-lg mb-2">Exhaustive Search</h3>
+                  <p class="text-slate-400 text-sm">
+                      Prevent missing context. Whether planning a feature or refactoring, Viberag ensures your agent sees every relevant reference, catching edge cases that simple keyword searches miss.
+                  </p>
+               </div>
+          </div>
+      </div>
+    </section>
+
+    <!-- Comparison Section: With vs Without -->
+    <section class="py-24 bg-[#020617] border-b border-slate-900">
+      <div class="container mx-auto px-6">
+          <div class="text-center mb-16">
+              <h2 class="text-3xl md:text-5xl font-bold text-white mb-6">Why Keywords Aren't Enough</h2>
+              <p class="text-slate-400 max-w-2xl mx-auto text-lg">
+                  In large polyglot monorepos, concepts are scattered. Standard agents "guess" filenames using grep-like logic. Viberag understands meaning.
+              </p>
+          </div>
+
+          <div class="grid lg:grid-cols-2 gap-8 max-w-6xl mx-auto">
+              <!-- Without Viberag -->
+              <div class="bg-[#1a0f0f] border border-red-900/30 rounded-2xl overflow-hidden relative group">
+                  <div class="p-8">
+                      <div class="flex items-center gap-3 mb-6">
+                          <div class="p-2 bg-red-900/20 rounded-lg text-red-500">
+                              <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                          </div>
+                          <h3 class="text-2xl font-bold text-white">Standard Agent</h3>
+                      </div>
+
+                      <div class="mb-6">
+                          <div class="text-sm font-mono text-slate-500 mb-2">Query:</div>
+                          <div class="bg-black/40 border border-red-900/30 p-3 rounded text-slate-300 font-mono text-sm">
+                              "How do we validate user permissions?"
+                          </div>
+                      </div>
+
+                      <div class="space-y-3 mb-8">
+                          <div class="flex items-start gap-3 opacity-60">
+                              <svg class="w-4 h-4 text-red-500 mt-1 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                              <span class="text-slate-400 text-sm">Guesses filenames: "permission.ts", "validate.js"</span>
+                          </div>
+                          <div class="flex items-start gap-3 opacity-60">
+                              <svg class="w-4 h-4 text-red-500 mt-1 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                              <span class="text-slate-400 text-sm">Greps for "validateUser"</span>
+                          </div>
+                          <div class="flex items-start gap-3">
+                              <svg class="w-4 h-4 text-red-500 mt-1 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                              <span class="text-slate-300 text-sm font-bold">Misses: <code class="bg-red-900/20 px-1 rounded text-red-400">auth_middleware.go</code> (Golang backend)</span>
+                          </div>
+                          <div class="flex items-start gap-3">
+                              <svg class="w-4 h-4 text-red-500 mt-1 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                              <span class="text-slate-300 text-sm font-bold">Misses: <code class="bg-red-900/20 px-1 rounded text-red-400">Guard.py</code> (Python service)</span>
+                          </div>
+                      </div>
+
+                      <div class="bg-red-950/20 border border-red-900/30 rounded p-4 text-center">
+                          <div class="text-red-400 font-bold mb-1">Incomplete Context</div>
+                          <div class="text-red-300/60 text-xs">Agent hallucinates or asks you to open files manually.</div>
+                      </div>
+                  </div>
+              </div>
+
+              <!-- With Viberag -->
+              <div class="bg-[#0f1621] border border-[#00D9FF]/30 rounded-2xl overflow-hidden relative group">
+                  <div class="absolute top-0 right-0 w-64 h-64 bg-[#00D9FF]/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"></div>
+
+                  <div class="p-8 relative z-10">
+                      <div class="flex items-center gap-3 mb-6">
+                          <div class="p-2 bg-[#00D9FF]/20 rounded-lg text-[#00D9FF]">
+                              <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path></svg>
+                          </div>
+                          <h3 class="text-2xl font-bold text-white">With Viberag</h3>
+                      </div>
+
+                      <div class="mb-6">
+                          <div class="text-sm font-mono text-slate-500 mb-2">Query:</div>
+                          <div class="bg-black/40 border border-[#00D9FF]/30 p-3 rounded text-white font-mono text-sm">
+                              "Use viberag to find how permissions are validated."
+                          </div>
+                      </div>
+
+                      <div class="space-y-3 mb-8">
+                           <div class="flex items-start gap-3">
+                              <svg class="w-4 h-4 text-[#9D4EDD] mt-1 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path></svg>
+                              <span class="text-slate-300 text-sm">Vector Search matches concept <span class="text-[#9D4EDD]">"Validation"</span> ≈ <span class="text-[#00D9FF]">"Guard"</span></span>
+                          </div>
+                           <div class="flex items-start gap-3">
+                              <svg class="w-4 h-4 text-[#00D9FF] mt-1 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
+                              <span class="text-slate-300 text-sm">Cross-language retrieval (TS, Go, Python)</span>
+                          </div>
+                          <div class="flex items-center gap-2 p-2 bg-slate-900/50 border border-slate-800 rounded">
+                              <span class="w-1.5 h-1.5 rounded-full bg-green-500"></span>
+                              <code class="text-xs text-[#00D9FF]">src/middleware/AuthGuard.ts</code>
+                              <span class="text-xs text-slate-500 ml-auto">92% match</span>
+                          </div>
+                          <div class="flex items-center gap-2 p-2 bg-slate-900/50 border border-slate-800 rounded">
+                              <span class="w-1.5 h-1.5 rounded-full bg-green-500"></span>
+                              <code class="text-xs text-[#00D9FF]">pkg/auth/rbac.go</code>
+                              <span class="text-xs text-slate-500 ml-auto">89% match</span>
+                          </div>
+                      </div>
+
+                      <div class="bg-[#00D9FF]/10 border border-[#00D9FF]/20 rounded p-4 text-center">
+                          <div class="text-[#00D9FF] font-bold mb-1">Full Semantic Context</div>
+                          <div class="text-[#00D9FF]/60 text-xs">Agent sees the actual logic, regardless of keywords.</div>
+                      </div>
+                  </div>
+              </div>
+          </div>
+      </div>
+    </section>
+
+    <!-- Automation & CLI Details with VibeDemo React island -->
+    <section class="py-24 bg-[#090b11] border-y border-slate-900">
+      <div class="container mx-auto px-6">
+          <div class="grid lg:grid-cols-2 gap-16 items-center">
+              <div>
+                  <div class="inline-flex items-center gap-2 text-[#00D9FF] font-bold mb-4 uppercase tracking-wider text-sm">
+                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                      Zero Config Needed
+                  </div>
+                  <h2 class="text-3xl md:text-5xl font-bold text-white mb-6">Automated Setup & Indexing</h2>
+                  <p class="text-slate-400 text-lg mb-8 leading-relaxed">
+                      VibeRAG handles the heavy lifting. Run the initialization wizard to configure your preferred embedding model (local or cloud) and let the file watcher keep your index in sync.
+                  </p>
+
+                  <div class="mb-8">
+                       <div class="bg-[#0f1117] border border-slate-800 rounded-lg p-4 font-mono text-sm inline-flex items-center gap-4 shadow-lg group hover:border-[#9D4EDD]/30 transition-colors">
+                          <div class="flex items-center gap-2">
+                              <span class="text-[#9D4EDD]">$</span>
+                              <span class="text-white font-bold">viberag</span>
+                          </div>
+                          <span class="text-slate-600 text-xs uppercase tracking-wider border-l border-slate-800 pl-4 group-hover:text-slate-500 transition-colors">Launch CLI</span>
+                      </div>
+                  </div>
+
+                  <div class="space-y-6">
+                      <div class="flex gap-4 items-start">
+                          <div class="mt-1 bg-slate-800 p-2 rounded text-[#9D4EDD]">
+                              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                          </div>
+                          <div>
+                              <h4 class="text-white font-bold text-lg mb-1">/init Wizard</h4>
+                              <p class="text-slate-500 text-sm">Interactive CLI command to set up embeddings, download models, and index your codebase for the first time.</p>
+                          </div>
+                      </div>
+                      <div class="flex gap-4 items-start">
+                           <div class="mt-1 bg-slate-800 p-2 rounded text-[#00D9FF]">
+                              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01"></path></svg>
+                          </div>
+                          <div>
+                              <h4 class="text-white font-bold text-lg mb-1">/mcp-setup</h4>
+                              <p class="text-slate-500 text-sm">Automatically configures Claude Code, Cursor, and VS Code config files to connect to the VibeRAG MCP server.</p>
+                          </div>
+                      </div>
+                       <div class="flex gap-4 items-start">
+                           <div class="mt-1 bg-slate-800 p-2 rounded text-green-400">
+                              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                          </div>
+                          <div>
+                              <h4 class="text-white font-bold text-lg mb-1">Agent-Aware Watch Mode</h4>
+                              <p class="text-slate-500 text-sm">Your agent automatically starts VibeRAG's watch mode. It detects code changes and instantly updates the search index, so your agent always has the latest context without manual re-indexing.</p>
+                          </div>
+                      </div>
+                  </div>
+              </div>
+
+              <!-- CLI Demo Component (React island - below fold) -->
+              <div class="relative">
+                  <div class="absolute inset-0 bg-gradient-to-tr from-[#9D4EDD] to-[#00D9FF] opacity-10 blur-3xl -z-10 rounded-full"></div>
+                  <VibeDemo client:visible />
+              </div>
+          </div>
+      </div>
+    </section>
+
+    <!-- How it works - Visual Flow -->
+    <section class="py-24 bg-[#020617] overflow-hidden relative">
+      <div class="absolute top-0 left-0 w-full h-full bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-slate-900 via-[#020617] to-[#020617] opacity-80"></div>
+
+      <div class="container mx-auto px-6 relative z-10">
+          <div class="text-center mb-24">
+              <h2 class="text-3xl md:text-5xl font-bold text-white mb-6">How it Works</h2>
+              <p class="text-slate-400 max-w-2xl mx-auto text-lg">
+                  Seamless integration from disk to context.
+              </p>
+          </div>
+
+          <div class="relative max-w-5xl mx-auto">
+              <!-- Connecting Path -->
+              <div class="hidden md:block absolute top-12 left-[10%] right-[10%] h-0.5 bg-slate-800">
+                  <div class="absolute top-0 left-0 h-full bg-gradient-to-r from-[#9D4EDD] via-[#00D9FF] to-[#9D4EDD] w-full animate-border-flow bg-[length:200%_100%] opacity-50"></div>
+              </div>
+
+              <div class="grid md:grid-cols-3 gap-12">
+                  <!-- Step 1 -->
+                  <div class="relative flex flex-col items-center text-center group">
+                      <div class="w-24 h-24 rounded-2xl bg-[#0f1117] border border-slate-700 flex items-center justify-center relative z-10 mb-8 shadow-[0_0_30px_-10px_rgba(157,78,221,0.3)] group-hover:border-[#9D4EDD]/50 transition-all duration-500 group-hover:scale-110">
+                          <div class="absolute inset-0 bg-[#9D4EDD]/10 rounded-2xl blur-xl opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                          <svg class="w-10 h-10 text-slate-300 group-hover:text-[#9D4EDD] transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path></svg>
+                          <div class="absolute -top-3 -right-3 w-8 h-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-xs font-bold text-slate-400">1</div>
+                      </div>
+                      <h3 class="text-xl font-bold text-white mb-3 group-hover:text-[#9D4EDD] transition-colors">Parse & Embed</h3>
+                      <p class="text-slate-400 text-sm leading-relaxed max-w-xs">
+                          Tree-sitter parses your code into semantic chunks. Embeddings are generated locally or via API and stored in LanceDB.
+                      </p>
+                  </div>
+
+                  <!-- Step 2 -->
+                  <div class="relative flex flex-col items-center text-center group">
+                       <div class="w-24 h-24 rounded-2xl bg-[#0f1117] border border-slate-700 flex items-center justify-center relative z-10 mb-8 shadow-[0_0_30px_-10px_rgba(0,217,255,0.3)] group-hover:border-[#00D9FF]/50 transition-all duration-500 group-hover:scale-110">
+                          <div class="absolute inset-0 bg-[#00D9FF]/10 rounded-2xl blur-xl opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                          <svg class="w-10 h-10 text-slate-300 group-hover:text-[#00D9FF] transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                           <div class="absolute -top-3 -right-3 w-8 h-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-xs font-bold text-slate-400">2</div>
+                      </div>
+                      <h3 class="text-xl font-bold text-white mb-3 group-hover:text-[#00D9FF] transition-colors">Auto-Launch & Watch</h3>
+                      <p class="text-slate-400 text-sm leading-relaxed max-w-xs">
+                          The Editor / agent automatically starts viberag which starts watching for file changes. The Agent has access to its search tools and can monitor the indexing status.
+                      </p>
+                  </div>
+
+                  <!-- Step 3 -->
+                  <div class="relative flex flex-col items-center text-center group">
+                       <div class="w-24 h-24 rounded-2xl bg-[#0f1117] border border-slate-700 flex items-center justify-center relative z-10 mb-8 shadow-[0_0_30px_-10px_rgba(255,255,255,0.2)] group-hover:border-white transition-all duration-500 group-hover:scale-110">
+                          <div class="absolute inset-0 bg-white/5 rounded-2xl blur-xl opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                          <svg class="w-10 h-10 text-slate-300 group-hover:text-white transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                           <div class="absolute -top-3 -right-3 w-8 h-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-xs font-bold text-slate-400">3</div>
+                      </div>
+                      <h3 class="text-xl font-bold text-white mb-3 group-hover:text-white transition-colors">Hybrid Search</h3>
+                      <p class="text-slate-400 text-sm leading-relaxed max-w-xs">
+                           Your agent queries the server. VibeRAG performs a hybrid search (Dense Vector + BM25 Keyword) to return the most relevant code snippets.
+                      </p>
+                  </div>
+              </div>
+          </div>
+    </section>
+
+    <!-- Exposed Tools Section -->
+    <section class="py-24 bg-[#020617] border-t border-slate-900">
+      <div class="container mx-auto px-6">
+          <div class="text-center mb-16">
+              <h2 class="text-3xl md:text-4xl font-bold text-white mb-4">Exposed MCP Tools</h2>
+              <p class="text-slate-400">VibeRAG exposes these powerful tools to your connected AI agents.</p>
+          </div>
+          <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-6 max-w-6xl mx-auto">
+              {TOOLS.map((tool, idx) => (
+                  <div class="bg-[#0f1117] border border-slate-800 p-6 rounded-xl hover:border-[#9D4EDD]/40 transition-all group">
+                      <div class="flex items-center gap-3 mb-3">
+                          <div class="p-2 rounded bg-slate-900 group-hover:bg-slate-800 transition-colors">
+                              <svg class={`w-5 h-5 ${idx === 0 ? 'text-[#00D9FF]' : idx === 1 ? 'text-[#9D4EDD]' : idx === 2 ? 'text-[#9D4EDD]' : idx === 3 ? 'text-yellow-400' : 'text-green-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  {idx === 0 && <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>}
+                                  {idx === 1 && <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>}
+                                  {idx === 2 && <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"></path>}
+                                  {idx === 3 && <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>}
+                                  {idx === 4 && <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>}
+                              </svg>
+                          </div>
+                          <h3 class="font-mono text-lg text-slate-200 font-bold">{tool.name}</h3>
+                      </div>
+                      <p class="text-slate-400 text-sm leading-relaxed">{tool.desc}</p>
+                  </div>
+              ))}
+          </div>
+      </div>
+    </section>
+
+    <!-- Language Support Section -->
+    <section class="py-24 bg-[#020617] border-t border-slate-900">
+        <div class="container mx-auto px-6">
+            <div class="text-center mb-16">
+                <div class="inline-flex items-center gap-2 text-[#9D4EDD] font-bold mb-4 uppercase tracking-wider text-sm">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                    Precision Parsing
+                </div>
+                <h2 class="text-3xl md:text-5xl font-bold text-white mb-6">Syntax-Aware Chunking</h2>
+                <p class="text-slate-400 text-lg leading-relaxed max-w-3xl mx-auto">
+                    VibeRAG uses <span class="text-white font-bold">Tree-sitter</span> to parse code into an Abstract Syntax Tree (AST). It creates semantic boundaries—keeping functions, classes, and scopes intact—so the embedding model captures the complete logical unit.
+                </p>
+            </div>
+
+            <div class="max-w-6xl mx-auto">
+                <div class="text-center mb-10">
+                    <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-slate-900 border border-slate-800 text-slate-400 text-xs font-mono uppercase tracking-widest">
+                        <span class="w-1.5 h-1.5 rounded-full bg-green-500"></span>
+                        Native Parsers Active
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 mb-8">
+                    {LANGUAGES.map((lang) => (
+                        <div class="bg-[#0f1117] border border-slate-800 p-4 rounded-lg flex flex-col items-center justify-center text-center hover:border-slate-700 transition-colors group">
+                             <div class="text-slate-200 font-bold text-sm mb-1 group-hover:text-white">{lang.name}</div>
+                             <div class="text-slate-500 text-[10px] font-mono">{lang.ext}</div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Embedding Options Section -->
+    <section class="py-24 bg-[#090b11] border-b border-slate-900">
+      <div class="container mx-auto px-6 text-center max-w-4xl mx-auto mb-16">
+          <h2 class="text-3xl md:text-5xl font-bold text-white mb-6">Flexible Embedding Models</h2>
+          <p class="text-slate-400 text-lg">
+              Choose between complete privacy or state-of-the-art cloud performance. VibeRAG adapts to your security requirements.
+          </p>
+      </div>
+
+      <div class="container mx-auto px-6 grid md:grid-cols-2 gap-8 max-w-5xl">
+          <!-- Local Option -->
+          <div class="bg-[#0f1117] border border-slate-800 p-8 rounded-2xl relative overflow-hidden group hover:-translate-y-1 transition-transform duration-300">
+              <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-green-500 to-emerald-500"></div>
+              <div class="flex justify-between items-start mb-6">
+                  <div class="p-3 bg-green-500/10 rounded-xl text-green-400">
+                      <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"></path></svg>
+                  </div>
+                  <span class="bg-green-500/10 text-green-400 text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider">Offline</span>
+              </div>
+              <h3 class="text-2xl font-bold text-white mb-3">Locally Generated Embeddings</h3>
+              <p class="text-slate-400 mb-6 leading-relaxed">
+                  Powered by <strong class="text-white">Qwen 3 0.6B</strong>. High quality local / offline embedding generation.
+              </p>
+              <ul class="space-y-3 mb-8">
+                  <li class="flex items-center gap-2 text-sm text-slate-300">
+                      <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                      Local, Free, No API Keys
+                  </li>
+                  <li class="flex items-center gap-2 text-sm text-slate-300">
+                      <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                      Code & Natural Language understanding
+                  </li>
+                  <li class="flex items-center gap-2 text-sm text-slate-300">
+                      <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                      Zero data egress
+                  </li>
+              </ul>
+          </div>
+
+          <!-- Cloud Option -->
+          <div class="bg-[#0f1117] border border-slate-800 p-8 rounded-2xl relative overflow-hidden group hover:-translate-y-1 transition-transform duration-300">
+              <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-[#9D4EDD] to-[#00D9FF]"></div>
+              <div class="flex justify-between items-start mb-6">
+                  <div class="p-3 bg-[#9D4EDD]/10 rounded-xl text-[#9D4EDD]">
+                      <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
+                  </div>
+                  <span class="bg-[#9D4EDD]/10 text-[#9D4EDD] text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider">Frontier</span>
+              </div>
+              <h3 class="text-2xl font-bold text-white mb-3">API Embedding Providers</h3>
+              <p class="text-slate-400 mb-6 leading-relaxed">
+                  Connect to <strong class="text-white">OpenAI, Gemini, or Mistral</strong> for state-of-the-art semantic understanding.
+              </p>
+              <ul class="space-y-3 mb-8">
+                  <li class="flex items-center gap-2 text-sm text-slate-300">
+                      <svg class="w-4 h-4 text-[#9D4EDD]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                      Fastest generation speed
+                  </li>
+                  <li class="flex items-center gap-2 text-sm text-slate-300">
+                      <svg class="w-4 h-4 text-[#9D4EDD]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                      Highest Semantic Understanding
+                  </li>
+                  <li class="flex items-center gap-2 text-sm text-slate-300">
+                      <svg class="w-4 h-4 text-[#9D4EDD]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                      Still very cheap
+                  </li>
+              </ul>
+          </div>
+      </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="border-t border-slate-900 py-12 bg-[#05060a]">
+      <div class="container mx-auto px-6">
+        <div class="flex flex-col md:flex-row justify-between items-center gap-6">
+          <div class="flex flex-col items-center md:items-start gap-1">
+            <div class="flex items-center gap-2 font-[VT323] font-bold text-3xl select-none">
+              <span class="text-transparent bg-clip-text bg-gradient-to-r from-[#9D4EDD] to-[#00D9FF]">VIBERAG</span>
+            </div>
+            <div class="text-slate-600 text-xs">
+               © 2025 Viberag
+            </div>
+          </div>
+
+          <div class="flex gap-8 text-slate-500 text-sm font-medium">
+            <a href="/docs" class="hover:text-[#00D9FF] transition-colors">Documentation</a>
+            <a href="https://github.com/mdrideout/viberag" target="_blank" rel="noopener noreferrer" class="hover:text-[#00D9FF] transition-colors">GitHub</a>
+            <a href="https://www.npmjs.com/package/viberag" target="_blank" rel="noopener noreferrer" class="hover:text-[#00D9FF] transition-colors">NPM</a>
+          </div>
+          <div class="text-slate-600 text-sm">
+            AGPL-3.0 license · Open Source
+          </div>
+        </div>
+      </div>
+    </footer>
+
+    <script>
+      // Mobile menu toggle
+      const menuBtn = document.getElementById('mobile-menu-btn');
+      const mobileMenu = document.getElementById('mobile-menu');
+      menuBtn?.addEventListener('click', () => {
+        mobileMenu?.classList.toggle('hidden');
+        mobileMenu?.classList.toggle('flex');
+      });
+
+      // Navbar scroll effect
+      const navbar = document.getElementById('navbar');
+      window.addEventListener('scroll', () => {
+        if (window.scrollY > 20) {
+          navbar?.classList.add('bg-[#020617]/90', 'backdrop-blur', 'border-b', 'border-slate-800', 'py-3');
+          navbar?.classList.remove('bg-transparent', 'py-5');
+        } else {
+          navbar?.classList.remove('bg-[#020617]/90', 'backdrop-blur', 'border-b', 'border-slate-800', 'py-3');
+          navbar?.classList.add('bg-transparent', 'py-5');
+        }
+      });
+
+      // Copy npm command
+      const npmBox = document.getElementById('npm-box');
+      const copyText = document.getElementById('copy-text');
+      npmBox?.addEventListener('click', () => {
+        navigator.clipboard.writeText('npm install -g viberag');
+        if (copyText) {
+          copyText.textContent = 'COPIED!';
+          setTimeout(() => {
+            copyText.textContent = 'COPY';
+          }, 2000);
+        }
+      });
+    </script>
+  </body>
+</html>

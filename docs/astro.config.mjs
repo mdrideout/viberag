@@ -2,30 +2,33 @@
 import {defineConfig} from 'astro/config';
 import starlight from '@astrojs/starlight';
 import tailwindcss from '@tailwindcss/vite';
+import react from '@astrojs/react';
 
 // https://astro.build/config
 export default defineConfig({
 	integrations: [
+		react(),
 		starlight({
-			title: 'Docs with Tailwind',
+			title: 'VibeRAG',
 			social: [
 				{
 					icon: 'github',
 					label: 'GitHub',
-					href: 'https://github.com/withastro/starlight',
+					href: 'https://github.com/mdrideout/viberag',
 				},
 			],
 			sidebar: [
 				{
+					label: 'Getting Started',
+					slug: 'docs',
+				},
+				{
 					label: 'Guides',
-					items: [
-						// Each item here is one entry in the navigation menu.
-						{label: 'Example Guide', slug: 'guides/example'},
-					],
+					autogenerate: {directory: 'docs/guides'},
 				},
 				{
 					label: 'Reference',
-					autogenerate: {directory: 'reference'},
+					autogenerate: {directory: 'docs/reference'},
 				},
 			],
 			customCss: ['./src/styles/global.css'],
