@@ -1,11 +1,10 @@
 import React, {useState, useEffect, useRef} from 'react';
-import {Check} from 'lucide-react';
 
 const ASCII_ART = `
   ██╗   ██╗ ██╗ ██████╗  ███████╗ ██████╗   █████╗   ██████╗
   ██║   ██║ ██║ ██╔══██╗ ██╔════╝ ██╔══██╗ ██╔══██╗ ██╔════╝
   ██║   ██║ ██║ ██████╔╝ █████╗   ██████╔╝ ███████║ ██║  ███╗
-  ╚██╗ ██╔╝ ██║ ██╔══██╗ ██╔══██╗ ██╔══██║ ██║   ██║
+  ╚██╗ ██╔╝ ██║ ██╔══██╗ ██╔══██╗ ██╔══██║ ██║  ██║ ██║   ██║
    ╚████╔╝  ██║ ██████╔╝ ███████╗ ██║  ██║ ██║  ██║ ╚██████╔╝
     ╚═══╝   ╚═╝ ╚═════╝  ╚══════╝ ╚═╝  ╚═╝ ╚═╝  ╚═╝  ╚═════╝
 `;
@@ -20,7 +19,7 @@ const TerminalDemo: React.FC = () => {
 		const initialHistory = [
 			<div
 				key="ascii"
-				className="text-transparent bg-clip-text bg-gradient-to-r from-[#9D4EDD] to-[#00D9FF] leading-tight whitespace-pre select-none opacity-90 hidden md:block mb-6 font-bold"
+				className="text-transparent bg-clip-text bg-gradient-to-r from-[#9D4EDD] to-[#00D9FF] leading-none whitespace-pre select-none opacity-90 hidden md:block mb-6 font-bold"
 			>
 				{ASCII_ART}
 			</div>,
@@ -79,7 +78,7 @@ const TerminalDemo: React.FC = () => {
 					? Select embedding provider:
 				</div>
 				<div className="text-[#00D9FF] flex items-center gap-2">
-					<Check size={14} /> {provider}
+					<span>❯</span> {provider}
 				</div>
 			</div>,
 		);
@@ -134,7 +133,7 @@ const TerminalDemo: React.FC = () => {
 					? Configure MCP server now?
 				</div>
 				<div className="text-[#00D9FF] flex items-center gap-2">
-					<Check size={14} /> Yes
+					<span>❯</span> Yes
 				</div>
 			</div>,
 		);
@@ -160,7 +159,7 @@ const TerminalDemo: React.FC = () => {
 					? Select target editor:
 				</div>
 				<div className="text-[#00D9FF] flex items-center gap-2">
-					<Check size={14} /> {editor}
+					<span>❯</span> {editor}
 				</div>
 			</div>,
 		);
@@ -234,42 +233,46 @@ const TerminalDemo: React.FC = () => {
 						<div className="text-[#9D4EDD] font-bold mb-2">
 							? Select embedding provider:
 						</div>
-						<div className="flex flex-col gap-1 ml-2">
+						<div className="flex flex-col gap-0">
 							<button
-								onClick={() => handleProviderSelect('OpenAI (API)')}
-								className="text-left text-slate-400 hover:text-[#00D9FF] hover:bg-slate-800/50 px-2 py-1 rounded transition-colors flex items-center gap-2 group w-fit"
+								onClick={() => handleProviderSelect('Local (Qwen3)')}
+								className="text-left bg-transparent px-2 py-0.5 transition-colors flex items-center gap-2 w-full hover:bg-slate-800/30"
 							>
-								<span className="text-slate-600 group-hover:text-[#9D4EDD]">
-									[1]
-								</span>{' '}
-								OpenAI (API)
+								<span className="text-[#00D9FF]">❯</span>
+								<span className="text-[#00D9FF] w-16">Local</span>
+								<span className="text-slate-500">-</span>
+								<span className="text-slate-400">
+									Qwen3-0.6B Q8 (~700MB, ~1.2GB RAM)
+								</span>
 							</button>
 							<button
-								onClick={() => handleProviderSelect('Gemini (API)')}
-								className="text-left text-slate-400 hover:text-[#00D9FF] hover:bg-slate-800/50 px-2 py-1 rounded transition-colors flex items-center gap-2 group w-fit"
+								onClick={() => handleProviderSelect('Gemini')}
+								className="text-left bg-transparent px-2 py-0.5 transition-colors flex items-center gap-2 w-full hover:bg-slate-800/30"
 							>
-								<span className="text-slate-600 group-hover:text-[#9D4EDD]">
-									[2]
-								</span>{' '}
-								Gemini (API)
+								<span className="text-transparent">❯</span>
+								<span className="text-slate-400 w-16">Gemini</span>
+								<span className="text-slate-500">-</span>
+								<span className="text-slate-500">
+									gemini-embedding-001 (Free tier)
+								</span>
 							</button>
 							<button
-								onClick={() =>
-									handleProviderSelect('Local (Qwen3) [Recommended]')
-								}
-								className="text-left text-[#00D9FF] bg-slate-800/30 border border-[#00D9FF]/20 px-2 py-1 rounded transition-colors flex items-center gap-2 group w-fit"
+								onClick={() => handleProviderSelect('Mistral')}
+								className="text-left bg-transparent px-2 py-0.5 transition-colors flex items-center gap-2 w-full hover:bg-slate-800/30"
 							>
-								<span className="text-[#9D4EDD] font-bold">[3]</span> Local
-								(Qwen3) [Recommended]
+								<span className="text-transparent">❯</span>
+								<span className="text-slate-400 w-16">Mistral</span>
+								<span className="text-slate-500">-</span>
+								<span className="text-slate-500">codestral-embed</span>
 							</button>
 							<button
-								onClick={() => handleProviderSelect('Mistral (API)')}
-								className="text-left text-slate-400 hover:text-[#00D9FF] hover:bg-slate-800/50 px-2 py-1 rounded transition-colors flex items-center gap-2 group w-fit"
+								onClick={() => handleProviderSelect('OpenAI')}
+								className="text-left bg-transparent px-2 py-0.5 transition-colors flex items-center gap-2 w-full hover:bg-slate-800/30"
 							>
-								<span className="text-slate-600 group-hover:text-[#9D4EDD]">
-									[4]
-								</span>{' '}
-								Mistral (API)
+								<span className="text-transparent">❯</span>
+								<span className="text-slate-400 w-16">OpenAI</span>
+								<span className="text-slate-500">-</span>
+								<span className="text-slate-500">text-embedding-3-small</span>
 							</button>
 						</div>
 					</div>
@@ -279,17 +282,19 @@ const TerminalDemo: React.FC = () => {
 				{activeStep === 2 && !isProcessing && (
 					<div className="mb-4 animate-fade-in font-mono text-sm">
 						<div className="text-[#9D4EDD] font-bold mb-2">
-							? Start /mcp-setup wizard now? (Y/n)
+							? Configure MCP server now? (Y/n)
 						</div>
-						<div className="flex gap-4 ml-2">
+						<div className="flex flex-col gap-0">
 							<button
 								onClick={handleMcpStart}
-								className="text-[#00D9FF] bg-slate-800/50 px-3 py-1 rounded hover:bg-slate-700 transition-colors"
+								className="text-left bg-transparent px-2 py-0.5 transition-colors flex items-center gap-2 w-full hover:bg-slate-800/30"
 							>
-								Yes
+								<span className="text-[#00D9FF]">❯</span>
+								<span className="text-[#00D9FF]">Yes</span>
 							</button>
-							<button className="text-slate-500 px-3 py-1 rounded hover:text-slate-300 transition-colors">
-								No
+							<button className="text-left bg-transparent px-2 py-0.5 transition-colors flex items-center gap-2 w-full hover:bg-slate-800/30">
+								<span className="text-transparent">❯</span>
+								<span className="text-slate-400">No</span>
 							</button>
 						</div>
 					</div>
@@ -301,40 +306,34 @@ const TerminalDemo: React.FC = () => {
 						<div className="text-[#9D4EDD] font-bold mb-2">
 							? Select target editor:
 						</div>
-						<div className="flex flex-col gap-1 ml-2">
+						<div className="flex flex-col gap-0">
 							<button
 								onClick={() => handleEditorSelect('Claude Code')}
-								className="text-left text-[#00D9FF] bg-slate-800/30 border border-[#00D9FF]/20 px-2 py-1 rounded transition-colors flex items-center gap-2 group w-fit"
+								className="text-left bg-transparent px-2 py-0.5 transition-colors flex items-center gap-2 w-full hover:bg-slate-800/30"
 							>
-								<span className="text-[#9D4EDD] font-bold">[1]</span> Claude
-								Code
+								<span className="text-[#00D9FF]">❯</span>
+								<span className="text-[#00D9FF]">Claude Code</span>
 							</button>
 							<button
 								onClick={() => handleEditorSelect('Cursor')}
-								className="text-left text-slate-400 hover:text-[#00D9FF] hover:bg-slate-800/50 px-2 py-1 rounded transition-colors flex items-center gap-2 group w-fit"
+								className="text-left bg-transparent px-2 py-0.5 transition-colors flex items-center gap-2 w-full hover:bg-slate-800/30"
 							>
-								<span className="text-slate-600 group-hover:text-[#9D4EDD]">
-									[2]
-								</span>{' '}
-								Cursor
+								<span className="text-transparent">❯</span>
+								<span className="text-slate-400">Cursor</span>
 							</button>
 							<button
 								onClick={() => handleEditorSelect('VS Code')}
-								className="text-left text-slate-400 hover:text-[#00D9FF] hover:bg-slate-800/50 px-2 py-1 rounded transition-colors flex items-center gap-2 group w-fit"
+								className="text-left bg-transparent px-2 py-0.5 transition-colors flex items-center gap-2 w-full hover:bg-slate-800/30"
 							>
-								<span className="text-slate-600 group-hover:text-[#9D4EDD]">
-									[3]
-								</span>{' '}
-								VS Code
+								<span className="text-transparent">❯</span>
+								<span className="text-slate-400">VS Code</span>
 							</button>
 							<button
 								onClick={() => handleEditorSelect('Windsurf')}
-								className="text-left text-slate-400 hover:text-[#00D9FF] hover:bg-slate-800/50 px-2 py-1 rounded transition-colors flex items-center gap-2 group w-fit"
+								className="text-left bg-transparent px-2 py-0.5 transition-colors flex items-center gap-2 w-full hover:bg-slate-800/30"
 							>
-								<span className="text-slate-600 group-hover:text-[#9D4EDD]">
-									[4]
-								</span>{' '}
-								Windsurf
+								<span className="text-transparent">❯</span>
+								<span className="text-slate-400">Windsurf</span>
 							</button>
 						</div>
 					</div>

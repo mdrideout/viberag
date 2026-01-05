@@ -54,7 +54,7 @@ const LANGUAGES = [
     <!-- Favicon -->
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   </head>
-  <body class="min-h-screen bg-[#020617] text-slate-50 font-sans selection:bg-[#9D4EDD]/30 selection:text-white overflow-x-hidden">
+  <body class="m-0 min-h-screen bg-[#020617] text-slate-50 font-sans selection:bg-[#9D4EDD]/30 selection:text-white overflow-x-hidden">
 
     <!-- Navigation -->
     <nav class="fixed w-full z-50 bg-transparent py-5" id="navbar">
@@ -65,8 +65,7 @@ const LANGUAGES = [
 
         <!-- Desktop Nav -->
         <div class="hidden md:flex items-center gap-8 text-sm font-medium text-slate-400">
-          <a href="/docs" class="hover:text-[#00D9FF] transition-colors">Docs</a>
-          <a href="https://www.npmjs.com/package/viberag" target="_blank" rel="noopener noreferrer" class="hover:text-[#00D9FF] transition-colors">NPM</a>
+          <a href="https://www.npmjs.com/package/viberag" target="_blank" rel="noopener noreferrer" class="hover:text-brand-cyan transition-colors">NPM</a>
           <a href="https://github.com/mdrideout/viberag" target="_blank" rel="noopener noreferrer" class="flex items-center gap-2 text-white bg-slate-800 hover:bg-slate-700 px-4 py-2 rounded-md border border-slate-700 transition-all">
             <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
             <span>GitHub</span>
@@ -81,9 +80,8 @@ const LANGUAGES = [
 
       <!-- Mobile Nav -->
       <div class="md:hidden absolute top-full left-0 w-full bg-[#020617] border-b border-slate-800 p-6 flex-col gap-4 shadow-2xl hidden" id="mobile-menu">
-        <a href="/docs" class="text-slate-300 py-2 block">Documentation</a>
         <a href="https://www.npmjs.com/package/viberag" target="_blank" rel="noopener noreferrer" class="text-slate-300 py-2 block">NPM</a>
-        <a href="https://github.com/mdrideout/viberag" target="_blank" rel="noopener noreferrer" class="w-full inline-flex items-center justify-center gap-2 px-4 py-2 border border-slate-600 text-slate-300 rounded-md hover:border-[#00D9FF] hover:text-[#00D9FF] transition-colors">
+        <a href="https://github.com/mdrideout/viberag" target="_blank" rel="noopener noreferrer" class="w-full inline-flex items-center justify-center gap-2 px-4 py-2 border border-slate-600 text-slate-300 rounded-md hover:border-brand-cyan hover:text-brand-cyan transition-colors">
           <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
           GitHub
         </a>
@@ -115,19 +113,19 @@ const LANGUAGES = [
             <!-- NPM Box -->
             <div class="relative group w-full max-w-lg mx-auto mb-10 cursor-pointer" id="npm-box">
               <div class="absolute -inset-1 bg-gradient-to-r from-[#9D4EDD] to-[#00D9FF] rounded-lg blur opacity-40 group-hover:opacity-100 transition duration-1000 group-hover:duration-200 animate-border-flow bg-[length:200%_200%]"></div>
-              <div class="relative w-full bg-[#090b11] rounded-lg items-center flex justify-between p-4 border border-slate-800 group-hover:border-transparent transition-all">
-                <div class="flex items-center gap-3 font-mono text-base md:text-lg text-slate-200">
+              <div class="py-4 relative w-full bg-[#090b11] rounded-lg items-center flex justify-between border border-slate-800 group-hover:border-transparent transition-all">
+                <div class="ml-4 flex items-center gap-3 font-mono text-base md:text-lg text-slate-200">
                   <span class="text-[#9D4EDD]">$</span>
                   npm install -g viberag
                 </div>
-                <div class="text-xs font-mono text-slate-500 bg-slate-900 px-2 py-1 rounded group-hover:text-[#00D9FF] transition-colors" id="copy-text">
+                <div class="mr-4 text-xs font-mono text-slate-500 bg-slate-900 px-2 py-1 rounded group-hover:text-brand-cyan transition-colors" id="copy-text">
                   COPY
                 </div>
               </div>
             </div>
 
             <div class="flex gap-4">
-                <a href="/docs" class="inline-flex items-center justify-center font-medium transition-all duration-200 rounded-full focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-900 bg-gradient-to-r from-[#9D4EDD] to-[#9D4EDD] hover:to-[#00D9FF] text-white shadow-lg shadow-[#9D4EDD]/20 border border-transparent px-8 py-3.5 text-base">
+                <a href="https://github.com/mdrideout/viberag?tab=readme-ov-file#viberag-mcp-server" target="_blank" rel="noopener noreferrer" class="inline-flex items-center justify-center font-medium transition-all duration-200 rounded-full focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-900 bg-gradient-to-r from-[#9D4EDD] to-[#9D4EDD] hover:to-[#00D9FF] text-white shadow-lg shadow-[#9D4EDD]/20 border border-transparent px-8 py-3.5 text-base">
                     Get Started
                     <svg class="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"></path></svg>
                 </a>
@@ -149,7 +147,7 @@ const LANGUAGES = [
       </div>
       <div class="flex items-center justify-center flex-wrap gap-x-8 gap-y-4 px-6 opacity-70">
           {EDITORS.map((editor) => (
-              <span class="text-sm md:text-base font-medium text-slate-300 hover:text-[#00D9FF] transition-colors cursor-default whitespace-nowrap">
+              <span class="text-sm md:text-base font-medium text-slate-300 hover:text-brand-cyan transition-colors cursor-default whitespace-nowrap">
                   {editor}
               </span>
           ))}
@@ -168,7 +166,7 @@ const LANGUAGES = [
               <p class="text-slate-400 text-lg leading-relaxed">
                   Stop pasting file contents. Stop hoping your agent guesses the right filename.
                   <br class="hidden md:block"/>
-                  Invoke the magic words <span class="font-bold text-transparent bg-clip-text bg-gradient-to-r from-[#9D4EDD] to-[#00D9FF]">use viberag</span> to let the semantic search find everything.
+                  Invoke the magic words <span class="font-bold text-transparent bg-clip-text bg-gradient-to-r from-[#9D4EDD] to-[#00D9FF]">use viberag</span> and your coding agent will use semantic search find everything.
               </p>
           </div>
 
@@ -214,7 +212,7 @@ const LANGUAGES = [
           <div class="text-center mb-16">
               <h2 class="text-3xl md:text-5xl font-bold text-white mb-6">Why Keywords Aren't Enough</h2>
               <p class="text-slate-400 max-w-2xl mx-auto text-lg">
-                  In large polyglot monorepos, concepts are scattered. Standard agents "guess" filenames using grep-like logic. Viberag understands meaning.
+                  In large polyglot monorepos, concepts are scattered. Standard agents "guess" file and function names using grep-like logic. Viberag understands meaning.
               </p>
           </div>
 
@@ -321,7 +319,7 @@ const LANGUAGES = [
                       <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
                       Zero Config Needed
                   </div>
-                  <h2 class="text-3xl md:text-5xl font-bold text-white mb-6">Automated Setup & Indexing</h2>
+                  <h2 class="text-3xl md:text-5xl font-bold text-white mb-6 mt-1">Automated Setup & Indexing</h2>
                   <p class="text-slate-400 text-lg mb-8 leading-relaxed">
                       VibeRAG handles the heavy lifting. Run the initialization wizard to configure your preferred embedding model (local or cloud) and let the file watcher keep your index in sync.
                   </p>
@@ -342,7 +340,7 @@ const LANGUAGES = [
                               <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
                           </div>
                           <div>
-                              <h4 class="text-white font-bold text-lg mb-1">/init Wizard</h4>
+                              <h4 class="text-white font-bold text-lg mb-1 mt-1">/init Wizard</h4>
                               <p class="text-slate-500 text-sm">Interactive CLI command to set up embeddings, download models, and index your codebase for the first time.</p>
                           </div>
                       </div>
@@ -351,7 +349,7 @@ const LANGUAGES = [
                               <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01"></path></svg>
                           </div>
                           <div>
-                              <h4 class="text-white font-bold text-lg mb-1">/mcp-setup</h4>
+                              <h4 class="text-white font-bold text-lg mb-1 mt-1">/mcp-setup</h4>
                               <p class="text-slate-500 text-sm">Automatically configures Claude Code, Cursor, and VS Code config files to connect to the VibeRAG MCP server.</p>
                           </div>
                       </div>
@@ -360,7 +358,7 @@ const LANGUAGES = [
                               <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
                           </div>
                           <div>
-                              <h4 class="text-white font-bold text-lg mb-1">Agent-Aware Watch Mode</h4>
+                              <h4 class="text-white font-bold text-lg mb-1 mt-1">Agent-Aware Watch Mode</h4>
                               <p class="text-slate-500 text-sm">Your agent automatically starts VibeRAG's watch mode. It detects code changes and instantly updates the search index, so your agent always has the latest context without manual re-indexing.</p>
                           </div>
                       </div>
@@ -410,12 +408,12 @@ const LANGUAGES = [
 
                   <!-- Step 2 -->
                   <div class="relative flex flex-col items-center text-center group">
-                       <div class="w-24 h-24 rounded-2xl bg-[#0f1117] border border-slate-700 flex items-center justify-center relative z-10 mb-8 shadow-[0_0_30px_-10px_rgba(0,217,255,0.3)] group-hover:border-[#00D9FF]/50 transition-all duration-500 group-hover:scale-110">
+                       <div class="w-24 h-24 rounded-2xl bg-[#0f1117] border border-slate-700 flex items-center justify-center relative z-10 mb-8 shadow-[0_0_30px_-10px_rgba(0,217,255,0.3)] group-hover:border-brand-cyan/50 transition-all duration-500 group-hover:scale-110">
                           <div class="absolute inset-0 bg-[#00D9FF]/10 rounded-2xl blur-xl opacity-0 group-hover:opacity-100 transition-opacity"></div>
-                          <svg class="w-10 h-10 text-slate-300 group-hover:text-[#00D9FF] transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                          <svg class="w-10 h-10 text-slate-300 group-hover:text-brand-cyan transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
                            <div class="absolute -top-3 -right-3 w-8 h-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-xs font-bold text-slate-400">2</div>
                       </div>
-                      <h3 class="text-xl font-bold text-white mb-3 group-hover:text-[#00D9FF] transition-colors">Auto-Launch & Watch</h3>
+                      <h3 class="text-xl font-bold text-white mb-3 group-hover:text-brand-cyan transition-colors">Auto-Launch & Watch</h3>
                       <p class="text-slate-400 text-sm leading-relaxed max-w-xs">
                           The Editor / agent automatically starts viberag which starts watching for file changes. The Agent has access to its search tools and can monitor the indexing status.
                       </p>
@@ -579,14 +577,13 @@ const LANGUAGES = [
               <span class="text-transparent bg-clip-text bg-gradient-to-r from-[#9D4EDD] to-[#00D9FF]">VIBERAG</span>
             </div>
             <div class="text-slate-600 text-xs">
-               © 2025 Viberag
+               © 2026 VIBERAG
             </div>
           </div>
 
           <div class="flex gap-8 text-slate-500 text-sm font-medium">
-            <a href="/docs" class="hover:text-[#00D9FF] transition-colors">Documentation</a>
-            <a href="https://github.com/mdrideout/viberag" target="_blank" rel="noopener noreferrer" class="hover:text-[#00D9FF] transition-colors">GitHub</a>
-            <a href="https://www.npmjs.com/package/viberag" target="_blank" rel="noopener noreferrer" class="hover:text-[#00D9FF] transition-colors">NPM</a>
+            <a href="https://github.com/mdrideout/viberag" target="_blank" rel="noopener noreferrer" class="hover:text-brand-cyan transition-colors">GitHub</a>
+            <a href="https://www.npmjs.com/package/viberag" target="_blank" rel="noopener noreferrer" class="hover:text-brand-cyan transition-colors">NPM</a>
           </div>
           <div class="text-slate-600 text-sm">
             AGPL-3.0 license · Open Source

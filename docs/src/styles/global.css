@@ -19,6 +19,14 @@
   --color-terminal-header: #1a1d24;
 }
 
+/* Reset anchor tag default styles */
+@layer base {
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+}
+
 @keyframes cursor {
   0%, 100% { opacity: 1; }
   50% { opacity: 0; }

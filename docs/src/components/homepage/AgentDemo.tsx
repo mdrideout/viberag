@@ -55,10 +55,10 @@ const AgentDemo = () => {
 	const displayedSuffix = examples[exampleIndex].slice(0, suffixLength);
 
 	return (
-		<div className="w-full bg-[#0f1117] rounded-xl border border-slate-800 shadow-2xl p-6 md:p-12 flex items-center min-h-[220px] relative overflow-hidden group">
+		<div className="w-full bg-[#0f1117] rounded-xl border border-slate-800 shadow-2xl flex items-center min-h-[220px] relative overflow-hidden group">
 			<div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-3/4 h-3/4 bg-[#9D4EDD]/5 blur-[80px] rounded-full"></div>
 
-			<div className="relative font-mono text-lg md:text-3xl font-bold leading-relaxed w-full text-left">
+			<div className="p-6 relative font-mono text-lg md:text-3xl font-bold leading-relaxed w-full text-left">
 				<span className="text-slate-600 mr-3 hidden md:inline-block">&gt;</span>
 				<span className="text-transparent bg-clip-text bg-gradient-to-r from-[#9D4EDD] to-[#00D9FF]">
 					{displayedPrefix}
