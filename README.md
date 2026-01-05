@@ -60,7 +60,7 @@ Your coding agent would normally use Search / Grep / Find and guess search terms
 
 When searching for "authentication", VibeRAG will find all code snippets that are relevant to authentication, such as "login", "logout", "register", and names of functions and classes like `AuthDependency`, `APIKeyCache`, etc.
 
-This ensures a more exhaustive search of your codebase so you don't miss important files and features that are relevant to your changes or refactor.
+This ensures comprehensive search of your codebase so you don't miss important files and features that are relevant to your changes or refactor.
 
 ### Great for Monorepos
 

@@ -55,15 +55,17 @@ async function ensureInitialized(projectRoot: string): Promise<void> {
 }
 
 /**
- * Default maximum response size in bytes (100KB).
+ * Default maximum response size in bytes (50KB).
  * Reduces result count to fit; does NOT truncate text.
+ * Note: Claude Code has ~25K token limit (~100KB), so 50KB default leaves headroom.
  */
-const DEFAULT_MAX_RESPONSE_SIZE = 100 * 1024;
+const DEFAULT_MAX_RESPONSE_SIZE = 50 * 1024;
 
 /**
- * Maximum allowed response size (500KB).
+ * Maximum allowed response size (100KB).
+ * Hard cap to prevent token overflow in AI tools.
  */
-const MAX_RESPONSE_SIZE = 500 * 1024;
+const MAX_RESPONSE_SIZE = 100 * 1024;
 
 /**
  * Overhead per result in JSON (metadata fields, formatting).
@@ -168,11 +170,6 @@ function formatSearchResults(
 	if (wasReduced) {
 		response['originalResultCount'] = results.results.length;
 		response['reducedForSize'] = true;
-	}
-
-	// Add totalMatches for exhaustive mode
-	if (results.totalMatches !== undefined) {
-		response['totalMatches'] = results.totalMatches;
 	}
 
 	// Add debug info for AI evaluation
@@ -323,9 +320,9 @@ export function createMcpServer(projectRoot: string): McpServerWithWatcher {
 	server.addTool({
 		name: 'codebase_search',
 		description: `
-Codebase search: semantic search, keyword search, and hybrid search options. 
-Use this when you need to find code that matches semantic meaning and keyword patterns. 
-This tool helps you perform exhaustive searches of the codebase and get the best 
+Codebase search: semantic search, keyword search, and hybrid search options.
+Use this when you need to find code that matches semantic meaning and keyword patterns.
+This tool helps you perform comprehensive searches of the codebase and get the best
 context and understanding when exploring and searching the codebase, docs, etc.
 
 USE FOR CODEBASE EXPLORATION:
@@ -381,8 +378,7 @@ For thorough searches, consider:
 1. Start with hybrid mode, default weights
 2. Check debug info to evaluate search quality
 3. If maxVectorScore < 0.3, try exact mode or higher bm25_weight
-4. If results seem incomplete, try codebase_parallel_search for comparison
-5. Use exhaustive=true for refactoring tasks needing ALL matches
+4. If results seem incomplete, run more searches and try codebase_parallel_search for comparison
 
 RESULT INTERPRETATION:
 - score: Combined relevance (higher = better)
@@ -433,11 +429,6 @@ Production code: { path_not_contains: ["test", "mock", "fixture"], is_exported: 
 				.optional()
 				.default(10)
 				.describe('Maximum number of results (1-100, default: 10)'),
-			exhaustive: z
-				.boolean()
-				.optional()
-				.default(false)
-				.describe('Return all matches (for refactoring/auditing)'),
 			min_score: z
 				.number()
 				.min(0)
@@ -489,9 +480,8 @@ Production code: { path_not_contains: ["test", "mock", "fixture"], is_exported: 
 				.optional()
 				.default(DEFAULT_MAX_RESPONSE_SIZE)
 				.describe(
-					'Maximum response size in bytes (default: 100KB, max: 500KB). ' +
-						'Reduces result count to fit within limit; does NOT truncate text content. ' +
-						'Use a larger value for exhaustive searches.',
+					'Maximum response size in bytes (default: 50KB, max: 100KB). ' +
+						'Reduces result count to fit within limit; does NOT truncate text content.',
 				),
 		}),
 		execute: async args => {
@@ -522,7 +512,6 @@ Production code: { path_not_contains: ["test", "mock", "fixture"], is_exported: 
 			const results = await engine.search(args.query, {
 				mode: args.mode,
 				limit: args.limit,
-				exhaustive: args.exhaustive,
 				minScore: args.min_score,
 				filters,
 				codeSnippet: args.code_snippet,
@@ -663,9 +652,9 @@ Production code: { path_not_contains: ["test", "mock", "fixture"], is_exported: 
 	server.addTool({
 		name: 'codebase_parallel_search',
 		description: `
-Codebase Parallel Search: run multiple semantic search, keyword search, and hybrid searches in parallel and compare results. 
-Use this when you need to run multiple searches at once to find code that matches semantic meaning and keyword patterns. 
-This tool helps you perform exhaustive searches of the codebase and get the best 
+Codebase Parallel Search: run multiple semantic search, keyword search, and hybrid searches in parallel and compare results.
+Use this when you need to run multiple searches at once to find code that matches semantic meaning and keyword patterns.
+This tool helps you perform comprehensive searches of the codebase and get the best
 context and understanding when exploring and searching the codebase, docs, etc.
 
 NOTE: This is for narrower sets of queries. Parallel searches may return a large number of results,

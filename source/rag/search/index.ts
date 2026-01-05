@@ -47,9 +47,6 @@ export {hybridRerank} from './hybrid.js';
 /** Default search limit */
 const DEFAULT_LIMIT = 10;
 
-/** Exhaustive mode limit (high but bounded) */
-const EXHAUSTIVE_LIMIT = 500;
-
 /** Default BM25 weight for hybrid search */
 const DEFAULT_BM25_WEIGHT = 0.3;
 
@@ -85,9 +82,7 @@ export class SearchEngine {
 	): Promise<SearchResults> {
 		const start = Date.now();
 		const mode: SearchMode = options.mode ?? 'hybrid';
-		const limit = options.exhaustive
-			? EXHAUSTIVE_LIMIT
-			: (options.limit ?? DEFAULT_LIMIT);
+		const limit = options.limit ?? DEFAULT_LIMIT;
 		const filterClause = buildFilterClause(options.filters);
 
 		await this.ensureInitialized();
@@ -150,11 +145,6 @@ export class SearchEngine {
 					options.returnDebug ?? false,
 				);
 				break;
-		}
-
-		// Add total matches for exhaustive mode
-		if (options.exhaustive) {
-			results.totalMatches = results.results.length;
 		}
 
 		results.elapsedMs = Date.now() - start;

@@ -83,8 +83,6 @@ export interface SearchResults {
 	searchType: SearchMode;
 	/** Time taken in milliseconds */
 	elapsedMs: number;
-	/** Total matches (when exhaustive=true) */
-	totalMatches?: number;
 	/** Debug info for hybrid search (when return_debug=true) */
 	debug?: SearchDebugInfo;
 }
@@ -127,8 +125,6 @@ export interface SearchOptions {
 	limit?: number;
 	/** Weight for BM25 in hybrid search (0.0-1.0, default: 0.3) */
 	bm25Weight?: number;
-	/** Return all matches above threshold (default: false) */
-	exhaustive?: boolean;
 	/** Minimum score threshold 0-1 (default: 0) */
 	minScore?: number;
 	/** Transparent filters */
