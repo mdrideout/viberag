@@ -113,7 +113,13 @@ export async function runInit(
 export async function runIndex(
 	projectRoot: string,
 	force: boolean = false,
-	onProgress?: (current: number, total: number, stage: string) => void,
+	onProgress?: (
+		current: number,
+		total: number,
+		stage: string,
+		throttleMessage?: string | null,
+		chunksProcessed?: number,
+	) => void,
 ): Promise<IndexStats> {
 	// When forcing reindex, sync config dimensions with current provider settings
 	// This handles cases where PROVIDER_CONFIGS dimensions changed (e.g., Gemini 768→1536)

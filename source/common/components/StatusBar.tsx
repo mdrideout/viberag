@@ -39,12 +39,26 @@ function formatStatus(status: AppStatus): {
 		case 'ready':
 			return {text: 'Ready', color: 'green', showSpinner: false};
 		case 'indexing': {
+			// Throttle status takes precedence - show in yellow
+			if (status.throttleMessage) {
+				return {
+					text: status.throttleMessage,
+					color: 'yellow',
+					showSpinner: true,
+				};
+			}
+			// Normal indexing display
 			if (status.total === 0) {
 				return {text: `${status.stage}`, color: 'cyan', showSpinner: true};
 			}
 			const percent = Math.round((status.current / status.total) * 100);
+			// Include chunk count if available
+			const chunkInfo =
+				status.chunksProcessed !== undefined
+					? ` · ${status.chunksProcessed} chunks`
+					: '';
 			return {
-				text: `${status.stage} ${status.current}/${status.total} (${percent}%)`,
+				text: `${status.stage} ${status.current}/${status.total} (${percent}%)${chunkInfo}`,
 				color: 'cyan',
 				showSpinner: true,
 			};

@@ -49,7 +49,16 @@ export type TextBufferState = {
  */
 export type AppStatus =
 	| {state: 'ready'}
-	| {state: 'indexing'; current: number; total: number; stage: string}
+	| {
+			state: 'indexing';
+			current: number;
+			total: number;
+			stage: string;
+			/** Rate limit message (shown in yellow when set) */
+			throttleMessage?: string | null;
+			/** Number of chunks embedded so far */
+			chunksProcessed?: number;
+	  }
 	| {state: 'searching'}
 	| {state: 'warning'; message: string};
 

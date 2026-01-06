@@ -99,8 +99,18 @@ Manual MCP Setup:
 			addOutput('system', `${action} codebase...`);
 			setAppStatus({state: 'indexing', current: 0, total: 0, stage: action});
 
-			runIndex(projectRoot, force, (current, total, stage) =>
-				setAppStatus({state: 'indexing', current, total, stage}),
+			runIndex(
+				projectRoot,
+				force,
+				(current, total, stage, throttleMessage, chunksProcessed) =>
+					setAppStatus({
+						state: 'indexing',
+						current,
+						total,
+						stage,
+						throttleMessage,
+						chunksProcessed,
+					}),
 			)
 				.then(async stats => {
 					addOutput('system', formatIndexStats(stats));

@@ -31,6 +31,49 @@ const ALWAYS_IGNORED = [
 ];
 
 /**
+ * Lock files that should always be ignored.
+ * These are machine-generated and provide no value for code search.
+ */
+const ALWAYS_IGNORED_FILES = [
+	// JavaScript/TypeScript
+	'package-lock.json', // npm
+	'yarn.lock', // Yarn
+	'pnpm-lock.yaml', // pnpm
+	'bun.lockb', // Bun
+	// Python
+	'uv.lock', // UV
+	'poetry.lock', // Poetry
+	'Pipfile.lock', // Pipenv
+	// Ruby
+	'Gemfile.lock', // Bundler
+	// PHP
+	'composer.lock', // Composer
+	// Rust
+	'Cargo.lock', // Cargo
+	// Go
+	'go.sum', // Go modules
+	// Java/Kotlin
+	'gradle.lockfile', // Gradle
+	// C#/.NET
+	'packages.lock.json', // NuGet
+	// Dart
+	'pubspec.lock', // Pub
+	// Swift
+	'Package.resolved', // Swift PM
+];
+
+/**
+ * File patterns that should always be ignored.
+ * These are build artifacts with no semantic value for code search.
+ */
+const ALWAYS_IGNORED_PATTERNS = [
+	'*.min.js', // Minified JavaScript
+	'*.min.css', // Minified CSS
+	'*.map', // Source maps
+	'*.d.ts.map', // TypeScript declaration maps
+];
+
+/**
  * Cache of Ignore instances per project root.
  */
 const ignoreCache = new Map<string, Ignore>();
@@ -51,8 +94,14 @@ export async function loadGitignore(projectRoot: string): Promise<Ignore> {
 
 	const ig = ignore();
 
-	// Add always-ignored patterns
+	// Add always-ignored patterns (directories)
 	ig.add(ALWAYS_IGNORED);
+
+	// Add always-ignored files (lock files)
+	ig.add(ALWAYS_IGNORED_FILES);
+
+	// Add always-ignored file patterns (minified, maps)
+	ig.add(ALWAYS_IGNORED_PATTERNS);
 
 	// Try to load .gitignore
 	const gitignorePath = path.join(projectRoot, '.gitignore');
@@ -128,8 +177,18 @@ export async function getGlobIgnorePatterns(
 ): Promise<string[]> {
 	const patterns: string[] = [];
 
-	// Always exclude these (same as ALWAYS_IGNORED)
+	// Always exclude these directories (same as ALWAYS_IGNORED)
 	patterns.push('**/.git/**', '**/.viberag/**', '**/node_modules/**');
+
+	// Always exclude lock files (same as ALWAYS_IGNORED_FILES)
+	for (const file of ALWAYS_IGNORED_FILES) {
+		patterns.push(`**/${file}`);
+	}
+
+	// Always exclude file patterns (minified, maps)
+	for (const pattern of ALWAYS_IGNORED_PATTERNS) {
+		patterns.push(`**/${pattern}`);
+	}
 
 	// Try to load .gitignore
 	const gitignorePath = path.join(projectRoot, '.gitignore');

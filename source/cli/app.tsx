@@ -217,8 +217,15 @@ export default function App() {
 				const stats = await runIndex(
 					projectRoot,
 					true,
-					(current, total, stage) =>
-						setAppStatus({state: 'indexing', current, total, stage}),
+					(current, total, stage, throttleMessage, chunksProcessed) =>
+						setAppStatus({
+							state: 'indexing',
+							current,
+							total,
+							stage,
+							throttleMessage,
+							chunksProcessed,
+						}),
 				);
 				addOutput('system', formatIndexStats(stats));
 

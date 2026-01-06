@@ -106,11 +106,18 @@ export interface IndexStats {
 
 /**
  * Progress callback for indexing operations.
+ * @param current - Current progress count
+ * @param total - Total items (0 for indeterminate)
+ * @param stage - Human-readable stage name
+ * @param throttleMessage - Rate limit message (shown in yellow) or null to clear
+ * @param chunksProcessed - Number of chunks embedded so far
  */
 export type ProgressCallback = (
 	current: number,
 	total: number,
 	stage: string,
+	throttleMessage?: string | null,
+	chunksProcessed?: number,
 ) => void;
 
 /**
