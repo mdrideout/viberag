@@ -5,9 +5,25 @@
 
 export {GeminiEmbeddingProvider} from './gemini.js';
 export {Local4BEmbeddingProvider} from './local-4b.js';
-export {LocalEmbeddingProvider} from './local.js';
+export {LocalEmbeddingProvider, clearCachedPipeline} from './local.js';
 export {MistralEmbeddingProvider} from './mistral.js';
+export {MockEmbeddingProvider} from './mock.js';
 export {OpenAIEmbeddingProvider} from './openai.js';
 export {validateApiKey, type ValidationResult} from './validate.js';
 
 export type {EmbeddingProvider, ModelProgressCallback} from './types.js';
+
+// Shared utilities for API-based providers
+export {
+	CONCURRENCY,
+	BATCH_DELAY_MS,
+	MAX_RETRIES,
+	INITIAL_BACKOFF_MS,
+	MAX_BACKOFF_MS,
+	sleep,
+	isRateLimitError,
+	withRetry,
+	processBatchesWithLimit,
+	chunk,
+	type ApiProviderCallbacks,
+} from './api-utils.js';

@@ -28,7 +28,7 @@ jobs:
       - name: TypeScript check
         run: npx tsc --noEmit
 
-  test:
+  test-fast:
     needs: lint
     strategy:
       fail-fast: false
@@ -37,7 +37,7 @@ jobs:
         node: [20, 22]
 
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: 10
 
     steps:
       - uses: actions/checkout@v4
@@ -58,11 +58,42 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Run tests
-        run: npm test
+      - name: Run fast tests
+        run: npm run test:fast
 
       - name: Report platform
         shell: bash
         run: |
           echo "Platform: ${{ runner.os }}-${{ runner.arch }}"
           echo "Node: $(node --version)"
+
+  test-rag:
+    needs: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      # Cache HuggingFace model to speed up subsequent runs
+      - name: Cache HuggingFace model
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-qwen3-embedding-0.6b-onnx-${{ runner.os }}
+          restore-keys: |
+            hf-qwen3-embedding-0.6b-onnx-
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Build
+        run: npm run build
+
+      - name: Run RAG tests
+        run: npm run test:rag

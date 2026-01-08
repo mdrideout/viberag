@@ -21,18 +21,60 @@ const MODEL_NAME = 'onnx-community/Qwen3-Embedding-0.6B-ONNX';
 const DIMENSIONS = 1024;
 const BATCH_SIZE = 8;
 
+// Module-level cache for the ONNX pipeline
+// Shared across all LocalEmbeddingProvider instances to avoid reloading the model
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- HuggingFace pipeline type is too complex
+let cachedExtractor: any = null;
+let initPromise: Promise<void> | null = null;
+
+/**
+ * Clear the cached pipeline.
+ * Useful for tests that need to reset state between runs.
+ */
+export function clearCachedPipeline(): void {
+	cachedExtractor = null;
+	initPromise = null;
+}
+
 /**
  * Local embedding provider using Qwen3-Embedding-0.6B Q8.
  */
 export class LocalEmbeddingProvider implements EmbeddingProvider {
 	readonly dimensions = DIMENSIONS;
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any -- HuggingFace pipeline type is too complex
-	private extractor: any = null;
 	private initialized = false;
 
 	async initialize(onProgress?: ModelProgressCallback): Promise<void> {
 		if (this.initialized) return;
 
+		// Reuse cached model if available
+		if (cachedExtractor) {
+			this.initialized = true;
+			onProgress?.('ready');
+			return;
+		}
+
+		// If another instance is already loading, wait for it
+		if (initPromise) {
+			await initPromise;
+			this.initialized = true;
+			onProgress?.('ready');
+			return;
+		}
+
+		// First load - this instance will load the model and cache it
+		initPromise = this.loadModel(onProgress);
+		try {
+			await initPromise;
+			this.initialized = true;
+		} catch (error) {
+			// Clear the cached promise so future calls can retry
+			// (e.g., after network recovery or freeing memory)
+			initPromise = null;
+			throw error;
+		}
+	}
+
+	private async loadModel(onProgress?: ModelProgressCallback): Promise<void> {
 		// Track download progress for the model files
 		let lastProgress = 0;
 		const progressCallback = onProgress
@@ -58,13 +100,12 @@ export class LocalEmbeddingProvider implements EmbeddingProvider {
 
 		// Load the model with q8 (int8) quantization for smaller size and faster inference
 		// First load will download the model (~700MB)
-		this.extractor = await pipeline('feature-extraction', MODEL_NAME, {
+		cachedExtractor = await pipeline('feature-extraction', MODEL_NAME, {
 			dtype: 'q8', // int8 quantization
 			progress_callback: progressCallback,
 		});
 
 		onProgress?.('ready');
-		this.initialized = true;
 	}
 
 	async embed(texts: string[]): Promise<number[][]> {
@@ -92,7 +133,7 @@ export class LocalEmbeddingProvider implements EmbeddingProvider {
 		const results: number[][] = [];
 
 		for (const text of texts) {
-			const output = await this.extractor(text, {
+			const output = await cachedExtractor(text, {
 				pooling: 'mean',
 				normalize: true,
 			});
@@ -110,7 +151,7 @@ export class LocalEmbeddingProvider implements EmbeddingProvider {
 			await this.initialize();
 		}
 
-		const output = await this.extractor(text, {
+		const output = await cachedExtractor(text, {
 			pooling: 'mean',
 			normalize: true,
 		});
@@ -119,7 +160,8 @@ export class LocalEmbeddingProvider implements EmbeddingProvider {
 	}
 
 	close(): void {
-		this.extractor = null;
+		// Mark this instance as uninitialized, but don't clear the cached model
+		// Other instances may still be using it
 		this.initialized = false;
 	}
 }
