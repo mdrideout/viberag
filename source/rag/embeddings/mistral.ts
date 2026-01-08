@@ -16,8 +16,9 @@ import {
 const MISTRAL_API_BASE = 'https://api.mistral.ai/v1';
 const MODEL = 'codestral-embed';
 // Mistral limits: 8,192 tokens/text, 16,000 tokens/batch TOTAL
-// With avg ~500 tokens/chunk, can fit ~32. Use 24 for safety margin.
-const BATCH_SIZE = 24;
+// Chunks are ~2000 chars + context header ≈ 800-1000 tokens each
+// 12 chunks × 1000 tokens = 12,000 tokens (safe margin under 16k limit)
+const BATCH_SIZE = 12;
 
 /**
  * Mistral embedding provider.

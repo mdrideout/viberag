@@ -21,8 +21,9 @@ const GEMINI_API_BASE =
 	'https://generativelanguage.googleapis.com/v1beta/models';
 const MODEL = 'gemini-embedding-001';
 // Gemini limits: 2,048 tokens/text, 20,000 tokens/batch, 100-250 texts/batch
-// With avg ~1000 tokens/chunk, safe limit is 20 texts.
-const BATCH_SIZE = 20;
+// Chunks are ~2000 chars + context header ≈ 800-1000 tokens each
+// 16 chunks × 1000 tokens = 16,000 tokens (safe margin under 20k limit)
+const BATCH_SIZE = 16;
 
 /**
  * Gemini embedding provider.
