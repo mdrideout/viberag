@@ -47,6 +47,51 @@ export function isRateLimitError(error: unknown): boolean {
 }
 
 /**
+ * Check if an error is a known transient API error that should be retried.
+ *
+ * GEMINI TRANSIENT BUG:
+ * The Gemini API has a known server-side bug where it intermittently returns
+ * a 400 "API key expired" error even when the key is valid. This is NOT an
+ * actual authentication failure - it's a transient error that resolves on retry.
+ *
+ * Evidence:
+ * - Users report: "if I try the same request again a few times, it usually works fine"
+ * - New API keys don't fix it
+ * - Same key works in curl but fails randomly via API clients
+ * - Google has acknowledged this as a P1/P2 bug
+ *
+ * GitHub issues documenting this bug:
+ * - https://github.com/google-gemini/gemini-cli/issues/4430
+ * - https://github.com/google-gemini/gemini-cli/issues/1712
+ * - https://github.com/google-gemini/gemini-cli/issues/8675
+ *
+ * We detect this specific error and retry it rather than failing immediately.
+ */
+export function isTransientApiError(error: unknown): boolean {
+	if (error instanceof Error) {
+		const msg = error.message.toLowerCase();
+
+		// Gemini transient "API key expired" bug (400 status)
+		// The specific message is: "API key expired. Please renew the API key."
+		// We check for this specific pattern to avoid retrying actual auth failures
+		if (
+			msg.includes('api key expired') &&
+			(msg.includes('400') || msg.includes('invalid_argument'))
+		) {
+			return true;
+		}
+	}
+	return false;
+}
+
+/**
+ * Check if an error should trigger a retry (rate limit OR transient error).
+ */
+export function isRetriableError(error: unknown): boolean {
+	return isRateLimitError(error) || isTransientApiError(error);
+}
+
+/**
  * Callbacks for rate limiting and progress reporting.
  */
 export interface ApiProviderCallbacks {
@@ -55,7 +100,11 @@ export interface ApiProviderCallbacks {
 }
 
 /**
- * Execute an async function with exponential backoff retry on rate limit errors.
+ * Execute an async function with exponential backoff retry on retriable errors.
+ *
+ * Retries on:
+ * - Rate limit errors (429, quota exceeded)
+ * - Transient API errors (e.g., Gemini's spurious "API key expired" bug)
  *
  * @param fn - The async function to execute
  * @param callbacks - Optional callbacks for throttle notifications
@@ -75,11 +124,16 @@ export async function withRetry<T>(
 			if (attempt > 0) callbacks?.onThrottle?.(null);
 			return result;
 		} catch (error) {
-			if (isRateLimitError(error) && attempt < MAX_RETRIES) {
+			if (isRetriableError(error) && attempt < MAX_RETRIES) {
 				attempt++;
 				const secs = Math.round(backoffMs / 1000);
+
+				// Provide context-appropriate message
+				const isTransient = isTransientApiError(error);
+				const reason = isTransient ? 'Transient API error' : 'Rate limited';
+
 				callbacks?.onThrottle?.(
-					`Rate limited - retry ${attempt}/${MAX_RETRIES} in ${secs}s`,
+					`${reason} - retry ${attempt}/${MAX_RETRIES} in ${secs}s`,
 				);
 				await sleep(backoffMs);
 				backoffMs = Math.min(backoffMs * 2, MAX_BACKOFF_MS);

@@ -22,6 +22,8 @@ export {
 	MAX_BACKOFF_MS,
 	sleep,
 	isRateLimitError,
+	isTransientApiError,
+	isRetriableError,
 	withRetry,
 	processBatchesWithLimit,
 	chunk,
