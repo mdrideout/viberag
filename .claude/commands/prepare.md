@@ -1,8 +1,9 @@
 # VibeRAG /prepare Task:
 Prepare to work on the viberag codebase.
 
-Check the current date and time.
-License: AGPL-3.0 license
+- Check the current date and time.
+- License: AGPL-3.0 license
+- Use simple quoted strings for commit messages, not heredocs
 
 VibeRAG is a React Ink / Typescript CLI and MCP server for local codebase RAG. 
 
