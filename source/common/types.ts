@@ -90,12 +90,19 @@ export type EmbeddingProviderType =
 	| 'openai';
 
 /**
+ * OpenAI API regional endpoints for data residency.
+ */
+export type OpenAIRegion = 'default' | 'us' | 'eu';
+
+/**
  * Configuration collected from the init wizard.
  */
 export type InitWizardConfig = {
 	provider: EmbeddingProviderType;
 	/** API key for cloud providers (gemini, mistral, openai) */
 	apiKey?: string;
+	/** OpenAI regional endpoint (for corporate accounts with data residency) */
+	openaiRegion?: OpenAIRegion;
 };
 
 /**

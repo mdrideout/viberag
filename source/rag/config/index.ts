@@ -25,6 +25,8 @@ export interface ViberagConfig {
 	embeddingDimensions: number;
 	/** API key for cloud providers (gemini, mistral, openai) */
 	apiKey?: string;
+	/** OpenAI API base URL (for corporate accounts with data residency) */
+	openaiBaseUrl?: string;
 	extensions: string[];
 	excludePatterns: string[];
 	chunkMaxSize: number;

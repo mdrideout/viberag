@@ -567,7 +567,7 @@ export class Indexer {
 			case 'mistral':
 				return new MistralEmbeddingProvider(apiKey);
 			case 'openai':
-				return new OpenAIEmbeddingProvider(apiKey);
+				return new OpenAIEmbeddingProvider(apiKey, config.openaiBaseUrl);
 			default:
 				throw new Error(
 					`Unknown embedding provider: ${config.embeddingProvider}`,

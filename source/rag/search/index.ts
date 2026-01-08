@@ -492,6 +492,7 @@ export class SearchEngine {
 	private createEmbeddingProvider(config: {
 		embeddingProvider: EmbeddingProviderType;
 		apiKey?: string;
+		openaiBaseUrl?: string;
 	}): EmbeddingProvider {
 		const apiKey = config.apiKey;
 		switch (config.embeddingProvider) {
@@ -504,7 +505,7 @@ export class SearchEngine {
 			case 'mistral':
 				return new MistralEmbeddingProvider(apiKey);
 			case 'openai':
-				return new OpenAIEmbeddingProvider(apiKey);
+				return new OpenAIEmbeddingProvider(apiKey, config.openaiBaseUrl);
 			default:
 				throw new Error(
 					`Unknown embedding provider: ${config.embeddingProvider}`,

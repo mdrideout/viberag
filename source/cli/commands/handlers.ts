@@ -77,12 +77,22 @@ export async function runInit(
 	const provider = wizardConfig?.provider ?? 'gemini';
 	const {model, dimensions} = PROVIDER_CONFIGS[provider];
 
+	// Map OpenAI region to base URL
+	const openaiBaseUrl = wizardConfig?.openaiRegion
+		? {
+				default: undefined,
+				us: 'https://us.api.openai.com/v1',
+				eu: 'https://eu.api.openai.com/v1',
+			}[wizardConfig.openaiRegion]
+		: undefined;
+
 	const config: ViberagConfig = {
 		...DEFAULT_CONFIG,
 		embeddingProvider: provider,
 		embeddingModel: model,
 		embeddingDimensions: dimensions,
 		...(wizardConfig?.apiKey && {apiKey: wizardConfig.apiKey}),
+		...(openaiBaseUrl && {openaiBaseUrl}),
 	};
 
 	// Save config

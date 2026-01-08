@@ -13,7 +13,7 @@ import {
 	type ApiProviderCallbacks,
 } from './api-utils.js';
 
-const OPENAI_API_BASE = 'https://api.openai.com/v1';
+const DEFAULT_API_BASE = 'https://api.openai.com/v1';
 const MODEL = 'text-embedding-3-small';
 // OpenAI limits: 8,191 tokens/text, 300,000 tokens/batch, 2,048 texts/batch
 // Chunks are ~2000 chars + context header ≈ 800-1000 tokens each
@@ -23,10 +23,16 @@ const BATCH_SIZE = 200;
 /**
  * OpenAI embedding provider.
  * Uses text-embedding-3-small model via OpenAI API.
+ *
+ * Supports regional endpoints for corporate accounts with data residency:
+ * - Default: https://api.openai.com/v1
+ * - US: https://us.api.openai.com/v1
+ * - EU: https://eu.api.openai.com/v1
  */
 export class OpenAIEmbeddingProvider implements EmbeddingProvider {
 	readonly dimensions = 1536;
 	private apiKey: string;
+	private apiBase: string;
 	private initialized = false;
 
 	// Callback for rate limit throttling - message or null to clear
@@ -34,9 +40,10 @@ export class OpenAIEmbeddingProvider implements EmbeddingProvider {
 	// Callback for batch progress - (processed, total) chunks
 	onBatchProgress?: (processed: number, total: number) => void;
 
-	constructor(apiKey?: string) {
+	constructor(apiKey?: string, baseUrl?: string) {
 		// Trim the key to remove any accidental whitespace
 		this.apiKey = (apiKey ?? '').trim();
+		this.apiBase = baseUrl ?? DEFAULT_API_BASE;
 	}
 
 	async initialize(_onProgress?: ModelProgressCallback): Promise<void> {
@@ -77,7 +84,7 @@ export class OpenAIEmbeddingProvider implements EmbeddingProvider {
 	}
 
 	private async embedBatch(texts: string[]): Promise<number[][]> {
-		const response = await fetch(`${OPENAI_API_BASE}/embeddings`, {
+		const response = await fetch(`${this.apiBase}/embeddings`, {
 			method: 'POST',
 			headers: {
 				'Content-Type': 'application/json',

@@ -9,6 +9,7 @@ import SelectInput from 'ink-select-input';
 import type {
 	InitWizardConfig,
 	EmbeddingProviderType,
+	OpenAIRegion,
 } from '../../common/types.js';
 
 type Props = {
@@ -269,6 +270,22 @@ const API_KEY_ACTION_ITEMS: SelectItem<'keep' | 'new'>[] = [
 	{label: 'Enter new API key', value: 'new'},
 ];
 
+// OpenAI region options for data residency
+const OPENAI_REGION_ITEMS: SelectItem<OpenAIRegion>[] = [
+	{
+		label: 'Default (api.openai.com) - Recommended',
+		value: 'default',
+	},
+	{
+		label: 'US (us.api.openai.com) - US Data Residency',
+		value: 'us',
+	},
+	{
+		label: 'EU (eu.api.openai.com) - EU Data Residency',
+		value: 'eu',
+	},
+];
+
 /**
  * Simple text input component for API key entry.
  * Uses a ref to accumulate input, which handles paste better than
@@ -346,6 +363,8 @@ export function InitWizard({
 	// State for API key input
 	const [apiKeyInput, setApiKeyInput] = useState('');
 	const [apiKeyAction, setApiKeyAction] = useState<'keep' | 'new' | null>(null);
+	// State for OpenAI region selection (shown after API key for OpenAI)
+	const [showRegionSelect, setShowRegionSelect] = useState(false);
 
 	// Handle Escape to cancel
 	useInput((input, key) => {
@@ -418,9 +437,10 @@ export function InitWizard({
 					<SelectInput
 						items={PROVIDER_ITEMS}
 						onSelect={item => {
-							// Reset API key state when provider changes
+							// Reset API key and region state when provider changes
 							setApiKeyInput('');
 							setApiKeyAction(null);
+							setShowRegionSelect(false);
 							// Use relative increment: step + 1
 							onStepChange(normalizedStep + 1, {provider: item.value});
 						}}
@@ -449,6 +469,38 @@ export function InitWizard({
 		const provider = currentProvider as CloudProvider;
 		const info = PROVIDER_CONFIG[provider];
 		const apiKeyUrl = API_KEY_URLS[provider];
+		const isOpenAI = provider === 'openai';
+
+		// Show OpenAI region selection after API key is entered
+		if (isOpenAI && showRegionSelect) {
+			return (
+				<Box
+					flexDirection="column"
+					borderStyle="round"
+					paddingX={2}
+					paddingY={1}
+				>
+					<Text bold>Select OpenAI API Region</Text>
+					<Box marginTop={1} flexDirection="column">
+						<Text dimColor>
+							Corporate accounts with data residency require regional endpoints.
+						</Text>
+						<Text dimColor>Most users should select Default.</Text>
+					</Box>
+					<Box marginTop={1}>
+						<SelectInput
+							items={OPENAI_REGION_ITEMS}
+							onSelect={item => {
+								onStepChange(normalizedStep + 1, {openaiRegion: item.value});
+							}}
+						/>
+					</Box>
+					<Box marginTop={1}>
+						<Text dimColor>↑/↓ navigate, Enter select, Esc cancel</Text>
+					</Box>
+				</Box>
+			);
+		}
 
 		return (
 			<Box flexDirection="column" borderStyle="round" paddingX={2} paddingY={1}>
@@ -474,8 +526,17 @@ export function InitWizard({
 								items={API_KEY_ACTION_ITEMS}
 								onSelect={item => {
 									if (item.value === 'keep') {
-										// Keep existing key, advance to confirmation
-										onStepChange(normalizedStep + 1, {apiKey: existingApiKey});
+										// Keep existing key
+										onStepChange(normalizedStep, {apiKey: existingApiKey});
+										if (isOpenAI) {
+											// Show region selection for OpenAI
+											setShowRegionSelect(true);
+										} else {
+											// Advance to confirmation for other providers
+											onStepChange(normalizedStep + 1, {
+												apiKey: existingApiKey,
+											});
+										}
 									} else {
 										// Show text input for new key
 										setApiKeyAction('new');
@@ -491,7 +552,14 @@ export function InitWizard({
 						setApiKeyInput={setApiKeyInput}
 						onSubmit={key => {
 							if (key.trim()) {
-								onStepChange(normalizedStep + 1, {apiKey: key.trim()});
+								onStepChange(normalizedStep, {apiKey: key.trim()});
+								if (isOpenAI) {
+									// Show region selection for OpenAI
+									setShowRegionSelect(true);
+								} else {
+									// Advance to confirmation for other providers
+									onStepChange(normalizedStep + 1, {apiKey: key.trim()});
+								}
 							}
 						}}
 					/>
