@@ -9,7 +9,11 @@ export {LocalEmbeddingProvider, clearCachedPipeline} from './local.js';
 export {MistralEmbeddingProvider} from './mistral.js';
 export {MockEmbeddingProvider} from './mock.js';
 export {OpenAIEmbeddingProvider} from './openai.js';
-export {validateApiKey, type ValidationResult} from './validate.js';
+export {
+	validateApiKey,
+	type ValidationResult,
+	type ValidateApiKeyOptions,
+} from './validate.js';
 
 export type {EmbeddingProvider, ModelProgressCallback} from './types.js';
 

@@ -112,6 +112,7 @@ export {
 	validateApiKey,
 	type EmbeddingProvider,
 	type ValidationResult,
+	type ValidateApiKeyOptions,
 } from './embeddings/index.js';
 
 // Search

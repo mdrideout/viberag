@@ -111,6 +111,23 @@ export class OpenAIEmbeddingProvider implements EmbeddingProvider {
 			// Provide helpful context for common errors
 			if (response.status === 401) {
 				const keyPreview = `${this.apiKey.slice(0, 7)}...${this.apiKey.slice(-4)}`;
+
+				// Check for regional endpoint mismatch
+				if (errorMessage.includes('incorrect regional hostname')) {
+					// Extract the required region from the error message if present
+					const regionMatch = errorMessage.match(
+						/make your request to (\w+\.api\.openai\.com)/,
+					);
+					const requiredEndpoint =
+						regionMatch?.[1] ?? 'the correct regional endpoint';
+
+					throw new Error(
+						`OpenAI API regional endpoint mismatch. Your account requires ${requiredEndpoint}. ` +
+							`Run /init again and select the matching region (US or EU) instead of Default. ` +
+							`Key: ${keyPreview}`,
+					);
+				}
+
 				throw new Error(
 					`OpenAI API authentication failed (401). Key format: ${keyPreview}. ` +
 						`Verify your API key at https://platform.openai.com/api-keys. Error: ${errorMessage}`,

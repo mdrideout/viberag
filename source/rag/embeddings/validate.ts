@@ -44,15 +44,25 @@ async function safeParseJson(
 }
 
 /**
+ * Options for API key validation.
+ */
+export interface ValidateApiKeyOptions {
+	/** OpenAI base URL for regional endpoints (e.g., https://us.api.openai.com/v1) */
+	openaiBaseUrl?: string;
+}
+
+/**
  * Validate an API key by making a minimal test embedding call.
  *
  * @param provider - The embedding provider type
  * @param apiKey - The API key to validate
+ * @param options - Optional configuration (e.g., openaiBaseUrl for regional endpoints)
  * @returns Validation result with error message if invalid
  */
 export async function validateApiKey(
 	provider: EmbeddingProviderType,
 	apiKey: string,
+	options?: ValidateApiKeyOptions,
 ): Promise<ValidationResult> {
 	// Local providers don't need API key validation
 	if (provider === 'local' || provider === 'local-4b') {
@@ -70,7 +80,7 @@ export async function validateApiKey(
 			case 'mistral':
 				return await validateMistralKey(apiKey);
 			case 'openai':
-				return await validateOpenAIKey(apiKey);
+				return await validateOpenAIKey(apiKey, options?.openaiBaseUrl);
 			default:
 				return {valid: false, error: `Unknown provider: ${provider}`};
 		}
@@ -151,9 +161,14 @@ async function validateMistralKey(apiKey: string): Promise<ValidationResult> {
 
 /**
  * Validate OpenAI API key.
+ * Supports regional endpoints for corporate accounts with data residency.
  */
-async function validateOpenAIKey(apiKey: string): Promise<ValidationResult> {
-	const response = await fetch(ENDPOINTS.openai, {
+async function validateOpenAIKey(
+	apiKey: string,
+	baseUrl?: string,
+): Promise<ValidationResult> {
+	const endpoint = baseUrl ? `${baseUrl}/embeddings` : ENDPOINTS.openai;
+	const response = await fetch(endpoint, {
 		method: 'POST',
 		headers: {
 			'Content-Type': 'application/json',
@@ -173,6 +188,19 @@ async function validateOpenAIKey(apiKey: string): Promise<ValidationResult> {
 	const error = (data as {error?: {message?: string}})?.error;
 
 	if (response.status === 401) {
+		const msg = error?.message ?? '';
+		// Check for regional endpoint mismatch
+		if (msg.includes('incorrect regional hostname')) {
+			const regionMatch = msg.match(
+				/make your request to (\w+\.api\.openai\.com)/,
+			);
+			const requiredEndpoint =
+				regionMatch?.[1] ?? 'the correct regional endpoint';
+			return {
+				valid: false,
+				error: `Regional endpoint mismatch. Your account requires ${requiredEndpoint}. Select the matching region (US or EU).`,
+			};
+		}
 		return {valid: false, error: 'Invalid API key'};
 	}
 	if (error?.message) {
