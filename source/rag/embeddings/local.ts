@@ -15,7 +15,11 @@
  */
 
 import {pipeline} from '@huggingface/transformers';
-import type {EmbeddingProvider, ModelProgressCallback} from './types.js';
+import type {
+	EmbeddingProvider,
+	ModelProgressCallback,
+	EmbedOptions,
+} from './types.js';
 
 const MODEL_NAME = 'onnx-community/Qwen3-Embedding-0.6B-ONNX';
 const DIMENSIONS = 1024;
@@ -108,7 +112,7 @@ export class LocalEmbeddingProvider implements EmbeddingProvider {
 		onProgress?.('ready');
 	}
 
-	async embed(texts: string[]): Promise<number[][]> {
+	async embed(texts: string[], _options?: EmbedOptions): Promise<number[][]> {
 		if (!this.initialized) {
 			await this.initialize();
 		}
@@ -120,6 +124,7 @@ export class LocalEmbeddingProvider implements EmbeddingProvider {
 		const results: number[][] = [];
 
 		// Process in batches for memory efficiency
+		// Note: Local provider doesn't use options - failure logging is for API providers
 		for (let i = 0; i < texts.length; i += BATCH_SIZE) {
 			const batch = texts.slice(i, i + BATCH_SIZE);
 			const batchResults = await this.embedBatch(batch);

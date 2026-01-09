@@ -46,6 +46,7 @@ export type TextBufferState = {
 
 /**
  * App status for the status bar.
+ * Note: Slot progress is now managed via Redux store, not passed through AppStatus.
  */
 export type AppStatus =
 	| {state: 'ready'}

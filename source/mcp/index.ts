@@ -11,7 +11,7 @@
  */
 
 import {createMcpServer} from './server.js';
-import {configExists, Indexer} from '../rag/index.js';
+import {configExists, Indexer, createDebugLogger} from '../rag/index.js';
 
 // Use current working directory as project root (same behavior as CLI)
 const projectRoot = process.cwd();
@@ -75,7 +75,8 @@ setImmediate(async () => {
 	try {
 		if (await configExists(projectRoot)) {
 			console.error('[viberag-mcp] Running startup sync...');
-			const indexer = new Indexer(projectRoot);
+			const logger = createDebugLogger(projectRoot);
+			const indexer = new Indexer(projectRoot, logger);
 			try {
 				const stats = await indexer.index({force: false});
 				if (

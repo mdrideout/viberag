@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import {getLogsDir} from '../constants.js';
+import {getLogsDir, getDebugLogPath, getViberagDir} from '../constants.js';
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
@@ -96,5 +96,45 @@ export function createNullLogger(): Logger {
 		info() {},
 		warn() {},
 		error() {},
+	};
+}
+
+/**
+ * Create a debug logger that writes to .viberag/debug.log.
+ * This is always-on logging for troubleshooting.
+ */
+export function createDebugLogger(projectRoot: string): Logger {
+	const viberagDir = getViberagDir(projectRoot);
+	let initialized = false;
+
+	function ensureDir() {
+		if (!initialized) {
+			fs.mkdirSync(viberagDir, {recursive: true});
+			initialized = true;
+		}
+	}
+
+	function write(entry: string) {
+		ensureDir();
+		const logPath = getDebugLogPath(projectRoot);
+		fs.appendFileSync(logPath, entry + '\n');
+	}
+
+	return {
+		debug(component: string, message: string, data?: object) {
+			write(formatEntry('debug', component, message, data));
+		},
+
+		info(component: string, message: string, data?: object) {
+			write(formatEntry('info', component, message, data));
+		},
+
+		warn(component: string, message: string, data?: object) {
+			write(formatEntry('warn', component, message, data));
+		},
+
+		error(component: string, message: string, error?: Error) {
+			write(formatEntry('error', component, message, error));
+		},
 	};
 }

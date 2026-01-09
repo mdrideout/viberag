@@ -1,5 +1,11 @@
 import React, {useState, useEffect} from 'react';
 import {Box, Text} from 'ink';
+import {useAppSelector} from '../../store/hooks.js';
+import {
+	selectSlotCount,
+	selectFailures,
+} from '../../store/slot-progress/selectors.js';
+import {SlotRow} from './SlotRow.js';
 import type {AppStatus, IndexDisplayStats} from '../types.js';
 
 type Props = {
@@ -28,39 +34,72 @@ function Spinner({color}: {color: string}): React.ReactElement {
 }
 
 /**
+ * Progress bar component for visual progress indication.
+ */
+function ProgressBar({
+	percent,
+	width = 20,
+}: {
+	percent: number;
+	width?: number;
+}): React.ReactElement {
+	const filled = Math.round((percent / 100) * width);
+	const empty = width - filled;
+	return (
+		<Text>
+			<Text color="cyan">{'█'.repeat(filled)}</Text>
+			<Text dimColor>{'░'.repeat(empty)}</Text>
+		</Text>
+	);
+}
+
+/**
  * Format status message for display.
+ * Note: Slot progress is now handled via Redux, not passed through status.
  */
 function formatStatus(status: AppStatus): {
-	text: string;
 	color: string;
 	showSpinner: boolean;
+	percent?: number;
+	stage?: string;
+	chunkInfo?: string;
+	throttleInfo?: string;
+	text?: string;
 } {
 	switch (status.state) {
 		case 'ready':
 			return {text: 'Ready', color: 'green', showSpinner: false};
 		case 'indexing': {
-			// Throttle status takes precedence - show in yellow
-			if (status.throttleMessage) {
+			let color: string = 'cyan';
+
+			if (status.total === 0) {
 				return {
-					text: status.throttleMessage,
-					color: 'yellow',
+					text: status.stage,
+					color,
 					showSpinner: true,
 				};
 			}
-			// Normal indexing display
-			if (status.total === 0) {
-				return {text: `${status.stage}`, color: 'cyan', showSpinner: true};
-			}
+
 			const percent = Math.round((status.current / status.total) * 100);
-			// Include chunk count if available
 			const chunkInfo =
 				status.chunksProcessed !== undefined
-					? ` · ${status.chunksProcessed} chunks`
-					: '';
+					? `${status.chunksProcessed} chunks`
+					: undefined;
+
+			// Rate limit info (turns status yellow)
+			let throttleInfo: string | undefined;
+			if (status.throttleMessage) {
+				throttleInfo = status.throttleMessage;
+				color = 'yellow';
+			}
+
 			return {
-				text: `${status.stage} ${status.current}/${status.total} (${percent}%)${chunkInfo}`,
-				color: 'cyan',
+				color,
 				showSpinner: true,
+				percent,
+				stage: status.stage,
+				chunkInfo,
+				throttleInfo,
 			};
 		}
 		case 'searching':
@@ -84,16 +123,63 @@ function formatStats(stats: IndexDisplayStats | null | undefined): string {
 }
 
 export default function StatusBar({status, stats}: Props) {
-	const {text, color, showSpinner} = formatStatus(status);
+	const {text, color, showSpinner, percent, stage, chunkInfo, throttleInfo} =
+		formatStatus(status);
 	const statsText = formatStats(stats);
 
+	// Redux selectors for slot progress
+	const slotCount = useAppSelector(selectSlotCount);
+	const failures = useAppSelector(selectFailures);
+
+	// Progress bar mode (indexing with known total)
+	const showProgressBar = percent !== undefined;
+
+	// Always show all slots during indexing (fixed height layout)
+	const showSlots = status.state === 'indexing';
+
+	// Show failure summary if any batches failed
+	const hasFailures = failures.length > 0;
+
 	return (
-		<Box paddingX={1} justifyContent="space-between">
-			<Box>
-				{showSpinner && <Spinner color={color} />}
-				<Text color={color}>{text}</Text>
+		<Box flexDirection="column">
+			{/* Main progress line */}
+			<Box paddingX={1} justifyContent="space-between">
+				<Box>
+					{showSpinner && <Spinner color={color} />}
+					{showProgressBar ? (
+						<>
+							<Text color={color}>{stage} </Text>
+							<Text>[</Text>
+							<ProgressBar percent={percent} />
+							<Text>] </Text>
+							<Text color={color}>{percent}%</Text>
+							{chunkInfo && <Text dimColor> · {chunkInfo}</Text>}
+							{throttleInfo && <Text color="yellow"> · {throttleInfo}</Text>}
+						</>
+					) : (
+						<Text color={color}>{text}</Text>
+					)}
+				</Box>
+				<Text dimColor>{statsText}</Text>
 			</Box>
-			<Text dimColor>{statsText}</Text>
+
+			{/* Per-slot lines - fixed height layout during indexing */}
+			{showSlots && (
+				<Box flexDirection="column" paddingLeft={2}>
+					{Array.from({length: slotCount}, (_, i) => (
+						<SlotRow key={i} slotIndex={i} isLast={i === slotCount - 1} />
+					))}
+				</Box>
+			)}
+
+			{/* Failure summary - shown after indexing completes with errors */}
+			{hasFailures && (
+				<Box paddingLeft={2}>
+					<Text color="red">
+						⚠ {failures.length} batch(es) failed - see .viberag/debug.log
+					</Text>
+				</Box>
+			)}
 		</Box>
 	);
 }

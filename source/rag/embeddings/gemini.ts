@@ -9,12 +9,17 @@
  * Free tier available with generous limits.
  */
 
-import type {EmbeddingProvider, ModelProgressCallback} from './types.js';
+import type {
+	EmbeddingProvider,
+	ModelProgressCallback,
+	EmbedOptions,
+} from './types.js';
 import {
 	chunk,
 	processBatchesWithLimit,
 	withRetry,
 	type ApiProviderCallbacks,
+	type BatchMetadata,
 } from './api-utils.js';
 
 const GEMINI_API_BASE =
@@ -35,9 +40,10 @@ export class GeminiEmbeddingProvider implements EmbeddingProvider {
 	private initialized = false;
 
 	// Callback for rate limit throttling - message or null to clear
-	onThrottle?: (message: string | null) => void;
+	onThrottle: ((message: string | null) => void) | undefined = undefined;
 	// Callback for batch progress - (processed, total) chunks
-	onBatchProgress?: (processed: number, total: number) => void;
+	onBatchProgress: ((processed: number, total: number) => void) | undefined =
+		undefined;
 
 	constructor(apiKey?: string) {
 		// Trim the key to remove any accidental whitespace
@@ -53,7 +59,7 @@ export class GeminiEmbeddingProvider implements EmbeddingProvider {
 		this.initialized = true;
 	}
 
-	async embed(texts: string[]): Promise<number[][]> {
+	async embed(texts: string[], options?: EmbedOptions): Promise<number[][]> {
 		if (!this.initialized) {
 			await this.initialize();
 		}
@@ -68,10 +74,25 @@ export class GeminiEmbeddingProvider implements EmbeddingProvider {
 			onBatchProgress: this.onBatchProgress,
 		};
 
+		// Convert chunk metadata to batch metadata if provided
+		let batchMetadata: BatchMetadata[] | undefined;
+		if (options?.chunkMetadata) {
+			const metaBatches = chunk(options.chunkMetadata, BATCH_SIZE);
+			batchMetadata = metaBatches.map(metaBatch => ({
+				filepaths: metaBatch.map(m => m.filepath),
+				lineRanges: metaBatch.map(m => ({start: m.startLine, end: m.endLine})),
+				sizes: metaBatch.map(m => m.size),
+			}));
+		}
+
 		return processBatchesWithLimit(
 			batches,
-			batch => withRetry(() => this.embedBatch(batch), callbacks),
+			(batch, onRetrying) =>
+				withRetry(() => this.embedBatch(batch), callbacks, onRetrying),
 			callbacks,
+			BATCH_SIZE,
+			batchMetadata,
+			options?.logger,
 		);
 	}
 

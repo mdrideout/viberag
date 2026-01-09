@@ -1,9 +1,14 @@
 /**
  * Shared utilities for API-based embedding providers.
  * Provides common retry logic, rate limiting, and concurrency patterns.
+ *
+ * Slot progress is dispatched directly to the Redux store, eliminating
+ * the callback chain and providing a single source of truth for UI state.
  */
 
 import pLimit from 'p-limit';
+import {store, SlotProgressActions} from '../../store/index.js';
+import type {Logger} from '../logger/index.js';
 
 // ============================================================================
 // Constants
@@ -93,10 +98,31 @@ export function isRetriableError(error: unknown): boolean {
 
 /**
  * Callbacks for rate limiting and progress reporting.
+ *
+ * Note: Slot progress is now handled via Redux store dispatch,
+ * not callbacks. Only throttle and batch progress use callbacks.
  */
 export interface ApiProviderCallbacks {
 	onThrottle?: (message: string | null) => void;
 	onBatchProgress?: (processed: number, total: number) => void;
+	/**
+	 * When set to true, callbacks will be skipped.
+	 * Used to prevent stale progress updates after an error occurs
+	 * while other concurrent batches are still completing.
+	 */
+	aborted?: boolean;
+}
+
+/**
+ * Metadata for a batch of chunks, used for detailed failure logging.
+ */
+export interface BatchMetadata {
+	/** File paths for chunks in this batch */
+	filepaths: string[];
+	/** Start/end lines per chunk */
+	lineRanges: Array<{start: number; end: number}>;
+	/** Text sizes per chunk (in characters) */
+	sizes: number[];
 }
 
 /**
@@ -108,11 +134,13 @@ export interface ApiProviderCallbacks {
  *
  * @param fn - The async function to execute
  * @param callbacks - Optional callbacks for throttle notifications
+ * @param onRetrying - Optional callback when entering retry state
  * @returns The result of the function
  */
 export async function withRetry<T>(
 	fn: () => Promise<T>,
 	callbacks?: ApiProviderCallbacks,
+	onRetrying?: (retryInfo: string | null) => void,
 ): Promise<T> {
 	let attempt = 0;
 	let backoffMs = INITIAL_BACKOFF_MS;
@@ -121,20 +149,27 @@ export async function withRetry<T>(
 		try {
 			const result = await fn();
 			// Clear throttle message on success (if was throttling)
-			if (attempt > 0) callbacks?.onThrottle?.(null);
+			// Skip if aborted (another batch failed)
+			if (attempt > 0 && !callbacks?.aborted) {
+				callbacks?.onThrottle?.(null);
+				onRetrying?.(null);
+			}
 			return result;
 		} catch (error) {
 			if (isRetriableError(error) && attempt < MAX_RETRIES) {
 				attempt++;
 				const secs = Math.round(backoffMs / 1000);
+				const retryInfo = `retry ${attempt}/${MAX_RETRIES} in ${secs}s`;
 
 				// Provide context-appropriate message
-				const isTransient = isTransientApiError(error);
-				const reason = isTransient ? 'Transient API error' : 'Rate limited';
+				// Skip if aborted (another batch failed)
+				if (!callbacks?.aborted) {
+					const isTransient = isTransientApiError(error);
+					const reason = isTransient ? 'Transient API error' : 'Rate limited';
 
-				callbacks?.onThrottle?.(
-					`${reason} - retry ${attempt}/${MAX_RETRIES} in ${secs}s`,
-				);
+					callbacks?.onThrottle?.(`${reason} - ${retryInfo}`);
+					onRetrying?.(retryInfo);
+				}
 				await sleep(backoffMs);
 				backoffMs = Math.min(backoffMs * 2, MAX_BACKOFF_MS);
 			} else {
@@ -148,35 +183,153 @@ export async function withRetry<T>(
  * Process batches with p-limit sliding window concurrency and inter-batch delay.
  * Reports progress per-batch (more granular than group-based).
  *
+ * Slot progress is dispatched directly to the Redux store, providing a single
+ * source of truth for UI state. Each slot index (0 to CONCURRENCY-1) is reused
+ * as batches complete.
+ *
+ * When an error occurs, sets callbacks.aborted = true to prevent stale progress
+ * updates from concurrent batches that are still completing. Failures are logged
+ * with detailed chunk metadata if provided.
+ *
  * @param batches - Array of batches to process
  * @param processBatch - Function to process a single batch
  * @param callbacks - Optional callbacks for progress reporting
+ * @param batchSize - Optional batch size for calculating chunk indices
+ * @param batchMetadata - Optional metadata per batch for detailed failure logging
+ * @param logger - Optional logger for debug output
  * @returns Flattened array of results
  */
 export async function processBatchesWithLimit<T>(
 	batches: T[][],
-	processBatch: (batch: T[]) => Promise<number[][]>,
+	processBatch: (
+		batch: T[],
+		onRetrying?: (retryInfo: string | null) => void,
+	) => Promise<number[][]>,
 	callbacks?: ApiProviderCallbacks,
+	batchSize?: number,
+	batchMetadata?: BatchMetadata[],
+	logger?: Logger,
 ): Promise<number[][]> {
 	const limit = pLimit(CONCURRENCY);
 	let processedItems = 0;
 	const totalItems = batches.reduce((sum, batch) => sum + batch.length, 0);
 
-	const batchResults = await Promise.all(
-		batches.map(batch =>
-			limit(async () => {
-				const result = await processBatch(batch);
-				// Delay before releasing the slot (rate limit protection)
-				await sleep(BATCH_DELAY_MS);
-				// Report progress per-batch
-				processedItems += batch.length;
-				callbacks?.onBatchProgress?.(processedItems, totalItems);
-				return result;
-			}),
-		),
-	);
+	// Track which slot index to assign next (wraps around CONCURRENCY)
+	let nextSlotIndex = 0;
 
-	return batchResults.flat();
+	try {
+		const batchResults = await Promise.all(
+			batches.map((batch, batchIndex) =>
+				limit(async () => {
+					// Assign slot index (reuse slots as batches complete)
+					const slotIndex = nextSlotIndex++ % CONCURRENCY;
+					const startChunk = batchIndex * (batchSize ?? batch.length) + 1;
+					const endChunk = startChunk + batch.length - 1;
+					const batchInfo = `chunks ${startChunk}-${endChunk}`;
+
+					// Dispatch to Redux: mark slot as processing
+					if (!callbacks?.aborted) {
+						store.dispatch(
+							SlotProgressActions.setSlotProcessing({
+								index: slotIndex,
+								batchInfo,
+							}),
+						);
+					}
+
+					// Callback for when this slot enters retry state
+					const onRetrying = (retryInfo: string | null) => {
+						if (callbacks?.aborted) return;
+						if (retryInfo) {
+							store.dispatch(
+								SlotProgressActions.setSlotRateLimited({
+									index: slotIndex,
+									batchInfo,
+									retryInfo,
+								}),
+							);
+						} else {
+							// Cleared - back to processing
+							store.dispatch(
+								SlotProgressActions.setSlotProcessing({
+									index: slotIndex,
+									batchInfo,
+								}),
+							);
+						}
+					};
+
+					let result: number[][];
+					try {
+						result = await processBatch(batch, onRetrying);
+					} catch (error) {
+						// Log detailed failure info before re-throwing
+						const errorMsg =
+							error instanceof Error ? error.message : String(error);
+						const batchMeta = batchMetadata?.[batchIndex];
+
+						// Log to debug.log with full chunk context
+						if (logger) {
+							logger.error('api-utils', 'Batch failed after retries', {
+								batchIndex,
+								batchInfo,
+								chunkCount: batch.length,
+								files: batchMeta?.filepaths ?? [],
+								lineRanges: batchMeta?.lineRanges ?? [],
+								sizes: batchMeta?.sizes ?? [],
+								error: errorMsg,
+							} as unknown as Error);
+						}
+
+						// Dispatch failure to Redux for UI visibility
+						store.dispatch(
+							SlotProgressActions.addFailure({
+								batchInfo,
+								files: batchMeta?.filepaths ?? [],
+								chunkCount: batch.length,
+								error: errorMsg,
+								timestamp: new Date().toISOString(),
+							}),
+						);
+
+						// Re-throw to trigger outer catch (abort and cleanup)
+						throw error;
+					}
+
+					// Skip updates if aborted (another batch failed)
+					if (callbacks?.aborted) {
+						store.dispatch(SlotProgressActions.setSlotIdle(slotIndex));
+						return result;
+					}
+
+					// Delay before releasing the slot (rate limit protection)
+					await sleep(BATCH_DELAY_MS);
+
+					// Dispatch to Redux: mark slot as idle
+					store.dispatch(SlotProgressActions.setSlotIdle(slotIndex));
+
+					// Report progress per-batch
+					processedItems += batch.length;
+					callbacks?.onBatchProgress?.(processedItems, totalItems);
+					return result;
+				}),
+			),
+		);
+
+		// Reset all slots when complete
+		store.dispatch(SlotProgressActions.resetSlots());
+
+		return batchResults.flat();
+	} catch (error) {
+		// Set aborted flag to stop progress updates from other concurrent batches
+		// that are still completing in the background
+		if (callbacks) {
+			callbacks.aborted = true;
+		}
+		// Reset slots on error
+		store.dispatch(SlotProgressActions.resetSlots());
+		throw error;
+	}
 }
 
 /**

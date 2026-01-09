@@ -1,6 +1,8 @@
 import React, {useState, useEffect, useCallback} from 'react';
 import {createRequire} from 'node:module';
 import {Box, Text, useStdout} from 'ink';
+import {Provider} from 'react-redux';
+import {store} from '../store/store.js';
 
 // Common infrastructure
 import TextInput from '../common/components/TextInput.js';
@@ -316,85 +318,87 @@ export default function App() {
 	];
 
 	return (
-		<Box flexDirection="column">
-			{/* StaticWithResize handles terminal resize by clearing and forcing re-render */}
-			<StaticWithResize items={staticItems}>
-				{item => {
-					if (item.type === 'welcome') {
-						return (
-							<Box key={item.id} marginBottom={1}>
-								<WelcomeBanner
-									version={version}
-									cwd={process.cwd()}
-									isInitialized={isInitialized}
-									indexStats={indexStats}
-								/>
-							</Box>
-						);
-					}
-					if (item.type === 'search-results') {
+		<Provider store={store}>
+			<Box flexDirection="column">
+				{/* StaticWithResize handles terminal resize by clearing and forcing re-render */}
+				<StaticWithResize items={staticItems}>
+					{item => {
+						if (item.type === 'welcome') {
+							return (
+								<Box key={item.id} marginBottom={1}>
+									<WelcomeBanner
+										version={version}
+										cwd={process.cwd()}
+										isInitialized={isInitialized}
+										indexStats={indexStats}
+									/>
+								</Box>
+							);
+						}
+						if (item.type === 'search-results') {
+							return (
+								<Box key={item.id} paddingX={1} marginBottom={1}>
+									<SearchResultsDisplay data={item.data} />
+								</Box>
+							);
+						}
 						return (
 							<Box key={item.id} paddingX={1} marginBottom={1}>
-								<SearchResultsDisplay data={item.data} />
+								{item.type === 'user' ? (
+									<Text color="cyan">&gt; {item.content}</Text>
+								) : (
+									<Text>{item.content}</Text>
+								)}
 							</Box>
 						);
-					}
-					return (
-						<Box key={item.id} paddingX={1} marginBottom={1}>
-							{item.type === 'user' ? (
-								<Text color="cyan">&gt; {item.content}</Text>
-							) : (
-								<Text>{item.content}</Text>
-							)}
-						</Box>
-					);
-				}}
-			</StaticWithResize>
+					}}
+				</StaticWithResize>
 
-			{/* Status bar with left (status) and right (stats) */}
-			<StatusBar status={appStatus} stats={indexStats} />
+				{/* Status bar with left (status) and right (stats) */}
+				<StatusBar status={appStatus} stats={indexStats} />
 
-			{/* Input area - show wizard or text input */}
-			{wizardMode.active && wizardMode.type === 'init' ? (
-				<InitWizard
-					step={wizardMode.step}
-					config={wizardMode.config}
-					isReinit={wizardMode.isReinit}
-					existingApiKey={existingApiKey}
-					existingProvider={existingProvider}
-					onStepChange={handleInitWizardStep}
-					onComplete={handleInitWizardComplete}
-					onCancel={handleWizardCancel}
-				/>
-			) : wizardMode.active && wizardMode.type === 'mcp-setup' ? (
-				<McpSetupWizard
-					step={wizardMode.step}
-					config={wizardMode.config}
-					projectRoot={projectRoot}
-					showPrompt={wizardMode.showPrompt}
-					onStepChange={handleMcpWizardStep}
-					onComplete={handleMcpWizardComplete}
-					onCancel={handleWizardCancel}
-					addOutput={addOutput}
-				/>
-			) : wizardMode.active && wizardMode.type === 'clean' ? (
-				<CleanWizard
-					projectRoot={projectRoot}
-					viberagDir={getViberagDir(projectRoot)}
-					onComplete={handleCleanWizardComplete}
-					onCancel={handleWizardCancel}
-					addOutput={addOutput}
-				/>
-			) : (
-				<TextInput
-					onSubmit={handleSubmit}
-					onCtrlC={handleCtrlC}
-					commands={COMMANDS}
-					navigateHistoryUp={navigateUp}
-					navigateHistoryDown={navigateDown}
-					resetHistoryIndex={resetIndex}
-				/>
-			)}
-		</Box>
+				{/* Input area - show wizard or text input */}
+				{wizardMode.active && wizardMode.type === 'init' ? (
+					<InitWizard
+						step={wizardMode.step}
+						config={wizardMode.config}
+						isReinit={wizardMode.isReinit}
+						existingApiKey={existingApiKey}
+						existingProvider={existingProvider}
+						onStepChange={handleInitWizardStep}
+						onComplete={handleInitWizardComplete}
+						onCancel={handleWizardCancel}
+					/>
+				) : wizardMode.active && wizardMode.type === 'mcp-setup' ? (
+					<McpSetupWizard
+						step={wizardMode.step}
+						config={wizardMode.config}
+						projectRoot={projectRoot}
+						showPrompt={wizardMode.showPrompt}
+						onStepChange={handleMcpWizardStep}
+						onComplete={handleMcpWizardComplete}
+						onCancel={handleWizardCancel}
+						addOutput={addOutput}
+					/>
+				) : wizardMode.active && wizardMode.type === 'clean' ? (
+					<CleanWizard
+						projectRoot={projectRoot}
+						viberagDir={getViberagDir(projectRoot)}
+						onComplete={handleCleanWizardComplete}
+						onCancel={handleWizardCancel}
+						addOutput={addOutput}
+					/>
+				) : (
+					<TextInput
+						onSubmit={handleSubmit}
+						onCtrlC={handleCtrlC}
+						commands={COMMANDS}
+						navigateHistoryUp={navigateUp}
+						navigateHistoryDown={navigateDown}
+						resetHistoryIndex={resetIndex}
+					/>
+				)}
+			</Box>
+		</Provider>
 	);
 }

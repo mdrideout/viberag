@@ -13,7 +13,11 @@
  * - CI pipeline fast checks
  */
 
-import type {EmbeddingProvider, ModelProgressCallback} from './types.js';
+import type {
+	EmbeddingProvider,
+	ModelProgressCallback,
+	EmbedOptions,
+} from './types.js';
 
 const DEFAULT_DIMENSIONS = 1024;
 
@@ -31,7 +35,7 @@ export class MockEmbeddingProvider implements EmbeddingProvider {
 		// No initialization needed - instant startup
 	}
 
-	async embed(texts: string[]): Promise<number[][]> {
+	async embed(texts: string[], _options?: EmbedOptions): Promise<number[][]> {
 		return texts.map(t => this.hashToVector(t));
 	}
 

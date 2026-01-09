@@ -15,7 +15,12 @@ export {
 	type ValidateApiKeyOptions,
 } from './validate.js';
 
-export type {EmbeddingProvider, ModelProgressCallback} from './types.js';
+export type {
+	EmbeddingProvider,
+	ModelProgressCallback,
+	ChunkMetadata,
+	EmbedOptions,
+} from './types.js';
 
 // Shared utilities for API-based providers
 export {
@@ -32,4 +37,5 @@ export {
 	processBatchesWithLimit,
 	chunk,
 	type ApiProviderCallbacks,
+	type BatchMetadata,
 } from './api-utils.js';

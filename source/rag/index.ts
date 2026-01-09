@@ -21,6 +21,7 @@ export {
 export {
 	createLogger,
 	createNullLogger,
+	createDebugLogger,
 	getLogPath,
 	type Logger,
 	type LogLevel,

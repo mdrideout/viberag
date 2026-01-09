@@ -11,8 +11,7 @@ import {
 	loadConfig,
 	hasValidExtension,
 	loadGitignore,
-	createLogger,
-	getLogsDir,
+	createDebugLogger,
 	type ViberagConfig,
 	type IndexStats,
 	type Logger,
@@ -99,12 +98,11 @@ export class FileWatcher {
 		// Load gitignore rules
 		this.gitignore = await loadGitignore(this.projectRoot);
 
-		// Initialize logger
+		// Initialize debug logger (always-on logging to .viberag/debug.log)
 		try {
-			const logsDir = getLogsDir(this.projectRoot);
-			this.logger = createLogger(logsDir);
+			this.logger = createDebugLogger(this.projectRoot);
 		} catch {
-			// Logs dir may not exist yet, that's ok
+			// Viberag dir may not exist yet, that's ok
 		}
 
 		this.log('info', `Starting file watcher for ${this.projectRoot}`);

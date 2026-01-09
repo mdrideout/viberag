@@ -23,8 +23,9 @@ import {
 	MistralEmbeddingProvider,
 	OpenAIEmbeddingProvider,
 	type EmbeddingProvider,
+	type ChunkMetadata,
 } from '../embeddings/index.js';
-import type {Logger} from '../logger/index.js';
+import {createDebugLogger, type Logger} from '../logger/index.js';
 import {
 	loadManifest,
 	saveManifest,
@@ -62,11 +63,14 @@ export class Indexer {
 	private chunker: Chunker | null = null;
 	private embeddings: EmbeddingProvider | null = null;
 	private logger: Logger | null = null;
+	/** Debug logger for detailed failure logging to .viberag/debug.log */
+	private debugLogger: Logger;
 	private indexPromise: Promise<IndexStats> | null = null;
 
 	constructor(projectRoot: string, logger?: Logger) {
 		this.projectRoot = projectRoot;
 		this.logger = logger ?? null;
+		this.debugLogger = createDebugLogger(projectRoot);
 	}
 
 	/**
@@ -169,22 +173,33 @@ export class Indexer {
 			const filesToProcess = [...diff.new, ...diff.modified];
 			const totalFiles = filesToProcess.length;
 
-			// Track cumulative chunks for progress display
-			let totalChunksProcessed = 0;
-			let lastProgress = 0;
+			// Aggregated progress state - prevents race conditions between callbacks
+			// Note: Slot progress is now managed via Redux store, not callbacks
+			const progressState = {
+				current: 0,
+				total: totalFiles,
+				stage: 'Indexing files',
+				throttleMessage: null as string | null,
+				chunksProcessed: 0,
+			};
+
+			// Emit aggregated progress
+			const emitProgress = () => {
+				progressCallback?.(
+					progressState.current,
+					progressState.total,
+					progressState.stage,
+					progressState.throttleMessage,
+					progressState.chunksProcessed,
+				);
+			};
 
 			// Wire throttle callback for rate limit feedback (API providers only)
 			if ('onThrottle' in embeddings) {
 				(embeddings as {onThrottle?: (msg: string | null) => void}).onThrottle =
 					message => {
-						// Pass throttle message to UI - shown in yellow when set
-						progressCallback?.(
-							lastProgress,
-							totalFiles,
-							'Indexing files',
-							message,
-							totalChunksProcessed,
-						);
+						progressState.throttleMessage = message;
+						emitProgress();
 					};
 			}
 
@@ -214,14 +229,8 @@ export class Indexer {
 							currentFileOffset: i,
 							progressCallback,
 							onChunksProcessed: (count: number) => {
-								totalChunksProcessed += count;
-								progressCallback?.(
-									i,
-									totalFiles,
-									'Indexing files',
-									null,
-									totalChunksProcessed,
-								);
+								progressState.chunksProcessed += count;
+								emitProgress();
 							},
 						},
 					);
@@ -238,14 +247,8 @@ export class Indexer {
 					}
 
 					const progress = Math.round(((i + batch.length) / totalFiles) * 100);
-					lastProgress = i + batch.length;
-					progressCallback?.(
-						i + batch.length,
-						totalFiles,
-						'Indexing files',
-						null,
-						totalChunksProcessed,
-					);
+					progressState.current = i + batch.length;
+					emitProgress();
 					this.log(
 						'debug',
 						`Progress: ${progress}% (${i + batch.length}/${totalFiles})`,
@@ -415,13 +418,27 @@ export class Indexer {
 				};
 			}
 
-			// Embed all chunks together
+			// Embed all chunks together with metadata for failure logging
 			const texts = missingChunksWithContext.map(c =>
 				c.chunk.contextHeader
 					? `${c.chunk.contextHeader}\n${c.chunk.text}`
 					: c.chunk.text,
 			);
-			const newEmbeddings = await embeddings.embed(texts);
+
+			// Build metadata for each chunk (used for detailed failure logging)
+			const chunkMetadata: ChunkMetadata[] = missingChunksWithContext.map(
+				c => ({
+					filepath: c.filepath,
+					startLine: c.chunk.startLine,
+					endLine: c.chunk.endLine,
+					size: c.chunk.text.length,
+				}),
+			);
+
+			const newEmbeddings = await embeddings.embed(texts, {
+				chunkMetadata,
+				logger: this.debugLogger,
+			});
 			stats.embeddingsComputed += missingChunksWithContext.length;
 
 			// Report any remaining chunks not yet reported

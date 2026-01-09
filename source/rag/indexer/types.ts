@@ -106,6 +106,7 @@ export interface IndexStats {
 
 /**
  * Progress callback for indexing operations.
+ * Note: Slot progress is now managed via Redux store, not passed through callbacks.
  * @param current - Current progress count
  * @param total - Total items (0 for indeterminate)
  * @param stage - Human-readable stage name

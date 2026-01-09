@@ -15,7 +15,11 @@
  * - +5 MTEB points over 0.6B (69.45 vs 64.33)
  */
 
-import type {EmbeddingProvider, ModelProgressCallback} from './types.js';
+import type {
+	EmbeddingProvider,
+	ModelProgressCallback,
+	EmbedOptions,
+} from './types.js';
 
 const DIMENSIONS = 2560;
 
@@ -40,7 +44,7 @@ export class Local4BEmbeddingProvider implements EmbeddingProvider {
 		throw new Error(NOT_AVAILABLE_ERROR);
 	}
 
-	async embed(_texts: string[]): Promise<number[][]> {
+	async embed(_texts: string[], _options?: EmbedOptions): Promise<number[][]> {
 		throw new Error(NOT_AVAILABLE_ERROR);
 	}
 

@@ -42,6 +42,13 @@ export function getLogsDir(projectRoot: string): string {
 }
 
 /**
+ * Get the path to the debug log file (always-on logging).
+ */
+export function getDebugLogPath(projectRoot: string): string {
+	return path.join(getViberagDir(projectRoot), 'debug.log');
+}
+
+/**
  * LanceDB table names.
  */
 export const TABLE_NAMES = {

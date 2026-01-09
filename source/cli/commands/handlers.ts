@@ -15,6 +15,7 @@ import {
 	DEFAULT_CONFIG,
 	PROVIDER_CONFIGS,
 	getViberagDir,
+	createDebugLogger,
 	type IndexStats,
 	type SearchResults,
 	type ViberagConfig,
@@ -149,7 +150,9 @@ export async function runIndex(
 		}
 	}
 
-	const indexer = new Indexer(projectRoot);
+	// Create debug logger for always-on logging to .viberag/debug.log
+	const logger = createDebugLogger(projectRoot);
+	const indexer = new Indexer(projectRoot, logger);
 
 	try {
 		const stats = await indexer.index({

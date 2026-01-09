@@ -19,6 +19,7 @@ import {
 	saveConfig,
 	PROVIDER_CONFIGS,
 	getSchemaVersionInfo,
+	createDebugLogger,
 	type SearchResults,
 	type IndexStats,
 	type SearchFilters,
@@ -568,7 +569,9 @@ Production code: { path_not_contains: ["test", "mock", "fixture"], is_exported: 
 				}
 			}
 
-			const indexer = new Indexer(projectRoot);
+			// Create debug logger for always-on logging to .viberag/debug.log
+			const logger = createDebugLogger(projectRoot);
+			const indexer = new Indexer(projectRoot, logger);
 			try {
 				const stats = await indexer.index({force: args.force});
 				return formatIndexStats(stats);

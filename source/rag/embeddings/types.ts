@@ -1,3 +1,5 @@
+import type {Logger} from '../logger/index.js';
+
 /**
  * Progress callback for model loading/downloading.
  * @param status - Current status: 'downloading', 'loading', 'ready'
@@ -9,6 +11,30 @@ export type ModelProgressCallback = (
 	progress?: number,
 	message?: string,
 ) => void;
+
+/**
+ * Metadata for a single chunk, used for detailed failure logging.
+ */
+export interface ChunkMetadata {
+	/** File path for this chunk */
+	filepath: string;
+	/** Start line number (1-indexed) */
+	startLine: number;
+	/** End line number (1-indexed) */
+	endLine: number;
+	/** Text size in characters */
+	size: number;
+}
+
+/**
+ * Options for embedding operations.
+ */
+export interface EmbedOptions {
+	/** Metadata for each chunk being embedded (parallel array to texts) */
+	chunkMetadata?: ChunkMetadata[];
+	/** Logger for debug output on failures */
+	logger?: Logger;
+}
 
 /**
  * Embedding provider interface for generating vector embeddings.
@@ -27,9 +53,10 @@ export interface EmbeddingProvider {
 	/**
 	 * Generate embeddings for multiple texts.
 	 * @param texts - Array of text strings to embed
+	 * @param options - Optional settings for logging and metadata
 	 * @returns Array of embedding vectors (one per text)
 	 */
-	embed(texts: string[]): Promise<number[][]>;
+	embed(texts: string[], options?: EmbedOptions): Promise<number[][]>;
 
 	/**
 	 * Generate embedding for a single text.
