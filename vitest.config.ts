@@ -24,6 +24,7 @@ export default defineConfig({
 					name: 'fast',
 					include: [
 						'source/cli/__tests__/**/*.test.ts',
+						'source/mcp/__tests__/**/*.test.ts',
 						'source/rag/__tests__/merkle.test.ts',
 						'source/rag/__tests__/grammar-smoke.test.ts',
 					],
