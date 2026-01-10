@@ -37,10 +37,23 @@ server.start({
 // Start warmup, watcher, and sync index after server is running
 // Use setImmediate to ensure server.start() completes first
 setImmediate(async () => {
+	// Check if project is initialized
+	const isInitialized = await configExists(projectRoot);
+
+	if (!isInitialized) {
+		console.error('[viberag-mcp] Project not initialized.');
+		console.error(
+			'[viberag-mcp] Run "npx viberag" in this directory and use /init to configure.',
+		);
+		console.error(
+			'[viberag-mcp] Use viberag_status tool for details on how to initialize.',
+		);
+	}
+
 	// Start warmup FIRST (most important for tool responsiveness)
 	// This runs in background - tools will wait for it to complete
 	try {
-		if (await configExists(projectRoot)) {
+		if (isInitialized) {
 			startWarmup();
 			console.error('[viberag-mcp] Warmup started');
 
@@ -73,7 +86,7 @@ setImmediate(async () => {
 	// Sync index on startup if project is initialized
 	// This catches any changes made while MCP server was offline
 	try {
-		if (await configExists(projectRoot)) {
+		if (isInitialized) {
 			console.error('[viberag-mcp] Running startup sync...');
 			const logger = createDebugLogger(projectRoot);
 			const indexer = new Indexer(projectRoot, logger);

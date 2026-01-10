@@ -39,7 +39,7 @@ class NotInitializedError extends Error {
 	constructor(projectRoot: string) {
 		super(
 			`VibeRAG not initialized in ${projectRoot}. ` +
-				`Run 'npx viberag' and use /init command first.`,
+				`Use viberag_status tool for details, or run 'npx viberag' CLI and use /init command.`,
 		);
 		this.name = 'NotInitializedError';
 	}
@@ -587,10 +587,25 @@ Production code: { path_not_contains: ["test", "mock", "fixture"], is_exported: 
 		description:
 			'Get index status including file count, chunk count, embedding provider, schema version, and last update time. ' +
 			'If schema version is outdated, run viberag_index with force=true to reindex. ' +
-			'TIP: Check status before delegating exploration to sub-agents to ensure the index is current.',
+			'TIP: Check status before delegating exploration to sub-agents to ensure the index is current. ' +
+			'This tool also works when the project is not initialized, providing guidance on how to set up.',
 		parameters: z.object({}),
 		execute: async () => {
-			await ensureInitialized(projectRoot);
+			// Check if project is initialized (don't throw, return helpful status)
+			if (!(await configExists(projectRoot))) {
+				return JSON.stringify({
+					status: 'not_initialized',
+					message: 'VibeRAG is not initialized in this project.',
+					projectRoot,
+					instructions: {
+						step1: 'Run "npx viberag" in a terminal in this project directory',
+						step2: 'Use the /init command to configure an embedding provider',
+						providers:
+							'Choose from: Gemini (free tier), OpenAI, Mistral, or Local (no API key)',
+						note: 'After initialization, run viberag_index to create the search index',
+					},
+				});
+			}
 
 			if (!(await manifestExists(projectRoot))) {
 				return JSON.stringify({
