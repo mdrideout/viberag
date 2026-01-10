@@ -71,3 +71,9 @@ export const EXTENSION_TO_LANGUAGE: Record<string, string> = {
  * Embedding dimensions for default model (BGE-base-en-v1.5).
  */
 export const DEFAULT_EMBEDDING_DIMENSIONS = 768;
+
+/**
+ * Max concurrent API requests for embedding providers.
+ * Used by api-utils.ts and slot-progress Redux slice.
+ */
+export const CONCURRENCY = 5;

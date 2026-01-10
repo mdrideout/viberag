@@ -9,13 +9,14 @@
 import pLimit from 'p-limit';
 import {store, SlotProgressActions} from '../../store/index.js';
 import type {Logger} from '../logger/index.js';
+import {CONCURRENCY} from '../constants.js';
+
+// Re-export for backward compatibility
+export {CONCURRENCY};
 
 // ============================================================================
 // Constants
 // ============================================================================
-
-/** Max concurrent API requests */
-export const CONCURRENCY = 5;
 
 /** Delay (ms) between batch completion and next batch start (per slot) */
 export const BATCH_DELAY_MS = 200;

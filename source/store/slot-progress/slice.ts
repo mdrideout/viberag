@@ -6,7 +6,7 @@
  */
 
 import {createSlice, type PayloadAction} from '@reduxjs/toolkit';
-import {CONCURRENCY} from '../../rag/embeddings/api-utils.js';
+import {CONCURRENCY} from '../../rag/constants.js';
 
 // ============================================================================
 // Types
