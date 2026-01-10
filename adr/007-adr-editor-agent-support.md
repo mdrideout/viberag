@@ -420,6 +420,21 @@ Due to this complexity and the need to safely merge into existing user settings 
 - Global path is `~/.config/zed/settings.json` on BOTH macOS and Linux
 - **JSONC Format:** Zed uses JSONC (JSON with Comments) for settings files. Comments (`//`, `/* */`) and trailing commas are allowed.
 
+**Known Issue: MCP Server Startup Race Condition**
+
+Zed has a [race condition where environment variables load asynchronously](https://github.com/zed-industries/zed/discussions/36757) while MCP servers spawn concurrently. If the server spawns before PATH is ready, it fails to find `node` and times out after 60 seconds.
+
+Symptoms:
+
+- First startup attempt times out with "Context server request timeout"
+- Toggling the server off/on (or restarting Zed) works
+
+Workarounds:
+
+- Use full paths in config: `"command": "/path/to/node"` with `"args": ["/path/to/viberag-mcp"]`
+- Launch Zed from terminal (`zed` CLI) instead of the app launcher
+- Wait for Zed to fix the race condition
+
 **Implementation Note (Bug Fix):**
 
 Zed's settings.json commonly contains comments. The MCP setup wizard must handle JSONC format:

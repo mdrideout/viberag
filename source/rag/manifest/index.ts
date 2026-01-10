@@ -1,6 +1,5 @@
 import fs from 'node:fs/promises';
-import {getManifestPath, getViberagDir} from '../constants.js';
-import {SCHEMA_VERSION} from '../storage/schema.js';
+import {getManifestPath, getViberagDir, SCHEMA_VERSION} from '../constants.js';
 
 export interface ManifestStats {
 	totalFiles: number;

@@ -45,6 +45,35 @@ import {SearchEngine} from './search/index.js'; // correct
 import {SearchEngine} from './search/index'; // breaks at runtime
 ```
 
+## Import Patterns
+
+### Avoid Barrel Exports for Performance-Critical Code
+
+Barrel files (`index.ts` that re-export from submodules) cause ALL submodules to load
+at import time. This is problematic for:
+
+- MCP server (must start quickly for handshake)
+- Any code with native module dependencies (LanceDB, tree-sitter)
+
+**Pattern:**
+
+```typescript
+// ❌ Anti-pattern (loads ALL rag modules including native dependencies):
+import {configExists, Indexer} from '../rag/index.js';
+
+// ✅ Correct (loads only what's needed):
+import {configExists} from '../rag/config/index.js';
+import {Indexer} from '../rag/indexer/index.js';
+```
+
+**Where this applies:**
+
+- `source/mcp/` - Must use direct imports for fast startup
+- `source/cli/` - Can use barrel imports (startup time less critical)
+
+**Why:** Native modules (@lancedb/lancedb, tree-sitter) take 500-1000ms to load.
+Barrel imports force loading ALL exports, even if you only need one function.
+
 ## Testing Philosophy
 
 **Test system behavior, not library correctness.**

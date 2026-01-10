@@ -57,6 +57,14 @@ export const TABLE_NAMES = {
 } as const;
 
 /**
+ * Current schema version. Increment when schema changes require reindex.
+ *
+ * This is defined here instead of storage/schema.ts to avoid importing
+ * apache-arrow (10MB package) when only the version number is needed.
+ */
+export const SCHEMA_VERSION = 2;
+
+/**
  * File extensions supported for parsing.
  * Maps extension to language identifier.
  */

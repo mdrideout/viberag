@@ -7,12 +7,10 @@ import {
 	Utf8,
 	Bool,
 } from 'apache-arrow';
-import {DEFAULT_EMBEDDING_DIMENSIONS} from '../constants.js';
+import {DEFAULT_EMBEDDING_DIMENSIONS, SCHEMA_VERSION} from '../constants.js';
 
-/**
- * Current schema version. Increment when schema changes require reindex.
- */
-export const SCHEMA_VERSION = 2;
+// Re-export for backward compatibility with existing imports
+export {SCHEMA_VERSION};
 
 /**
  * Arrow schema for the code_chunks table.

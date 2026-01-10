@@ -11,7 +11,10 @@
  * - After ready: Returns cached SearchEngine immediately
  */
 
-import {SearchEngine, loadConfig, configExists} from '../rag/index.js';
+// Direct imports for fast startup (avoid barrel file)
+import {loadConfig, configExists} from '../rag/config/index.js';
+import {getSearchEngine} from './services/lazy-loader.js';
+import type {SearchEngine} from '../rag/search/index.js';
 import {store, WarmupActions} from '../store/index.js';
 
 /**
@@ -183,8 +186,9 @@ export class WarmupManager {
 			const isLocal = config.embeddingProvider.startsWith('local');
 			const timeout = options?.timeout ?? (isLocal ? 180000 : 30000);
 
-			// Create search engine
-			const engine = new SearchEngine(this.projectRoot);
+			// Lazy load SearchEngine to avoid loading lancedb at server startup
+			const SearchEngineClass = await getSearchEngine();
+			const engine = new SearchEngineClass(this.projectRoot);
 
 			// Wrap initialization with timeout
 			const initPromise = engine.warmup();

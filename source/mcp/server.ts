@@ -10,20 +10,22 @@
 import {createRequire} from 'node:module';
 import {FastMCP} from 'fastmcp';
 import {z} from 'zod';
+// Direct imports for fast startup (avoid barrel file)
 import {
-	Indexer,
 	configExists,
-	loadManifest,
-	manifestExists,
 	loadConfig,
 	saveConfig,
 	PROVIDER_CONFIGS,
+} from '../rag/config/index.js';
+import {
+	loadManifest,
+	manifestExists,
 	getSchemaVersionInfo,
-	createDebugLogger,
-	type SearchResults,
-	type IndexStats,
-	type SearchFilters,
-} from '../rag/index.js';
+} from '../rag/manifest/index.js';
+import {createDebugLogger} from '../rag/logger/index.js';
+import {getIndexer} from './services/lazy-loader.js';
+import type {SearchResults, SearchFilters} from '../rag/search/types.js';
+import type {IndexStats} from '../rag/indexer/types.js';
 import {FileWatcher} from './watcher.js';
 import {WarmupManager} from './warmup.js';
 
@@ -571,6 +573,8 @@ Production code: { path_not_contains: ["test", "mock", "fixture"], is_exported: 
 
 			// Create debug logger for always-on logging to .viberag/debug.log
 			const logger = createDebugLogger(projectRoot);
+			// Lazy load Indexer to avoid loading tree-sitter at server startup
+			const Indexer = await getIndexer();
 			const indexer = new Indexer(projectRoot, logger);
 			try {
 				const stats = await indexer.index({force: args.force});

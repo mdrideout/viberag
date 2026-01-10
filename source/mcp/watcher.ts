@@ -8,16 +8,13 @@
  */
 
 import {watch, type FSWatcher} from 'chokidar';
-import {
-	Indexer,
-	loadConfig,
-	hasValidExtension,
-	loadGitignore,
-	createDebugLogger,
-	type ViberagConfig,
-	type IndexStats,
-	type Logger,
-} from '../rag/index.js';
+// Direct imports for fast startup (avoid barrel file)
+import {loadConfig, type ViberagConfig} from '../rag/config/index.js';
+import {hasValidExtension} from '../rag/merkle/hash.js';
+import {loadGitignore} from '../rag/gitignore/index.js';
+import {createDebugLogger, type Logger} from '../rag/logger/index.js';
+import {getIndexer} from './services/lazy-loader.js';
+import type {IndexStats} from '../rag/indexer/types.js';
 import {store, WatcherActions} from '../store/index.js';
 
 // Simplified Ignore interface (subset of the ignore package)
@@ -329,6 +326,8 @@ export class FileWatcher {
 		store.dispatch(WatcherActions.indexing());
 
 		try {
+			// Lazy load Indexer to avoid loading tree-sitter at server startup
+			const Indexer = await getIndexer();
 			const indexer = new Indexer(this.projectRoot, this.logger ?? undefined);
 			const stats = await indexer.index({force: false});
 			indexer.close();
