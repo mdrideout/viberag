@@ -26,6 +26,12 @@ source/
 │   ├── hooks/        # useCtrlC, useCommandHistory, useTextBuffer
 │   └── types.ts      # OutputItem, TextBufferState
 │
+├── store/            # Redux state management (see ADR-008)
+│   ├── store.ts      # Store configuration
+│   ├── hooks.ts      # Typed useAppDispatch, useAppSelector
+│   ├── index.ts      # Centralized exports
+│   └── {domain}/     # Slice per domain (app, indexing, etc.)
+│
 ├── rag/              # Headless RAG engine (NO UI)
 │   ├── indexer/      # Chunking, orchestration
 │   ├── search/       # Vector, FTS, hybrid
@@ -47,13 +53,17 @@ source/
 
 ```
 common/ ← cli/ → rag/
-              ↗
-         mcp/
+    ↑       ↓      ↓
+    └── store/ ←───┘
+              ↖
+         mcp/ ─┘
 ```
 
-- **cli/** uses `common/` for UI + `rag/` for business logic
-- **mcp/** uses `rag/` only (headless, no UI)
-- **common/** and **rag/** have zero dependencies on interfaces
+- **cli/** uses `common/` for UI + `rag/` for business logic + `store/` for state
+- **mcp/** uses `rag/` for business logic + `store/` for state (headless, no UI)
+- **rag/** dispatches to `store/` directly (no callback threading)
+- **common/** uses `store/` for shared state access
+- **store/** has zero dependencies on interfaces (decoupled so multiple interfaces can share state)
 
 ### Principles
 
