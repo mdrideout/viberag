@@ -4,6 +4,7 @@
  * Manages singleton SearchEngine initialization and state.
  * Ensures embedding model is loaded once and shared across tool calls.
  *
+ * State is tracked in Redux for consistency with the rest of the codebase.
  * The idempotent promise pattern solves the race condition:
  * - First call: Creates the warmup promise, starts initialization
  * - Concurrent calls: All await the SAME promise (no duplicate work)
@@ -11,6 +12,7 @@
  */
 
 import {SearchEngine, loadConfig, configExists} from '../rag/index.js';
+import {store, WarmupActions} from '../store/index.js';
 
 /**
  * Warmup status enum.
@@ -51,38 +53,49 @@ export class WarmupManager {
 	private readonly projectRoot: string;
 	private searchEngine: SearchEngine | null = null;
 	private warmupPromise: Promise<SearchEngine> | null = null;
-	private state: WarmupState = {status: 'not_started'};
+	// State is now in Redux - no local state field
 
 	constructor(projectRoot: string) {
 		this.projectRoot = projectRoot;
 	}
 
 	/**
-	 * Get current warmup state.
+	 * Get current warmup state from Redux.
 	 */
 	getState(): WarmupState {
-		return {...this.state};
+		const reduxState = store.getState().warmup;
+		// Convert Redux state to WarmupState interface (optional vs nullable)
+		return {
+			status: reduxState.status,
+			provider: reduxState.provider ?? undefined,
+			startedAt: reduxState.startedAt ?? undefined,
+			readyAt: reduxState.readyAt ?? undefined,
+			elapsedMs: reduxState.elapsedMs ?? undefined,
+			error: reduxState.error ?? undefined,
+		};
 	}
 
 	/**
 	 * Check if warmup is ready.
 	 */
 	isReady(): boolean {
-		return this.state.status === 'ready' && this.searchEngine !== null;
+		return (
+			store.getState().warmup.status === 'ready' && this.searchEngine !== null
+		);
 	}
 
 	/**
 	 * Check if warmup failed.
 	 */
 	isFailed(): boolean {
-		return this.state.status === 'failed';
+		return store.getState().warmup.status === 'failed';
 	}
 
 	/**
 	 * Check if warmup is in progress.
 	 */
 	isInitializing(): boolean {
-		return this.state.status === 'initializing';
+		return store.getState().warmup.status === 'initializing';
 	}
 
 	/**
@@ -128,7 +141,8 @@ export class WarmupManager {
 
 		// Check if project is initialized
 		if (!(await configExists(this.projectRoot))) {
-			this.state = {status: 'not_initialized'};
+			// Dispatch to Redux (single source of truth)
+			store.dispatch(WarmupActions.setNotInitialized());
 			throw new Error(
 				`VibeRAG not initialized in ${this.projectRoot}. ` +
 					`Run 'npx viberag' and use /init command first.`,
@@ -149,21 +163,18 @@ export class WarmupManager {
 		try {
 			// Check if project is initialized
 			if (!(await configExists(this.projectRoot))) {
-				this.state = {status: 'not_initialized'};
+				// Dispatch to Redux (single source of truth)
+				store.dispatch(WarmupActions.setNotInitialized());
 				throw new Error('Project not initialized');
 			}
 
 			// Load config to get provider type
 			const config = await loadConfig(this.projectRoot);
 
-			// Update state
-			this.state = {
-				status: 'initializing',
-				provider: config.embeddingProvider,
-				startedAt: new Date().toISOString(),
-			};
+			// Dispatch to Redux (single source of truth)
+			store.dispatch(WarmupActions.start({provider: config.embeddingProvider}));
 
-			options?.onProgress?.(this.state);
+			options?.onProgress?.(this.getState());
 			console.error(
 				`[viberag-mcp] Warming up ${config.embeddingProvider} embedding provider...`,
 			);
@@ -193,15 +204,11 @@ export class WarmupManager {
 			// Success
 			const elapsed = Date.now() - startTime;
 			this.searchEngine = engine;
-			this.state = {
-				status: 'ready',
-				provider: config.embeddingProvider,
-				startedAt: this.state.startedAt,
-				readyAt: new Date().toISOString(),
-				elapsedMs: elapsed,
-			};
 
-			options?.onProgress?.(this.state);
+			// Dispatch to Redux (single source of truth)
+			store.dispatch(WarmupActions.ready({elapsedMs: elapsed}));
+
+			options?.onProgress?.(this.getState());
 			console.error(`[viberag-mcp] Warmup complete (${elapsed}ms)`);
 
 			return engine;
@@ -209,14 +216,12 @@ export class WarmupManager {
 			const elapsed = Date.now() - startTime;
 			const message = error instanceof Error ? error.message : String(error);
 
-			this.state = {
-				...this.state,
-				status: 'failed',
-				elapsedMs: elapsed,
-				error: message,
-			};
+			// Dispatch to Redux (single source of truth)
+			store.dispatch(
+				WarmupActions.failed({error: message, elapsedMs: elapsed}),
+			);
 
-			options?.onProgress?.(this.state);
+			options?.onProgress?.(this.getState());
 			console.error(`[viberag-mcp] Warmup failed: ${message}`);
 
 			// Clear promise to allow retry
@@ -234,10 +239,12 @@ export class WarmupManager {
 		// Close any existing engine
 		this.close();
 
-		// Clear state
+		// Clear local references
 		this.warmupPromise = null;
 		this.searchEngine = null;
-		this.state = {status: 'not_started'};
+
+		// Reset Redux state
+		store.dispatch(WarmupActions.reset());
 
 		// Start fresh
 		return this.getSearchEngine(options);

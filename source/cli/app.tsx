@@ -1,8 +1,28 @@
-import React, {useState, useEffect, useCallback} from 'react';
+import React, {useEffect, useCallback} from 'react';
 import {createRequire} from 'node:module';
 import {Box, Text, useStdout} from 'ink';
 import {Provider} from 'react-redux';
 import {store} from '../store/store.js';
+import {
+	useAppDispatch,
+	useAppSelector,
+	WizardActions,
+	AppActions,
+	selectActiveWizard,
+	selectInitStep,
+	selectMcpStep,
+	selectInitConfig,
+	selectMcpConfig,
+	selectIsReinit,
+	selectShowMcpPrompt,
+	selectExistingApiKey,
+	selectExistingProvider,
+	selectIsInitialized,
+	selectIndexStats,
+	selectAppStatus,
+	selectOutputItems,
+	selectStartupLoaded,
+} from '../store/index.js';
 
 // Common infrastructure
 import TextInput from '../common/components/TextInput.js';
@@ -12,10 +32,6 @@ import {useCtrlC} from '../common/hooks/useCtrlC.js';
 import {useCommandHistory} from '../common/hooks/useCommandHistory.js';
 import {useKittyKeyboard} from '../common/hooks/useKittyKeyboard.js';
 import type {
-	OutputItem,
-	AppStatus,
-	IndexDisplayStats,
-	WizardMode,
 	InitWizardConfig,
 	McpSetupWizardConfig,
 	McpSetupStep,
@@ -37,7 +53,6 @@ import {
 	formatIndexStats,
 } from './commands/handlers.js';
 import {getViberagDir, loadConfig} from '../rag/index.js';
-import type {EmbeddingProviderType} from '../common/types.js';
 import type {SearchResultsData} from '../common/types.js';
 
 const require = createRequire(import.meta.url);
@@ -62,27 +77,31 @@ const COMMANDS: CommandInfo[] = [
 	{command: '/quit', description: 'Exit the application'},
 ];
 
-// Module-level counter for unique IDs
-let nextId = 0;
+/**
+ * Inner app content that uses Redux hooks.
+ * Must be rendered inside Provider.
+ */
+function AppContent() {
+	const dispatch = useAppDispatch();
 
-export default function App() {
-	const [outputItems, setOutputItems] = useState<OutputItem[]>([]);
-	const [appStatus, setAppStatus] = useState<AppStatus>({state: 'ready'});
-	// undefined = not loaded yet, null = loaded but no manifest, {...} = loaded with stats
-	const [indexStats, setIndexStats] = useState<
-		IndexDisplayStats | null | undefined
-	>(undefined);
-	const [isInitialized, setIsInitialized] = useState<boolean | undefined>(
-		undefined,
-	);
-	const [wizardMode, setWizardMode] = useState<WizardMode>({active: false});
-	// Existing config for reinit flow (API key preservation)
-	const [existingApiKey, setExistingApiKey] = useState<string | undefined>(
-		undefined,
-	);
-	const [existingProvider, setExistingProvider] = useState<
-		EmbeddingProviderType | undefined
-	>(undefined);
+	// Redux wizard state
+	const activeWizard = useAppSelector(selectActiveWizard);
+	const initStep = useAppSelector(selectInitStep);
+	const mcpStep = useAppSelector(selectMcpStep);
+	const initConfig = useAppSelector(selectInitConfig);
+	const mcpConfig = useAppSelector(selectMcpConfig);
+	const isReinit = useAppSelector(selectIsReinit);
+	const showMcpPrompt = useAppSelector(selectShowMcpPrompt);
+	const existingApiKey = useAppSelector(selectExistingApiKey);
+	const existingProvider = useAppSelector(selectExistingProvider);
+
+	// Redux app state (migrated from useState)
+	const isInitialized = useAppSelector(selectIsInitialized);
+	const indexStats = useAppSelector(selectIndexStats);
+	const appStatus = useAppSelector(selectAppStatus);
+	const outputItems = useAppSelector(selectOutputItems);
+	const startupLoaded = useAppSelector(selectStartupLoaded);
+
 	const {stdout} = useStdout();
 
 	// Enable Kitty keyboard protocol for Shift+Enter support in iTerm2/Kitty/WezTerm
@@ -94,109 +113,102 @@ export default function App() {
 	// Check initialization status and load stats on mount
 	useEffect(() => {
 		checkInitialized(projectRoot).then(async initialized => {
-			setIsInitialized(initialized);
+			dispatch(AppActions.setInitialized(initialized));
 			// Load existing config for API key preservation during reinit
 			if (initialized) {
 				const config = await loadConfig(projectRoot);
-				setExistingApiKey(config.apiKey);
-				setExistingProvider(config.embeddingProvider);
+				dispatch(
+					WizardActions.setExistingConfig({
+						apiKey: config.apiKey,
+						provider: config.embeddingProvider,
+					}),
+				);
 			}
 		});
-		loadIndexStats(projectRoot).then(setIndexStats);
-	}, [projectRoot]);
+		loadIndexStats(projectRoot).then(stats =>
+			dispatch(AppActions.setIndexStats(stats)),
+		);
+	}, [projectRoot, dispatch]);
 
 	// Command history
 	const {addToHistory, navigateUp, navigateDown, resetIndex} =
 		useCommandHistory();
 
-	const addOutput = (type: 'user' | 'system', content: string) => {
-		const id = String(nextId++);
-		setOutputItems(prev => [
-			...prev,
-			{
-				id,
-				type,
-				content,
-			},
-		]);
-	};
+	const addOutput = useCallback(
+		(type: 'user' | 'system', content: string) => {
+			dispatch(AppActions.addOutput({type, content}));
+		},
+		[dispatch],
+	);
 
-	const addSearchResults = (data: SearchResultsData) => {
-		const id = String(nextId++);
-		setOutputItems(prev => [
-			...prev,
-			{
-				id,
-				type: 'search-results' as const,
-				data,
-			},
-		]);
-	};
+	const addSearchResults = useCallback(
+		(data: SearchResultsData) => {
+			dispatch(AppActions.addSearchResults(data));
+		},
+		[dispatch],
+	);
 
 	// Start the init wizard
-	const startInitWizard = useCallback((isReinit: boolean) => {
-		setWizardMode({active: true, type: 'init', step: 0, config: {}, isReinit});
-	}, []);
+	const startInitWizard = useCallback(
+		(isReinit: boolean) => {
+			dispatch(
+				WizardActions.startInit({
+					isReinit,
+					existingApiKey: existingApiKey ?? undefined,
+					existingProvider: existingProvider ?? undefined,
+				}),
+			);
+		},
+		[dispatch, existingApiKey, existingProvider],
+	);
 
 	// Start the MCP setup wizard
-	const startMcpSetupWizard = useCallback((showPrompt: boolean = false) => {
-		setWizardMode({
-			active: true,
-			type: 'mcp-setup',
-			step: showPrompt ? 'prompt' : 'select',
-			config: {},
-			showPrompt,
-		});
-	}, []);
+	const startMcpSetupWizard = useCallback(
+		(showPrompt: boolean = false) => {
+			dispatch(WizardActions.startMcpSetup({showPrompt}));
+		},
+		[dispatch],
+	);
 
 	// Start the clean wizard
 	const startCleanWizard = useCallback(() => {
-		setWizardMode({active: true, type: 'clean'});
-	}, []);
+		dispatch(WizardActions.startClean());
+	}, [dispatch]);
 
 	// Handle clean wizard completion
 	const handleCleanWizardComplete = useCallback(() => {
-		setWizardMode({active: false});
+		dispatch(WizardActions.close());
 		// Reset app state to uninitialized after cleaning
-		setIndexStats(null);
-		setIsInitialized(false);
-	}, []);
+		dispatch(AppActions.resetInitialized());
+	}, [dispatch]);
 
 	// Handle init wizard step changes
 	const handleInitWizardStep = useCallback(
 		(step: number, data?: Partial<InitWizardConfig>) => {
-			setWizardMode(prev =>
-				prev.active && prev.type === 'init'
-					? {...prev, step, config: {...prev.config, ...data}}
-					: prev,
-			);
+			dispatch(WizardActions.setInitStep({step, config: data}));
 		},
-		[],
+		[dispatch],
 	);
 
 	// Handle MCP wizard step changes
 	const handleMcpWizardStep = useCallback(
 		(step: McpSetupStep, data?: Partial<McpSetupWizardConfig>) => {
-			setWizardMode(prev =>
-				prev.active && prev.type === 'mcp-setup'
-					? {...prev, step, config: {...prev.config, ...data}}
-					: prev,
-			);
+			dispatch(WizardActions.setMcpStep({step, config: data}));
 		},
-		[],
+		[dispatch],
 	);
 
 	// Handle init wizard completion
 	const handleInitWizardComplete = useCallback(
 		async (config: InitWizardConfig) => {
 			// Close wizard first, then run init after a tick to ensure proper re-render
-			setWizardMode({active: false});
+			dispatch(WizardActions.close());
 
 			// Wait for next tick so wizard unmounts before we add output
 			await new Promise(resolve => setTimeout(resolve, 50));
 
 			addOutput('system', 'Initializing Viberag...');
-			setAppStatus({state: 'warning', message: 'Initializing...'});
+			dispatch(AppActions.setWarning('Initializing...'));
 
 			try {
 				const result = await runInit(
@@ -205,36 +217,20 @@ export default function App() {
 					config,
 				);
 				addOutput('system', result);
-				setIsInitialized(true);
+				dispatch(AppActions.setInitialized(true));
 
 				// Automatically start indexing after init
 				addOutput('system', 'Indexing codebase...');
-				setAppStatus({
-					state: 'indexing',
-					current: 0,
-					total: 0,
-					stage: 'Indexing',
-				});
+				// Progress details now come from Redux via IndexingActions
+				dispatch(AppActions.setIndexing());
 
-				const stats = await runIndex(
-					projectRoot,
-					true,
-					(current, total, stage, throttleMessage, chunksProcessed) =>
-						setAppStatus({
-							state: 'indexing',
-							current,
-							total,
-							stage,
-							throttleMessage,
-							chunksProcessed,
-						}),
-				);
+				const stats = await runIndex(projectRoot, true);
 				addOutput('system', formatIndexStats(stats));
 
 				// Reload stats after indexing
 				const newStats = await loadIndexStats(projectRoot);
-				setIndexStats(newStats);
-				setAppStatus({state: 'ready'});
+				dispatch(AppActions.setIndexStats(newStats));
+				dispatch(AppActions.setReady());
 
 				// Prompt for MCP setup after init completes
 				await new Promise(resolve => setTimeout(resolve, 100));
@@ -244,44 +240,42 @@ export default function App() {
 					'system',
 					`Init failed: ${err instanceof Error ? err.message : String(err)}`,
 				);
-				setAppStatus({state: 'ready'});
+				dispatch(AppActions.setReady());
 			}
 		},
-		[projectRoot, isInitialized, startMcpSetupWizard],
+		[projectRoot, isInitialized, startMcpSetupWizard, dispatch, addOutput],
 	);
 
 	// Handle MCP wizard completion
 	const handleMcpWizardComplete = useCallback(
 		(_config: McpSetupWizardConfig) => {
-			setWizardMode({active: false});
+			dispatch(WizardActions.close());
 			// Results are already shown in the wizard summary
 		},
-		[],
+		[dispatch],
 	);
 
 	// Handle wizard cancellation
 	const handleWizardCancel = useCallback(() => {
-		const wasInit = wizardMode.active && wizardMode.type === 'init';
-		setWizardMode({active: false});
+		const wasInit = activeWizard === 'init';
+		dispatch(WizardActions.close());
 		if (wasInit) {
 			addOutput('system', 'Initialization cancelled.');
 		}
 		// MCP wizard cancel just closes silently
-	}, [wizardMode]);
+	}, [dispatch, activeWizard]);
 
 	// Handle Ctrl+C with status message callback
 	const {handleCtrlC} = useCtrlC({
 		onFirstPress: () =>
-			setAppStatus({state: 'warning', message: 'Press Ctrl+C again to quit'}),
-		onStatusClear: () => setAppStatus({state: 'ready'}),
+			dispatch(AppActions.setWarning('Press Ctrl+C again to quit')),
+		onStatusClear: () => dispatch(AppActions.setReady()),
 	});
 
 	// Command handling (all logic consolidated in useRagCommands)
 	const {isCommand, executeCommand} = useRagCommands({
 		addOutput,
 		addSearchResults,
-		setAppStatus,
-		setIndexStats,
 		projectRoot,
 		stdout,
 		startInitWizard,
@@ -308,8 +302,7 @@ export default function App() {
 	};
 
 	// Prepend welcome banner as first static item (only after BOTH init status AND stats are loaded)
-	// This prevents race condition where banner shows stale "Run /index" while stats are loading
-	const startupLoaded = isInitialized !== undefined && indexStats !== undefined;
+	// startupLoaded is computed via Redux selector
 	const staticItems = [
 		...(startupLoaded
 			? [{id: 'welcome', type: 'welcome' as const, content: ''}]
@@ -318,87 +311,96 @@ export default function App() {
 	];
 
 	return (
-		<Provider store={store}>
-			<Box flexDirection="column">
-				{/* StaticWithResize handles terminal resize by clearing and forcing re-render */}
-				<StaticWithResize items={staticItems}>
-					{item => {
-						if (item.type === 'welcome') {
-							return (
-								<Box key={item.id} marginBottom={1}>
-									<WelcomeBanner
-										version={version}
-										cwd={process.cwd()}
-										isInitialized={isInitialized}
-										indexStats={indexStats}
-									/>
-								</Box>
-							);
-						}
-						if (item.type === 'search-results') {
-							return (
-								<Box key={item.id} paddingX={1} marginBottom={1}>
-									<SearchResultsDisplay data={item.data} />
-								</Box>
-							);
-						}
+		<Box flexDirection="column">
+			{/* StaticWithResize handles terminal resize by clearing and forcing re-render */}
+			<StaticWithResize items={staticItems}>
+				{item => {
+					if (item.type === 'welcome') {
 						return (
-							<Box key={item.id} paddingX={1} marginBottom={1}>
-								{item.type === 'user' ? (
-									<Text color="cyan">&gt; {item.content}</Text>
-								) : (
-									<Text>{item.content}</Text>
-								)}
+							<Box key={item.id} marginBottom={1}>
+								<WelcomeBanner
+									version={version}
+									cwd={process.cwd()}
+									isInitialized={isInitialized}
+									indexStats={indexStats}
+								/>
 							</Box>
 						);
-					}}
-				</StaticWithResize>
+					}
+					if (item.type === 'search-results') {
+						return (
+							<Box key={item.id} paddingX={1} marginBottom={1}>
+								<SearchResultsDisplay data={item.data} />
+							</Box>
+						);
+					}
+					return (
+						<Box key={item.id} paddingX={1} marginBottom={1}>
+							{item.type === 'user' ? (
+								<Text color="cyan">&gt; {item.content}</Text>
+							) : (
+								<Text>{item.content}</Text>
+							)}
+						</Box>
+					);
+				}}
+			</StaticWithResize>
 
-				{/* Status bar with left (status) and right (stats) */}
-				<StatusBar status={appStatus} stats={indexStats} />
+			{/* Status bar with left (status) and right (stats) */}
+			<StatusBar status={appStatus} stats={indexStats} />
 
-				{/* Input area - show wizard or text input */}
-				{wizardMode.active && wizardMode.type === 'init' ? (
-					<InitWizard
-						step={wizardMode.step}
-						config={wizardMode.config}
-						isReinit={wizardMode.isReinit}
-						existingApiKey={existingApiKey}
-						existingProvider={existingProvider}
-						onStepChange={handleInitWizardStep}
-						onComplete={handleInitWizardComplete}
-						onCancel={handleWizardCancel}
-					/>
-				) : wizardMode.active && wizardMode.type === 'mcp-setup' ? (
-					<McpSetupWizard
-						step={wizardMode.step}
-						config={wizardMode.config}
-						projectRoot={projectRoot}
-						showPrompt={wizardMode.showPrompt}
-						onStepChange={handleMcpWizardStep}
-						onComplete={handleMcpWizardComplete}
-						onCancel={handleWizardCancel}
-						addOutput={addOutput}
-					/>
-				) : wizardMode.active && wizardMode.type === 'clean' ? (
-					<CleanWizard
-						projectRoot={projectRoot}
-						viberagDir={getViberagDir(projectRoot)}
-						onComplete={handleCleanWizardComplete}
-						onCancel={handleWizardCancel}
-						addOutput={addOutput}
-					/>
-				) : (
-					<TextInput
-						onSubmit={handleSubmit}
-						onCtrlC={handleCtrlC}
-						commands={COMMANDS}
-						navigateHistoryUp={navigateUp}
-						navigateHistoryDown={navigateDown}
-						resetHistoryIndex={resetIndex}
-					/>
-				)}
-			</Box>
+			{/* Input area - show wizard or text input */}
+			{activeWizard === 'init' ? (
+				<InitWizard
+					step={initStep}
+					config={initConfig}
+					isReinit={isReinit}
+					existingApiKey={existingApiKey ?? undefined}
+					existingProvider={existingProvider ?? undefined}
+					onStepChange={handleInitWizardStep}
+					onComplete={handleInitWizardComplete}
+					onCancel={handleWizardCancel}
+				/>
+			) : activeWizard === 'mcp-setup' ? (
+				<McpSetupWizard
+					step={mcpStep}
+					config={mcpConfig}
+					projectRoot={projectRoot}
+					showPrompt={showMcpPrompt}
+					onStepChange={handleMcpWizardStep}
+					onComplete={handleMcpWizardComplete}
+					onCancel={handleWizardCancel}
+					addOutput={addOutput}
+				/>
+			) : activeWizard === 'clean' ? (
+				<CleanWizard
+					projectRoot={projectRoot}
+					viberagDir={getViberagDir(projectRoot)}
+					onComplete={handleCleanWizardComplete}
+					onCancel={handleWizardCancel}
+					addOutput={addOutput}
+				/>
+			) : (
+				<TextInput
+					onSubmit={handleSubmit}
+					onCtrlC={handleCtrlC}
+					commands={COMMANDS}
+					navigateHistoryUp={navigateUp}
+					navigateHistoryDown={navigateDown}
+					resetHistoryIndex={resetIndex}
+				/>
+			)}
+		</Box>
+	);
+}
+
+/**
+ * Main App component with Redux Provider.
+ */
+export default function App() {
+	return (
+		<Provider store={store}>
+			<AppContent />
 		</Provider>
 	);
 }

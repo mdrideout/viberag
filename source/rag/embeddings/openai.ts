@@ -22,8 +22,9 @@ const DEFAULT_API_BASE = 'https://api.openai.com/v1';
 const MODEL = 'text-embedding-3-small';
 // OpenAI limits: 8,191 tokens/text, 300,000 tokens/batch, 2,048 texts/batch
 // Chunks are ~2000 chars + context header ≈ 800-1000 tokens each
-// 200 chunks × 1000 tokens = 200,000 tokens (safe margin under 300k limit)
-const BATCH_SIZE = 200;
+// 32 chunks × 1000 tokens = 32,000 tokens (well under 300k limit)
+// Smaller batches = more progress visibility with 5 concurrent slots
+const BATCH_SIZE = 32;
 
 /**
  * OpenAI embedding provider.
@@ -101,6 +102,7 @@ export class OpenAIEmbeddingProvider implements EmbeddingProvider {
 			BATCH_SIZE,
 			batchMetadata,
 			options?.logger,
+			options?.chunkOffset ?? 0,
 		);
 	}
 

@@ -88,6 +88,7 @@ export class MistralEmbeddingProvider implements EmbeddingProvider {
 			BATCH_SIZE,
 			batchMetadata,
 			options?.logger,
+			options?.chunkOffset ?? 0,
 		);
 	}
 

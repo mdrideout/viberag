@@ -3,6 +3,8 @@
  *
  * Watches the project directory for file changes and triggers
  * incremental indexing with debouncing and batching.
+ *
+ * State is tracked in Redux for consistency with the rest of the codebase.
  */
 
 import {watch, type FSWatcher} from 'chokidar';
@@ -16,6 +18,7 @@ import {
 	type IndexStats,
 	type Logger,
 } from '../rag/index.js';
+import {store, WatcherActions} from '../store/index.js';
 
 // Simplified Ignore interface (subset of the ignore package)
 interface Ignore {
@@ -54,6 +57,7 @@ export interface WatcherIndexResult {
 
 /**
  * File watcher that triggers incremental indexing on changes.
+ * State is tracked in Redux - class only holds references and batching logic.
  */
 export class FileWatcher {
 	private readonly projectRoot: string;
@@ -62,17 +66,12 @@ export class FileWatcher {
 	private logger: Logger | null = null;
 	private gitignore: Ignore | null = null;
 
-	// Batching state
+	// Batching state (internal, not in Redux)
 	private pendingChanges: Set<string> = new Set();
 	private batchTimeout: ReturnType<typeof setTimeout> | null = null;
 	private debounceTimeout: ReturnType<typeof setTimeout> | null = null;
 
-	// Status tracking
-	private filesWatched = 0;
-	private lastIndexUpdate: string | null = null;
-	private indexUpToDate = true;
-	private lastError: string | null = null;
-	private isIndexing = false;
+	// Status tracking is now in Redux - no local state fields
 
 	constructor(projectRoot: string) {
 		this.projectRoot = projectRoot;
@@ -86,12 +85,16 @@ export class FileWatcher {
 			return; // Already watching
 		}
 
+		// Dispatch to Redux: starting
+		store.dispatch(WatcherActions.starting());
+
 		// Load config
 		this.config = await loadConfig(this.projectRoot);
 		const watchConfig = this.config.watch;
 
 		if (!watchConfig.enabled) {
 			this.log('info', 'File watching disabled in config');
+			store.dispatch(WatcherActions.stopped());
 			return;
 		}
 
@@ -155,9 +158,9 @@ export class FileWatcher {
 				return;
 			}
 
-			// Track file count
+			// Track file count via Redux
 			this.watcher.on('add', path => {
-				this.filesWatched++;
+				store.dispatch(WatcherActions.fileAdded());
 				this.handleChange('add', path);
 			});
 
@@ -166,19 +169,22 @@ export class FileWatcher {
 			});
 
 			this.watcher.on('unlink', path => {
-				this.filesWatched = Math.max(0, this.filesWatched - 1);
+				store.dispatch(WatcherActions.fileDeleted());
 				this.handleChange('unlink', path);
 			});
 
 			this.watcher.on('error', error => {
 				const message = error instanceof Error ? error.message : String(error);
-				this.lastError = message;
+				store.dispatch(WatcherActions.error({error: message}));
 				this.log('error', `Watcher error: ${message}`);
 				// Don't reject on error - watcher can continue with partial coverage
 			});
 
 			this.watcher.on('ready', () => {
-				this.log('info', `Watcher ready, watching ${this.filesWatched} files`);
+				const filesWatched = store.getState().watcher.filesWatched;
+				this.log('info', `Watcher ready, watching ${filesWatched} files`);
+				// Dispatch to Redux: ready (with count from Redux)
+				store.dispatch(WatcherActions.ready({filesWatched}));
 				resolve();
 			});
 		});
@@ -204,30 +210,34 @@ export class FileWatcher {
 			this.batchTimeout = null;
 		}
 
-		// Flush pending changes before stopping
-		if (this.pendingChanges.size > 0 && !this.isIndexing) {
+		// Flush pending changes before stopping (check Redux for indexing status)
+		const isIndexing = store.getState().watcher.status === 'indexing';
+		if (this.pendingChanges.size > 0 && !isIndexing) {
 			this.log('info', 'Flushing pending changes before stop');
 			await this.processBatch();
 		}
 
 		await this.watcher.close();
 		this.watcher = null;
-		this.filesWatched = 0;
 		this.pendingChanges.clear();
+
+		// Dispatch to Redux: stopped (resets all state)
+		store.dispatch(WatcherActions.stopped());
 	}
 
 	/**
-	 * Get current watcher status.
+	 * Get current watcher status from Redux.
 	 */
 	getStatus(): WatcherStatus {
+		const state = store.getState().watcher;
 		return {
 			watching: this.watcher !== null,
-			filesWatched: this.filesWatched,
+			filesWatched: state.filesWatched,
 			pendingChanges: this.pendingChanges.size,
 			pendingPaths: Array.from(this.pendingChanges).slice(0, 10), // Limit to 10
-			lastIndexUpdate: this.lastIndexUpdate,
-			indexUpToDate: this.indexUpToDate && this.pendingChanges.size === 0,
-			lastError: this.lastError,
+			lastIndexUpdate: state.lastIndexUpdate,
+			indexUpToDate: state.indexUpToDate && this.pendingChanges.size === 0,
+			lastError: state.lastError,
 		};
 	}
 
@@ -263,7 +273,13 @@ export class FileWatcher {
 
 		// Add to pending changes
 		this.pendingChanges.add(path);
-		this.indexUpToDate = false;
+
+		// Dispatch to Redux: debouncing with pending paths (sets indexUpToDate=false)
+		store.dispatch(
+			WatcherActions.debouncing({
+				pendingPaths: Array.from(this.pendingChanges),
+			}),
+		);
 
 		// Debounce: reset the debounce timer on each change
 		if (this.debounceTimeout) {
@@ -277,6 +293,8 @@ export class FileWatcher {
 
 			// Start batch window if not already started
 			if (!this.batchTimeout) {
+				// Dispatch to Redux: batching
+				store.dispatch(WatcherActions.batching());
 				this.batchTimeout = setTimeout(() => {
 					this.batchTimeout = null;
 					this.processBatch();
@@ -293,7 +311,8 @@ export class FileWatcher {
 			return {success: true, filesProcessed: []};
 		}
 
-		if (this.isIndexing) {
+		// Check Redux for indexing status
+		if (store.getState().watcher.status === 'indexing') {
 			this.log('debug', 'Index already in progress, skipping batch');
 			return {success: false, error: 'Index in progress', filesProcessed: []};
 		}
@@ -305,16 +324,22 @@ export class FileWatcher {
 			'info',
 			`Processing batch of ${filesToProcess.length} changed files`,
 		);
-		this.isIndexing = true;
+
+		// Dispatch to Redux: indexing (single source of truth)
+		store.dispatch(WatcherActions.indexing());
 
 		try {
 			const indexer = new Indexer(this.projectRoot, this.logger ?? undefined);
 			const stats = await indexer.index({force: false});
 			indexer.close();
 
-			this.lastIndexUpdate = new Date().toISOString();
-			this.indexUpToDate = true;
-			this.lastError = null;
+			// Dispatch to Redux: indexed (sets lastIndexUpdate, indexUpToDate, clears error)
+			store.dispatch(
+				WatcherActions.indexed({
+					chunksAdded: stats.chunksAdded,
+					chunksDeleted: stats.chunksDeleted,
+				}),
+			);
 
 			this.log(
 				'info',
@@ -324,15 +349,16 @@ export class FileWatcher {
 			return {success: true, stats, filesProcessed: filesToProcess};
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
-			this.lastError = message;
+
+			// Dispatch to Redux: indexFailed (sets lastError)
+			store.dispatch(WatcherActions.indexFailed({error: message}));
+
 			this.log('error', `Index update failed: ${message}`);
 
 			// Put files back in pending queue for retry
 			filesToProcess.forEach(f => this.pendingChanges.add(f));
 
 			return {success: false, error: message, filesProcessed: []};
-		} finally {
-			this.isIndexing = false;
 		}
 	}
 

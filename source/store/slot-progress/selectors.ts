@@ -17,17 +17,8 @@ type RootState = {
 // Basic Selectors
 // ============================================================================
 
-export const selectSlotProgress = (state: RootState): SlotProgressState =>
-	state.slotProgress;
-
 export const selectSlots = (state: RootState): SlotState[] =>
 	state.slotProgress.slots;
-
-export const selectIsIndexing = (state: RootState): boolean =>
-	state.slotProgress.isIndexing;
-
-export const selectError = (state: RootState): string | null =>
-	state.slotProgress.error;
 
 export const selectFailures = (state: RootState): FailedChunk[] =>
 	state.slotProgress.failures;
@@ -51,18 +42,6 @@ export const selectSlotCount = (state: RootState): number =>
 // ============================================================================
 // Memoized Selectors
 // ============================================================================
-
-/**
- * Select only active (non-idle) slots with their indices.
- * Memoized to prevent unnecessary re-renders.
- */
-export const selectActiveSlots = createSelector(
-	[selectSlots],
-	(slots): Array<{index: number; slot: SlotState}> =>
-		slots
-			.map((slot, index) => ({index, slot}))
-			.filter(({slot}) => slot.state !== 'idle'),
-);
 
 /**
  * Check if any slot is rate-limited.

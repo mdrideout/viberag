@@ -42,6 +42,12 @@ import {
 	type IndexStats,
 	type ProgressCallback,
 } from './types.js';
+import {
+	store,
+	IndexingActions,
+	SlotProgressActions,
+} from '../../store/index.js';
+import pLimit from 'p-limit';
 
 /**
  * Options for the index operation.
@@ -99,6 +105,10 @@ export class Indexer {
 		const stats = createEmptyIndexStats();
 		const {force = false, progressCallback} = options;
 
+		// Dispatch to Redux: start indexing
+		store.dispatch(IndexingActions.start());
+		store.dispatch(SlotProgressActions.clearFailures());
+
 		try {
 			// Initialize components
 			await this.initialize(progressCallback);
@@ -120,6 +130,13 @@ export class Indexer {
 
 			// 2. Build current Merkle tree from filesystem
 			this.log('info', 'Building Merkle tree');
+			store.dispatch(
+				IndexingActions.setProgress({
+					current: 0,
+					total: 100,
+					stage: 'Scanning files',
+				}),
+			);
 			progressCallback?.(0, 100, 'Scanning files');
 
 			const currentTree = await MerkleTree.build(
@@ -174,7 +191,7 @@ export class Indexer {
 			const totalFiles = filesToProcess.length;
 
 			// Aggregated progress state - prevents race conditions between callbacks
-			// Note: Slot progress is now managed via Redux store, not callbacks
+			// Primary progress is dispatched to Redux; callback kept for backward compat
 			const progressState = {
 				current: 0,
 				total: totalFiles,
@@ -183,8 +200,18 @@ export class Indexer {
 				chunksProcessed: 0,
 			};
 
-			// Emit aggregated progress
+			// Emit aggregated progress to both Redux and callback
 			const emitProgress = () => {
+				// Dispatch to Redux (primary mechanism)
+				store.dispatch(
+					IndexingActions.setProgress({
+						current: progressState.current,
+						total: progressState.total,
+						stage: progressState.stage,
+						chunksProcessed: progressState.chunksProcessed,
+					}),
+				);
+				// Callback (backward compatibility)
 				progressCallback?.(
 					progressState.current,
 					progressState.total,
@@ -199,6 +226,8 @@ export class Indexer {
 				(embeddings as {onThrottle?: (msg: string | null) => void}).onThrottle =
 					message => {
 						progressState.throttleMessage = message;
+						// Dispatch throttle to Redux
+						store.dispatch(IndexingActions.setThrottle(message));
 						emitProgress();
 					};
 			}
@@ -214,46 +243,93 @@ export class Indexer {
 					stats.chunksDeleted += deletedCount;
 				}
 
-				// Process files in batches
+				// Process files in batches with limited concurrency
+				// This allows batch N+1 to start building while batch N is embedding
+				// With 3 concurrent batches, we maximize the chance that at least one
+				// batch is always in the embedding phase while others are chunking
 				const batchSize = 10;
+				const FILE_BATCH_CONCURRENCY = 3; // 3 file batches in flight
+				const batchLimit = pLimit(FILE_BATCH_CONCURRENCY);
+				const writeQueue: Promise<void>[] = []; // Queue storage writes
+
+				// Calculate total batches for progress display
+				const totalBatches = Math.ceil(filesToProcess.length / batchSize);
+
+				// Track chunk ranges across batches
+				let accumulatedChunks = 0;
+
+				// Build all batch tasks
+				const batchTasks: Array<() => Promise<void>> = [];
 				for (let i = 0; i < filesToProcess.length; i += batchSize) {
+					const batchIndex = Math.floor(i / batchSize);
 					const batch = filesToProcess.slice(i, i + batchSize);
-					const batchChunks = await this.processFileBatch(
-						batch,
-						chunker,
-						embeddings,
-						storage,
-						stats,
-						{
-							totalFiles,
-							currentFileOffset: i,
-							progressCallback,
-							onChunksProcessed: (count: number) => {
-								progressState.chunksProcessed += count;
-								emitProgress();
+					const currentOffset = i;
+
+					batchTasks.push(async () => {
+						const chunkStartForThisBatch = accumulatedChunks + 1;
+						// Capture current chunk offset for cumulative progress display
+						const currentChunkOffset = accumulatedChunks;
+
+						const batchChunks = await this.processFileBatch(
+							batch,
+							chunker,
+							embeddings,
+							storage,
+							stats,
+							{
+								totalFiles,
+								currentFileOffset: currentOffset,
+								progressCallback,
+								onChunksProcessed: (count: number) => {
+									progressState.chunksProcessed += count;
+									emitProgress();
+								},
+								chunkOffset: currentChunkOffset,
 							},
-						},
-					);
+						);
 
-					if (batchChunks.length > 0) {
-						// Use addChunks after table reset to avoid schema mismatch,
-						// upsertChunks for normal incremental updates
-						if (force) {
-							await storage.addChunks(batchChunks);
-						} else {
-							await storage.upsertChunks(batchChunks);
+						// Update batch progress with chunk range
+						accumulatedChunks += batchChunks.length;
+						store.dispatch(
+							IndexingActions.setBatchProgress({
+								currentBatch: batchIndex + 1,
+								totalBatches,
+								chunkStart: chunkStartForThisBatch,
+								chunkEnd: accumulatedChunks,
+							}),
+						);
+
+						if (batchChunks.length > 0) {
+							// Queue storage write (don't await - allows overlap)
+							const writePromise = (async () => {
+								if (force) {
+									await storage.addChunks(batchChunks);
+								} else {
+									await storage.upsertChunks(batchChunks);
+								}
+								stats.chunksAdded += batchChunks.length;
+							})();
+							writeQueue.push(writePromise);
 						}
-						stats.chunksAdded += batchChunks.length;
-					}
 
-					const progress = Math.round(((i + batch.length) / totalFiles) * 100);
-					progressState.current = i + batch.length;
-					emitProgress();
-					this.log(
-						'debug',
-						`Progress: ${progress}% (${i + batch.length}/${totalFiles})`,
-					);
+						// Update progress for this batch
+						progressState.current = Math.min(
+							currentOffset + batch.length,
+							totalFiles,
+						);
+						emitProgress();
+						this.log(
+							'debug',
+							`Batch ${batchIndex + 1}: processed ${batch.length} files`,
+						);
+					});
 				}
+
+				// Execute batches with limited concurrency
+				await Promise.all(batchTasks.map(task => batchLimit(task)));
+
+				// Wait for all storage writes to complete
+				await Promise.all(writeQueue);
 			}
 
 			// 7. Update manifest with new tree and stats
@@ -270,9 +346,18 @@ export class Indexer {
 				`Index complete: ${stats.chunksAdded} chunks added, ${stats.chunksDeleted} deleted`,
 			);
 
+			// Dispatch to Redux: indexing complete
+			store.dispatch(IndexingActions.complete());
+
 			return stats;
 		} catch (error) {
 			this.log('error', 'Indexing failed', error as Error);
+			// Dispatch to Redux: indexing failed
+			store.dispatch(
+				IndexingActions.fail(
+					error instanceof Error ? error.message : String(error),
+				),
+			);
 			throw error;
 		}
 	}
@@ -330,9 +415,12 @@ export class Indexer {
 			currentFileOffset: number;
 			progressCallback?: ProgressCallback;
 			onChunksProcessed?: (count: number) => void;
+			/** Offset for cumulative chunk numbering in slot progress display */
+			chunkOffset?: number;
 		},
 	): Promise<CodeChunk[]> {
-		// Phase 1: Read and chunk ALL files first (collect everything)
+		// Phase 1: Read all files in PARALLEL, then chunk sequentially
+		// (tree-sitter has global state that prevents parallel chunking)
 		type FileData = {
 			filepath: string;
 			fileHash: string;
@@ -340,13 +428,34 @@ export class Indexer {
 		};
 		const fileDataList: FileData[] = [];
 
-		for (const filepath of filepaths) {
-			try {
+		// Import hash function once
+		const {computeStringHash} = await import('../merkle/hash.js');
+
+		// Read all files in parallel
+		type FileReadResult = {
+			filepath: string;
+			content: string;
+			fileHash: string;
+		};
+		const readResults = await Promise.allSettled(
+			filepaths.map(async (filepath): Promise<FileReadResult> => {
 				const absolutePath = path.join(this.projectRoot, filepath);
 				const content = await fs.readFile(absolutePath, 'utf-8');
-				const fileHash = (await import('../merkle/hash.js')).computeStringHash(
-					content,
-				);
+				const fileHash = computeStringHash(content);
+				return {filepath, content, fileHash};
+			}),
+		);
+
+		// Process read results and chunk sequentially (tree-sitter constraint)
+		for (const result of readResults) {
+			if (result.status === 'rejected') {
+				// Find the filepath from the error or skip logging if unknown
+				this.log('warn', `Failed to read file`, result.reason as Error);
+				continue;
+			}
+
+			const {filepath, content, fileHash} = result.value;
+			try {
 				const chunks = await chunker.chunkFile(
 					filepath,
 					content,
@@ -354,11 +463,7 @@ export class Indexer {
 				);
 				fileDataList.push({filepath, fileHash, chunks});
 			} catch (error) {
-				this.log(
-					'warn',
-					`Failed to read/parse file: ${filepath}`,
-					error as Error,
-				);
+				this.log('warn', `Failed to parse file: ${filepath}`, error as Error);
 				continue;
 			}
 		}
@@ -438,6 +543,7 @@ export class Indexer {
 			const newEmbeddings = await embeddings.embed(texts, {
 				chunkMetadata,
 				logger: this.debugLogger,
+				chunkOffset: progressContext?.chunkOffset ?? 0,
 			});
 			stats.embeddingsComputed += missingChunksWithContext.length;
 
@@ -518,6 +624,14 @@ export class Indexer {
 	 * Initialize all components.
 	 */
 	private async initialize(progressCallback?: ProgressCallback): Promise<void> {
+		// Helper to dispatch stage update to both Redux and callback
+		const setStage = (stage: string) => {
+			store.dispatch(
+				IndexingActions.setProgress({current: 0, total: 0, stage}),
+			);
+			progressCallback?.(0, 0, stage);
+		};
+
 		// Load config
 		this.config = await loadConfig(this.projectRoot);
 		const providerName = this.getProviderDisplayName(
@@ -525,7 +639,7 @@ export class Indexer {
 		);
 
 		// Initialize storage
-		progressCallback?.(0, 0, 'Connecting to database');
+		setStage('Connecting to database');
 		this.storage = new Storage(
 			this.projectRoot,
 			this.config.embeddingDimensions,
@@ -533,16 +647,14 @@ export class Indexer {
 		await this.storage.connect();
 
 		// Initialize chunker (loads tree-sitter parsers)
-		progressCallback?.(0, 0, 'Loading parsers');
+		setStage('Loading parsers');
 		this.chunker = new Chunker();
 		await this.chunker.initialize();
 
 		// Initialize embeddings based on provider type
 		// For local models, this may download the model on first run
 		const isLocal = this.config.embeddingProvider === 'local';
-		progressCallback?.(
-			0,
-			0,
+		setStage(
 			isLocal
 				? `Loading ${providerName} model`
 				: `Connecting to ${providerName}`,
@@ -551,16 +663,20 @@ export class Indexer {
 
 		// Pass model progress to the UI for local models
 		await this.embeddings.initialize(
-			isLocal && progressCallback
+			isLocal
 				? (status, progress, _message) => {
 						if (status === 'downloading') {
-							progressCallback(
-								progress ?? 0,
-								100,
-								`Downloading ${providerName} (${progress}%)`,
+							const stage = `Downloading ${providerName} (${progress}%)`;
+							store.dispatch(
+								IndexingActions.setProgress({
+									current: progress ?? 0,
+									total: 100,
+									stage,
+								}),
 							);
+							progressCallback?.(progress ?? 0, 100, stage);
 						} else if (status === 'loading') {
-							progressCallback(0, 0, `Loading ${providerName} model`);
+							setStage(`Loading ${providerName} model`);
 						}
 					}
 				: undefined,

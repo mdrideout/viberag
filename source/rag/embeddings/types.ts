@@ -34,6 +34,8 @@ export interface EmbedOptions {
 	chunkMetadata?: ChunkMetadata[];
 	/** Logger for debug output on failures */
 	logger?: Logger;
+	/** Offset for cumulative chunk numbering in progress display */
+	chunkOffset?: number;
 }
 
 /**

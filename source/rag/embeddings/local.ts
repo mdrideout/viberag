@@ -15,6 +15,7 @@
  */
 
 import {pipeline} from '@huggingface/transformers';
+import pLimit from 'p-limit';
 import type {
 	EmbeddingProvider,
 	ModelProgressCallback,
@@ -24,6 +25,9 @@ import type {
 const MODEL_NAME = 'onnx-community/Qwen3-Embedding-0.6B-ONNX';
 const DIMENSIONS = 1024;
 const BATCH_SIZE = 8;
+// Moderate concurrency - ONNX has a single model context but can benefit from
+// pipelining I/O between batches. Higher values may increase memory pressure.
+const LOCAL_BATCH_CONCURRENCY = 2;
 
 // Module-level cache for the ONNX pipeline
 // Shared across all LocalEmbeddingProvider instances to avoid reloading the model
@@ -121,17 +125,21 @@ export class LocalEmbeddingProvider implements EmbeddingProvider {
 			return [];
 		}
 
-		const results: number[][] = [];
-
-		// Process in batches for memory efficiency
-		// Note: Local provider doesn't use options - failure logging is for API providers
+		// Build list of batches
+		const batches: string[][] = [];
 		for (let i = 0; i < texts.length; i += BATCH_SIZE) {
-			const batch = texts.slice(i, i + BATCH_SIZE);
-			const batchResults = await this.embedBatch(batch);
-			results.push(...batchResults);
+			batches.push(texts.slice(i, i + BATCH_SIZE));
 		}
 
-		return results;
+		// Process batches with limited concurrency
+		// Note: Local provider doesn't use options - failure logging is for API providers
+		const limit = pLimit(LOCAL_BATCH_CONCURRENCY);
+		const batchResults = await Promise.all(
+			batches.map(batch => limit(() => this.embedBatch(batch))),
+		);
+
+		// Flatten results maintaining order
+		return batchResults.flat();
 	}
 
 	private async embedBatch(texts: string[]): Promise<number[][]> {

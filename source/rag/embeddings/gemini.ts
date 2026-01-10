@@ -93,6 +93,7 @@ export class GeminiEmbeddingProvider implements EmbeddingProvider {
 			BATCH_SIZE,
 			batchMetadata,
 			options?.logger,
+			options?.chunkOffset ?? 0,
 		);
 	}
 

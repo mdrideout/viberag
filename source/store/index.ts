@@ -27,10 +27,122 @@ export {
 export {
 	selectSlot,
 	selectSlots,
-	selectIsIndexing,
-	selectActiveSlots,
 	selectSlotCount,
-	selectError,
 	selectFailures,
 	selectHasRateLimitedSlots,
 } from './slot-progress/selectors.js';
+
+// Indexing slice
+export {
+	IndexingActions,
+	indexingReducer,
+	type IndexingState,
+	type IndexingStatus,
+} from './indexing/slice.js';
+
+// Indexing selectors
+export {
+	selectIndexingState,
+	selectIndexingStatus,
+	selectIndexingStage,
+	selectIndexingCurrent,
+	selectIndexingTotal,
+	selectThrottleMessage,
+	selectChunksProcessed,
+	selectIndexingError,
+	selectIsIndexing,
+	selectIndexingPercent,
+	selectIsThrottled,
+	selectIndexingColor,
+	selectIndexingDisplay,
+} from './indexing/selectors.js';
+
+// Warmup slice
+export {
+	WarmupActions,
+	warmupReducer,
+	type WarmupState,
+	type WarmupStatus,
+} from './warmup/slice.js';
+
+// Warmup selectors
+export {
+	selectWarmupState,
+	selectWarmupStatus,
+	selectWarmupProvider,
+	selectWarmupError,
+	selectWarmupElapsedMs,
+	selectIsWarmupReady,
+	selectIsWarmingUp,
+	selectIsWarmupFailed,
+	selectWarmupStatusText,
+} from './warmup/selectors.js';
+
+// Watcher slice
+export {
+	WatcherActions,
+	watcherReducer,
+	type WatcherState,
+	type WatcherStatus,
+} from './watcher/slice.js';
+
+// Watcher selectors
+export {
+	selectWatcherState,
+	selectWatcherStatus,
+	selectFilesWatched,
+	selectPendingPaths,
+	selectLastIndexUpdate,
+	selectIsIndexUpToDate,
+	selectWatcherError,
+	selectIsWatching,
+	selectIsWatcherBusy,
+	selectPendingChangeCount,
+	selectWatcherStatusText,
+} from './watcher/selectors.js';
+
+// Wizard slice
+export {
+	WizardActions,
+	wizardReducer,
+	type WizardState,
+	type WizardType,
+	type McpSetupStep,
+	type InitWizardConfig as WizardInitConfig,
+	type McpSetupWizardConfig as WizardMcpConfig,
+	type PartialInitConfig,
+	type PartialMcpConfig,
+} from './wizard/slice.js';
+
+// Wizard selectors
+export {
+	selectWizardState,
+	selectActiveWizard,
+	selectInitStep,
+	selectMcpStep,
+	selectInitConfig,
+	selectMcpConfig,
+	selectIsReinit,
+	selectShowMcpPrompt,
+	selectExistingApiKey,
+	selectExistingProvider,
+	selectIsWizardActive,
+	selectIsInitWizardActive,
+	selectIsMcpWizardActive,
+	selectIsCleanWizardActive,
+} from './wizard/selectors.js';
+
+// App slice
+export {AppActions, appReducer, type AppState} from './app/slice.js';
+
+// App selectors
+export {
+	selectAppState,
+	selectIsInitialized,
+	selectIndexStats,
+	selectAppStatus,
+	selectOutputItems,
+	selectStartupLoaded,
+	selectIsBusy,
+	selectOutputCount,
+} from './app/selectors.js';

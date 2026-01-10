@@ -11,16 +11,14 @@ import {
 	runSearch,
 	getStatus,
 	loadIndexStats,
-	type IndexDisplayStats,
 } from './handlers.js';
 import {setupVSCodeTerminal} from '../../common/commands/terminalSetup.js';
-import type {AppStatus, SearchResultsData} from '../../common/types.js';
+import type {SearchResultsData} from '../../common/types.js';
+import {useAppDispatch, AppActions} from '../../store/index.js';
 
 type RagCommandContext = {
 	addOutput: (type: 'user' | 'system', content: string) => void;
 	addSearchResults: (data: SearchResultsData) => void;
-	setAppStatus: (status: AppStatus) => void;
-	setIndexStats: (stats: IndexDisplayStats | null) => void;
 	projectRoot: string;
 	stdout: NodeJS.WriteStream;
 	startInitWizard: (isReinit: boolean) => void;
@@ -32,8 +30,6 @@ type RagCommandContext = {
 export function useRagCommands({
 	addOutput,
 	addSearchResults,
-	setAppStatus,
-	setIndexStats,
 	projectRoot,
 	stdout,
 	startInitWizard,
@@ -41,6 +37,7 @@ export function useRagCommands({
 	startCleanWizard,
 	isInitialized,
 }: RagCommandContext) {
+	const dispatch = useAppDispatch();
 	const {exit} = useApp();
 
 	// Command handlers
@@ -97,40 +94,29 @@ Manual MCP Setup:
 		(force: boolean) => {
 			const action = force ? 'Reindexing' : 'Indexing';
 			addOutput('system', `${action} codebase...`);
-			setAppStatus({state: 'indexing', current: 0, total: 0, stage: action});
+			// Progress details now come from Redux via IndexingActions
+			dispatch(AppActions.setIndexing());
 
-			runIndex(
-				projectRoot,
-				force,
-				(current, total, stage, throttleMessage, chunksProcessed) =>
-					setAppStatus({
-						state: 'indexing',
-						current,
-						total,
-						stage,
-						throttleMessage,
-						chunksProcessed,
-					}),
-			)
+			runIndex(projectRoot, force)
 				.then(async stats => {
 					addOutput('system', formatIndexStats(stats));
 					// Reload stats after indexing
 					const newStats = await loadIndexStats(projectRoot);
-					setIndexStats(newStats);
-					setAppStatus({state: 'ready'});
+					dispatch(AppActions.setIndexStats(newStats));
+					dispatch(AppActions.setReady());
 				})
 				.catch(err => {
 					addOutput('system', `Index failed: ${err.message}`);
-					setAppStatus({state: 'ready'});
+					dispatch(AppActions.setReady());
 				});
 		},
-		[projectRoot, addOutput, setAppStatus, setIndexStats],
+		[projectRoot, addOutput, dispatch],
 	);
 
 	const handleSearch = useCallback(
 		(query: string) => {
 			addOutput('system', `Searching for "${query}"...`);
-			setAppStatus({state: 'searching'});
+			dispatch(AppActions.setSearching());
 
 			runSearch(projectRoot, query)
 				.then(results => {
@@ -149,14 +135,14 @@ Manual MCP Setup:
 							text: r.text,
 						})),
 					});
-					setAppStatus({state: 'ready'});
+					dispatch(AppActions.setReady());
 				})
 				.catch(err => {
 					addOutput('system', `Search failed: ${err.message}`);
-					setAppStatus({state: 'ready'});
+					dispatch(AppActions.setReady());
 				});
 		},
-		[projectRoot, addOutput, addSearchResults, setAppStatus],
+		[projectRoot, addOutput, addSearchResults, dispatch],
 	);
 
 	const handleStatus = useCallback(() => {

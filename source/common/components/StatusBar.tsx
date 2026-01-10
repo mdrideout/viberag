@@ -5,6 +5,10 @@ import {
 	selectSlotCount,
 	selectFailures,
 } from '../../store/slot-progress/selectors.js';
+import {
+	selectIndexingDisplay,
+	selectIsIndexing,
+} from '../../store/indexing/selectors.js';
 import {SlotRow} from './SlotRow.js';
 import type {AppStatus, IndexDisplayStats} from '../types.js';
 
@@ -55,53 +59,20 @@ function ProgressBar({
 
 /**
  * Format status message for display.
- * Note: Slot progress is now handled via Redux, not passed through status.
+ * Note: Indexing progress is now read from Redux via selectIndexingDisplay.
+ * This function only handles non-indexing states.
  */
-function formatStatus(status: AppStatus): {
+function formatNonIndexingStatus(status: AppStatus): {
+	text: string;
 	color: string;
 	showSpinner: boolean;
-	percent?: number;
-	stage?: string;
-	chunkInfo?: string;
-	throttleInfo?: string;
-	text?: string;
-} {
+} | null {
 	switch (status.state) {
 		case 'ready':
 			return {text: 'Ready', color: 'green', showSpinner: false};
-		case 'indexing': {
-			let color: string = 'cyan';
-
-			if (status.total === 0) {
-				return {
-					text: status.stage,
-					color,
-					showSpinner: true,
-				};
-			}
-
-			const percent = Math.round((status.current / status.total) * 100);
-			const chunkInfo =
-				status.chunksProcessed !== undefined
-					? `${status.chunksProcessed} chunks`
-					: undefined;
-
-			// Rate limit info (turns status yellow)
-			let throttleInfo: string | undefined;
-			if (status.throttleMessage) {
-				throttleInfo = status.throttleMessage;
-				color = 'yellow';
-			}
-
-			return {
-				color,
-				showSpinner: true,
-				percent,
-				stage: status.stage,
-				chunkInfo,
-				throttleInfo,
-			};
-		}
+		case 'indexing':
+			// Handled by Redux - return null to signal caller
+			return null;
 		case 'searching':
 			return {text: 'Searching', color: 'cyan', showSpinner: true};
 		case 'warning':
@@ -123,19 +94,57 @@ function formatStats(stats: IndexDisplayStats | null | undefined): string {
 }
 
 export default function StatusBar({status, stats}: Props) {
-	const {text, color, showSpinner, percent, stage, chunkInfo, throttleInfo} =
-		formatStatus(status);
 	const statsText = formatStats(stats);
+
+	// Redux selectors for indexing progress
+	const indexingDisplay = useAppSelector(selectIndexingDisplay);
+	const isIndexingActive = useAppSelector(selectIsIndexing);
 
 	// Redux selectors for slot progress
 	const slotCount = useAppSelector(selectSlotCount);
 	const failures = useAppSelector(selectFailures);
 
-	// Progress bar mode (indexing with known total)
-	const showProgressBar = percent !== undefined;
+	// Determine display values based on state source
+	// For indexing: use Redux state (primary source of truth)
+	// For other states: use props
+	const nonIndexingStatus = formatNonIndexingStatus(status);
+
+	// Use Redux for indexing display, props for everything else
+	const displayValues = isIndexingActive
+		? {
+				text: indexingDisplay.stage,
+				color: indexingDisplay.color,
+				showSpinner: true,
+				showProgressBar: indexingDisplay.showProgressBar,
+				percent: indexingDisplay.percent,
+				stage: indexingDisplay.stage,
+				chunkInfo: indexingDisplay.chunkInfo,
+				throttleInfo: indexingDisplay.throttleInfo,
+			}
+		: {
+				text: nonIndexingStatus?.text ?? 'Ready',
+				color: nonIndexingStatus?.color ?? 'green',
+				showSpinner: nonIndexingStatus?.showSpinner ?? false,
+				showProgressBar: false,
+				percent: 0,
+				stage: '',
+				chunkInfo: undefined as string | undefined,
+				throttleInfo: null as string | null,
+			};
+
+	const {
+		text,
+		color,
+		showSpinner,
+		showProgressBar,
+		percent,
+		stage,
+		chunkInfo,
+		throttleInfo,
+	} = displayValues;
 
 	// Always show all slots during indexing (fixed height layout)
-	const showSlots = status.state === 'indexing';
+	const showSlots = isIndexingActive;
 
 	// Show failure summary if any batches failed
 	const hasFailures = failures.length > 0;

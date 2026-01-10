@@ -156,11 +156,25 @@ export function McpSetupWizard({
 				};
 			} else {
 				// Auto setup
-				result = await writeMcpConfig(
-					currentEditor,
-					config.selectedScope,
-					projectRoot,
-				);
+				try {
+					result = await writeMcpConfig(
+						currentEditor,
+						config.selectedScope,
+						projectRoot,
+					);
+				} catch (error) {
+					const message =
+						error instanceof Error ? error.message : String(error);
+					result = {
+						success: false,
+						editor: currentEditor.id,
+						method: 'file-created',
+						error: `Failed to write MCP config: ${message}`,
+					};
+					if (addOutput) {
+						addOutput('system', `Error: ${message}`);
+					}
+				}
 			}
 
 			onStepChange('summary', {result});
@@ -178,9 +192,13 @@ export function McpSetupWizard({
 					? config.result.configPath.slice(projectRoot.length + 1)
 					: config.result.configPath;
 
-				const success = await addToGitignore(projectRoot, relativePath);
-				if (success) {
-					setGitignoreAdded(relativePath);
+				try {
+					const success = await addToGitignore(projectRoot, relativePath);
+					if (success) {
+						setGitignoreAdded(relativePath);
+					}
+				} catch {
+					// Silently fail - gitignore is optional and non-critical
 				}
 			}
 			setGitignoreHandled(true);

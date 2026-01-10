@@ -120,17 +120,13 @@ export async function runInit(
  * Run the indexer and return stats.
  * When force=true, also updates config dimensions to match current PROVIDER_CONFIGS
  * (handles dimension changes after viberag upgrades).
+ *
+ * Note: Progress is now dispatched directly to Redux by the Indexer.
+ * The onProgress callback is kept for backward compatibility but is optional.
  */
 export async function runIndex(
 	projectRoot: string,
 	force: boolean = false,
-	onProgress?: (
-		current: number,
-		total: number,
-		stage: string,
-		throttleMessage?: string | null,
-		chunksProcessed?: number,
-	) => void,
 ): Promise<IndexStats> {
 	// When forcing reindex, sync config dimensions with current provider settings
 	// This handles cases where PROVIDER_CONFIGS dimensions changed (e.g., Gemini 768→1536)
@@ -155,10 +151,8 @@ export async function runIndex(
 	const indexer = new Indexer(projectRoot, logger);
 
 	try {
-		const stats = await indexer.index({
-			force,
-			progressCallback: onProgress,
-		});
+		// Progress is dispatched directly to Redux by the Indexer
+		const stats = await indexer.index({force});
 		return stats;
 	} finally {
 		indexer.close();

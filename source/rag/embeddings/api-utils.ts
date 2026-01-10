@@ -197,6 +197,7 @@ export async function withRetry<T>(
  * @param batchSize - Optional batch size for calculating chunk indices
  * @param batchMetadata - Optional metadata per batch for detailed failure logging
  * @param logger - Optional logger for debug output
+ * @param chunkOffset - Optional offset for cumulative chunk numbering (default: 0)
  * @returns Flattened array of results
  */
 export async function processBatchesWithLimit<T>(
@@ -209,6 +210,7 @@ export async function processBatchesWithLimit<T>(
 	batchSize?: number,
 	batchMetadata?: BatchMetadata[],
 	logger?: Logger,
+	chunkOffset: number = 0,
 ): Promise<number[][]> {
 	const limit = pLimit(CONCURRENCY);
 	let processedItems = 0;
@@ -223,7 +225,9 @@ export async function processBatchesWithLimit<T>(
 				limit(async () => {
 					// Assign slot index (reuse slots as batches complete)
 					const slotIndex = nextSlotIndex++ % CONCURRENCY;
-					const startChunk = batchIndex * (batchSize ?? batch.length) + 1;
+					// Calculate cumulative chunk positions (with offset from prior batches)
+					const startChunk =
+						chunkOffset + batchIndex * (batchSize ?? batch.length) + 1;
 					const endChunk = startChunk + batch.length - 1;
 					const batchInfo = `chunks ${startChunk}-${endChunk}`;
 

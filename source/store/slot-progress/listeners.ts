@@ -1,16 +1,10 @@
 /**
  * Listener middleware for slot progress.
  *
- * Sets up the listener middleware infrastructure. Currently minimal,
- * as slot mutations are dispatched directly from api-utils.ts.
- *
- * The existing callback flow handles main progress bar state (current/total/stage),
- * while Redux handles the slot-level progress for multi-line display.
- *
- * Future extensions could add listeners for:
- * - Debouncing rapid slot updates
- * - Logging/analytics
- * - Complex async orchestration
+ * Infrastructure for Redux listener middleware. Add listeners here for:
+ * - Debouncing rapid updates
+ * - Async orchestration (e.g., wizard completion → indexing → next step)
+ * - Side effects triggered by state changes
  */
 
 import {createListenerMiddleware} from '@reduxjs/toolkit';
@@ -25,7 +19,7 @@ type RootState = {
 };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AppDispatch = any; // Simplified for initial setup
+type AppDispatch = any; // Will be properly typed when store grows
 
 // ============================================================================
 // Listener Middleware
@@ -33,7 +27,14 @@ type AppDispatch = any; // Simplified for initial setup
 
 export const slotProgressListenerMiddleware = createListenerMiddleware();
 
-// Typed listener starter for future use
+/**
+ * Typed listener starter for adding new listeners.
+ * Usage:
+ *   startAppListening({
+ *     actionCreator: SomeAction,
+ *     effect: async (action, listenerApi) => { ... }
+ *   });
+ */
 export const startAppListening =
 	slotProgressListenerMiddleware.startListening.withTypes<
 		RootState,
@@ -44,14 +45,11 @@ export const startAppListening =
 // Listeners
 // ============================================================================
 
-// Currently no active listeners - slot mutations are dispatched directly
-// from api-utils.ts. The middleware is set up for future extensibility.
-
-// Example listener (commented out for reference):
+// Add listeners here as needed. Example:
+//
 // startAppListening({
-//   actionCreator: SlotProgressActions.setSlotProcessing,
+//   actionCreator: SlotProgressActions.addFailure,
 //   effect: async (action, listenerApi) => {
-//     // Could log, debounce, or trigger side effects
-//     console.log('Slot processing:', action.payload);
+//     // Log failures to analytics, trigger notifications, etc.
 //   },
 // });

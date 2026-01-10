@@ -46,20 +46,14 @@ export type TextBufferState = {
 
 /**
  * App status for the status bar.
- * Note: Slot progress is now managed via Redux store, not passed through AppStatus.
+ *
+ * Note: Indexing progress details are now managed via Redux store.
+ * The 'indexing' state is kept as a signal but progress values come from Redux.
+ * Slot progress is also managed via Redux store.
  */
 export type AppStatus =
 	| {state: 'ready'}
-	| {
-			state: 'indexing';
-			current: number;
-			total: number;
-			stage: string;
-			/** Rate limit message (shown in yellow when set) */
-			throttleMessage?: string | null;
-			/** Number of chunks embedded so far */
-			chunksProcessed?: number;
-	  }
+	| {state: 'indexing'}
 	| {state: 'searching'}
 	| {state: 'warning'; message: string};
 

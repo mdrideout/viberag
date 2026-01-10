@@ -36,8 +36,6 @@ export type FailedChunk = {
 
 export interface SlotProgressState {
 	slots: SlotState[];
-	isIndexing: boolean;
-	error: string | null;
 	/** Batches that failed after exhausting all retries */
 	failures: FailedChunk[];
 }
@@ -53,8 +51,6 @@ const createInitialSlots = (): SlotState[] =>
 
 const initialState: SlotProgressState = {
 	slots: createInitialSlots(),
-	isIndexing: false,
-	error: null,
 	failures: [],
 };
 
@@ -66,32 +62,6 @@ export const slotProgressSlice = createSlice({
 	name: 'slotProgress',
 	initialState,
 	reducers: {
-		// ========================================
-		// Trigger Actions - Intercepted by listeners
-		// ========================================
-
-		/**
-		 * Trigger action to start indexing.
-		 * The listener middleware intercepts this and orchestrates the indexing process.
-		 */
-		startIndexing: (
-			_state,
-			_action: PayloadAction<{
-				projectRoot: string;
-				force: boolean;
-			}>,
-		) => {
-			// No-op: handled by listener middleware
-		},
-
-		// ========================================
-		// Mutation Actions - Called by api-utils and listeners
-		// ========================================
-
-		setIsIndexing: (state, action: PayloadAction<boolean>) => {
-			state.isIndexing = action.payload;
-		},
-
 		setSlotProcessing: (
 			state,
 			action: PayloadAction<{
@@ -128,10 +98,6 @@ export const slotProgressSlice = createSlice({
 
 		resetSlots: state => {
 			state.slots = createInitialSlots();
-		},
-
-		setError: (state, action: PayloadAction<string | null>) => {
-			state.error = action.payload;
 		},
 
 		/**
