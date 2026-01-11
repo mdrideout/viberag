@@ -51,12 +51,12 @@ export const selectStartupLoaded = createSelector(
 );
 
 /**
- * Check if the app is in a busy state (indexing or searching).
+ * Check if the app is in a busy state (searching).
+ * Note: For indexing state, use selectIsIndexing from indexing selectors.
  */
 export const selectIsBusy = createSelector(
 	[selectAppStatus],
-	(status): boolean =>
-		status.state === 'indexing' || status.state === 'searching',
+	(status): boolean => status.state === 'searching',
 );
 
 /**

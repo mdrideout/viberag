@@ -221,8 +221,7 @@ function AppContent() {
 
 				// Automatically start indexing after init
 				addOutput('system', 'Indexing codebase...');
-				// Progress details now come from Redux via IndexingActions
-				dispatch(AppActions.setIndexing());
+				// Progress is synced from daemon via DaemonClient notifications → Redux
 
 				const stats = await runIndex(projectRoot, true);
 				addOutput('system', formatIndexStats(stats));
@@ -230,7 +229,6 @@ function AppContent() {
 				// Reload stats after indexing
 				const newStats = await loadIndexStats(projectRoot);
 				dispatch(AppActions.setIndexStats(newStats));
-				dispatch(AppActions.setReady());
 
 				// Prompt for MCP setup after init completes
 				await new Promise(resolve => setTimeout(resolve, 100));
@@ -240,7 +238,6 @@ function AppContent() {
 					'system',
 					`Init failed: ${err instanceof Error ? err.message : String(err)}`,
 				);
-				dispatch(AppActions.setReady());
 			}
 		},
 		[projectRoot, isInitialized, startMcpSetupWizard, dispatch, addOutput],

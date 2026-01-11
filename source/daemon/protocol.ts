@@ -94,6 +94,7 @@ export type DaemonMethod =
 export type DaemonNotification =
 	| 'indexProgress'
 	| 'indexComplete'
+	| 'slotProgress'
 	| 'watcherEvent'
 	| 'shuttingDown';
 

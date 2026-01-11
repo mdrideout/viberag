@@ -18,6 +18,7 @@ import {
 	isDaemonRunning,
 	getSocketPath,
 } from './auto-start.js';
+import {store, IndexingActions, SlotProgressActions} from '../store/index.js';
 import type {
 	DaemonClientOptions,
 	ConnectionState,
@@ -247,6 +248,7 @@ export class DaemonClient extends EventEmitter {
 
 	/**
 	 * Handle push notification.
+	 * Dispatches to Redux store to sync state, then emits event.
 	 */
 	private handleNotification(
 		method: string,
@@ -254,11 +256,59 @@ export class DaemonClient extends EventEmitter {
 	): void {
 		switch (method) {
 			case 'indexProgress':
+				// Sync indexing state to local Redux store
+				store.dispatch(
+					IndexingActions.setProgress({
+						current: params['current'] as number,
+						total: params['total'] as number,
+						stage: params['stage'] as string,
+						chunksProcessed: params['chunksProcessed'] as number,
+					}),
+				);
 				this.emit('indexProgress', params as unknown as IndexProgressEvent);
 				break;
 			case 'indexComplete':
+				// Mark indexing as complete in local store
+				if (params['success']) {
+					store.dispatch(IndexingActions.complete());
+				} else {
+					store.dispatch(
+						IndexingActions.fail(
+							(params['error'] as string) ?? 'Unknown error',
+						),
+					);
+				}
 				this.emit('indexComplete', params as unknown as IndexCompleteEvent);
 				break;
+			case 'slotProgress': {
+				// Sync slot progress to local Redux store
+				const slotIndex = params['index'] as number;
+				const slotState = params['state'] as
+					| 'idle'
+					| 'processing'
+					| 'rate-limited';
+
+				if (slotState === 'idle') {
+					store.dispatch(SlotProgressActions.setSlotIdle(slotIndex));
+				} else if (slotState === 'rate-limited') {
+					store.dispatch(
+						SlotProgressActions.setSlotRateLimited({
+							index: slotIndex,
+							batchInfo: (params['batchInfo'] as string) ?? '',
+							retryInfo: (params['retryInfo'] as string) ?? '',
+						}),
+					);
+				} else {
+					store.dispatch(
+						SlotProgressActions.setSlotProcessing({
+							index: slotIndex,
+							batchInfo: (params['batchInfo'] as string) ?? '',
+						}),
+					);
+				}
+				this.emit('slotProgress', params);
+				break;
+			}
 			case 'watcherEvent':
 				this.emit('watcherEvent', params);
 				break;

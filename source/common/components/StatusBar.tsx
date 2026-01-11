@@ -60,20 +60,17 @@ function ProgressBar({
 
 /**
  * Format status message for display.
- * Note: Indexing progress is now read from Redux via selectIndexingDisplay.
- * This function only handles non-indexing states.
+ * Note: Indexing state is derived from Redux via selectIsIndexing.
+ * This function only handles non-indexing app states.
  */
 function formatNonIndexingStatus(status: AppStatus): {
 	text: string;
 	color: string;
 	showSpinner: boolean;
-} | null {
+} {
 	switch (status.state) {
 		case 'ready':
 			return {text: 'Ready', color: 'green', showSpinner: false};
-		case 'indexing':
-			// Handled by Redux - return null to signal caller
-			return null;
 		case 'searching':
 			return {text: 'Searching', color: 'cyan', showSpinner: true};
 		case 'warning':
@@ -107,8 +104,8 @@ export default function StatusBar({status, stats}: Props) {
 	const hasActiveSlots = useAppSelector(selectHasActiveSlots);
 
 	// Determine display values based on state source
-	// For indexing: use Redux state (primary source of truth)
-	// For other states: use props
+	// For indexing: use Redux state (synced from daemon - single source of truth)
+	// For other states: use props (local app state)
 	const nonIndexingStatus = formatNonIndexingStatus(status);
 
 	// Use Redux for indexing display, props for everything else
@@ -124,9 +121,9 @@ export default function StatusBar({status, stats}: Props) {
 				throttleInfo: indexingDisplay.throttleInfo,
 			}
 		: {
-				text: nonIndexingStatus?.text ?? 'Ready',
-				color: nonIndexingStatus?.color ?? 'green',
-				showSpinner: nonIndexingStatus?.showSpinner ?? false,
+				text: nonIndexingStatus.text,
+				color: nonIndexingStatus.color,
+				showSpinner: nonIndexingStatus.showSpinner,
 				showProgressBar: false,
 				percent: 0,
 				stage: '',

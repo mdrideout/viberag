@@ -8,7 +8,8 @@
 import {z} from 'zod';
 import {ErrorCodes, JsonRpcMethodError, PROTOCOL_VERSION} from './protocol.js';
 import type {Handler, HandlerRegistry} from './server.js';
-import {store, selectIndexingState} from '../store/index.js';
+import {store, selectIndexingState, selectSlots} from '../store/index.js';
+import type {SlotState} from '../store/index.js';
 
 // ============================================================================
 // Parameter Schemas
@@ -66,29 +67,50 @@ const indexHandler: Handler = async (params, ctx) => {
 	// Subscribe client to receive progress updates
 	ctx.server.subscribeClient(ctx.clientId);
 
-	// Set up Redux listener to broadcast progress
-	let lastState = selectIndexingState(store.getState());
-	const unsubscribe = store.subscribe(() => {
-		const currentState = selectIndexingState(store.getState());
+	// Track last states for change detection
+	let lastIndexingState = selectIndexingState(store.getState());
+	let lastSlots = selectSlots(store.getState());
 
-		// Only broadcast if state changed
+	// Set up Redux listener to broadcast progress and slot updates
+	const unsubscribe = store.subscribe(() => {
+		const currentIndexingState = selectIndexingState(store.getState());
+		const currentSlots = selectSlots(store.getState());
+
+		// Broadcast indexing progress if changed
 		if (
-			currentState.status !== lastState.status ||
-			currentState.current !== lastState.current ||
-			currentState.total !== lastState.total ||
-			currentState.stage !== lastState.stage
+			currentIndexingState.status !== lastIndexingState.status ||
+			currentIndexingState.current !== lastIndexingState.current ||
+			currentIndexingState.total !== lastIndexingState.total ||
+			currentIndexingState.stage !== lastIndexingState.stage
 		) {
-			lastState = currentState;
+			lastIndexingState = currentIndexingState;
 
 			ctx.server.broadcastToSubscribed('indexProgress', {
-				status: currentState.status,
-				current: currentState.current,
-				total: currentState.total,
-				stage: currentState.stage,
-				chunksProcessed: currentState.chunksProcessed,
-				throttleMessage: currentState.throttleMessage,
+				status: currentIndexingState.status,
+				current: currentIndexingState.current,
+				total: currentIndexingState.total,
+				stage: currentIndexingState.stage,
+				chunksProcessed: currentIndexingState.chunksProcessed,
+				throttleMessage: currentIndexingState.throttleMessage,
 			});
 		}
+
+		// Broadcast slot progress if any slot changed
+		currentSlots.forEach((slot: SlotState, index: number) => {
+			const lastSlot = lastSlots[index];
+			if (
+				!lastSlot ||
+				slot.state !== lastSlot.state ||
+				slot.batchInfo !== lastSlot.batchInfo ||
+				slot.retryInfo !== lastSlot.retryInfo
+			) {
+				ctx.server.broadcastToSubscribed('slotProgress', {
+					index,
+					...slot,
+				});
+			}
+		});
+		lastSlots = currentSlots;
 	});
 
 	try {

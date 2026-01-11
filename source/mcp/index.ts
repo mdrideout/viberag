@@ -25,8 +25,12 @@ async function shutdown(signal: string): Promise<void> {
 	process.exit(0);
 }
 
-process.on('SIGINT', () => shutdown('SIGINT'));
-process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => {
+	void shutdown('SIGINT');
+});
+process.on('SIGTERM', () => {
+	void shutdown('SIGTERM');
+});
 
 /**
  * Run startup tasks after MCP client connects.

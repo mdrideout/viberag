@@ -47,13 +47,11 @@ export type TextBufferState = {
 /**
  * App status for the status bar.
  *
- * Note: Indexing progress details are now managed via Redux store.
- * The 'indexing' state is kept as a signal but progress values come from Redux.
- * Slot progress is also managed via Redux store.
+ * Note: Indexing state is derived from the indexing Redux slice (synced from daemon).
+ * Do NOT use appStatus for indexing - use selectIsIndexing() instead.
  */
 export type AppStatus =
 	| {state: 'ready'}
-	| {state: 'indexing'}
 	| {state: 'searching'}
 	| {state: 'warning'; message: string};
 

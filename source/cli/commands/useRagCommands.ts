@@ -94,8 +94,7 @@ Manual MCP Setup:
 		(force: boolean) => {
 			const action = force ? 'Reindexing' : 'Indexing';
 			addOutput('system', `${action} codebase...`);
-			// Progress details now come from Redux via IndexingActions
-			dispatch(AppActions.setIndexing());
+			// Progress is synced from daemon via DaemonClient notifications → Redux
 
 			runIndex(projectRoot, force)
 				.then(async stats => {
@@ -103,11 +102,9 @@ Manual MCP Setup:
 					// Reload stats after indexing
 					const newStats = await loadIndexStats(projectRoot);
 					dispatch(AppActions.setIndexStats(newStats));
-					dispatch(AppActions.setReady());
 				})
 				.catch(err => {
 					addOutput('system', `Index failed: ${err.message}`);
-					dispatch(AppActions.setReady());
 				});
 		},
 		[projectRoot, addOutput, dispatch],

@@ -99,14 +99,8 @@ export const appSlice = createSlice({
 		},
 
 		/**
-		 * Set indexing status.
-		 */
-		setIndexing: state => {
-			state.appStatus = {state: 'indexing'};
-		},
-
-		/**
 		 * Set searching status.
+		 * Note: Indexing status is derived from the indexing slice (synced from daemon).
 		 */
 		setSearching: state => {
 			state.appStatus = {state: 'searching'};

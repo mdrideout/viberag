@@ -214,12 +214,19 @@ export class FileWatcher {
 			await this.processBatch();
 		}
 
-		await this.watcher.close();
-		this.watcher = null;
-		this.pendingChanges.clear();
-
-		// Dispatch to Redux: stopped (resets all state)
-		store.dispatch(WatcherActions.stopped());
+		try {
+			await this.watcher.close();
+		} catch (error) {
+			this.log(
+				'error',
+				`Error closing watcher: ${error instanceof Error ? error.message : String(error)}`,
+			);
+		} finally {
+			this.watcher = null;
+			this.pendingChanges.clear();
+			// Dispatch to Redux: stopped (resets all state)
+			store.dispatch(WatcherActions.stopped());
+		}
 	}
 
 	/**

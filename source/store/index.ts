@@ -65,19 +65,6 @@ export {
 	type WarmupStatus,
 } from './warmup/slice.js';
 
-// Warmup selectors
-export {
-	selectWarmupState,
-	selectWarmupStatus,
-	selectWarmupProvider,
-	selectWarmupError,
-	selectWarmupElapsedMs,
-	selectIsWarmupReady,
-	selectIsWarmingUp,
-	selectIsWarmupFailed,
-	selectWarmupStatusText,
-} from './warmup/selectors.js';
-
 // Watcher slice
 export {
 	WatcherActions,
@@ -85,21 +72,6 @@ export {
 	type WatcherState,
 	type WatcherStatus,
 } from './watcher/slice.js';
-
-// Watcher selectors
-export {
-	selectWatcherState,
-	selectWatcherStatus,
-	selectFilesWatched,
-	selectPendingPaths,
-	selectLastIndexUpdate,
-	selectIsIndexUpToDate,
-	selectWatcherError,
-	selectIsWatching,
-	selectIsWatcherBusy,
-	selectPendingChangeCount,
-	selectWatcherStatusText,
-} from './watcher/selectors.js';
 
 // Wizard slice
 export {
