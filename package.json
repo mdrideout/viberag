@@ -27,7 +27,8 @@
 	"homepage": "https://github.com/mdrideout/viberag#readme",
 	"bin": {
 		"viberag": "dist/cli/index.js",
-		"viberag-mcp": "dist/mcp/index.js"
+		"viberag-mcp": "dist/mcp/index.js",
+		"viberag-daemon": "dist/daemon/index.js"
 	},
 	"type": "module",
 	"engines": {

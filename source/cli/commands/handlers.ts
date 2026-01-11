@@ -6,8 +6,6 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import chalk from 'chalk';
 import {
-	Indexer,
-	SearchEngine,
 	loadManifest,
 	manifestExists,
 	configExists,
@@ -15,11 +13,11 @@ import {
 	DEFAULT_CONFIG,
 	PROVIDER_CONFIGS,
 	getViberagDir,
-	createDebugLogger,
 	type IndexStats,
 	type SearchResults,
 	type ViberagConfig,
 } from '../../rag/index.js';
+import {DaemonClient} from '../../client/index.js';
 import type {InitWizardConfig} from '../../common/types.js';
 
 /**
@@ -56,7 +54,7 @@ export async function loadIndexStats(
 /**
  * Initialize a project for Viberag.
  * Creates .viberag/ directory with config.json.
- * With isReinit=true, deletes everything and starts fresh.
+ * With isReinit=true, shuts down daemon and deletes everything first.
  */
 export async function runInit(
 	projectRoot: string,
@@ -66,8 +64,21 @@ export async function runInit(
 	const viberagDir = getViberagDir(projectRoot);
 	const isExisting = await configExists(projectRoot);
 
-	// If reinit, delete entire .viberag directory first
+	// If reinit, shutdown daemon and delete entire .viberag directory first
 	if (isReinit && isExisting) {
+		const client = new DaemonClient(projectRoot);
+		try {
+			if (await client.isRunning()) {
+				await client.connect();
+				await client.shutdown('reinit');
+				// Wait for daemon to exit
+				await new Promise(r => setTimeout(r, 500));
+			}
+		} catch {
+			// Ignore errors - daemon may not be running
+		} finally {
+			await client.disconnect();
+		}
 		await fs.rm(viberagDir, {recursive: true, force: true});
 	}
 
@@ -118,44 +129,21 @@ export async function runInit(
 
 /**
  * Run the indexer and return stats.
- * When force=true, also updates config dimensions to match current PROVIDER_CONFIGS
- * (handles dimension changes after viberag upgrades).
+ * Delegates to daemon which handles dimension sync internally.
  *
- * Note: Progress is now dispatched directly to Redux by the Indexer.
- * The onProgress callback is kept for backward compatibility but is optional.
+ * Note: Progress is dispatched by the daemon and forwarded to clients.
  */
 export async function runIndex(
 	projectRoot: string,
 	force: boolean = false,
 ): Promise<IndexStats> {
-	// When forcing reindex, sync config dimensions with current provider settings
-	// This handles cases where PROVIDER_CONFIGS dimensions changed (e.g., Gemini 768→1536)
-	if (force) {
-		const {loadConfig} = await import('../../rag/config/index.js');
-		const config = await loadConfig(projectRoot);
-		const currentDimensions =
-			PROVIDER_CONFIGS[config.embeddingProvider]?.dimensions;
-
-		if (currentDimensions && config.embeddingDimensions !== currentDimensions) {
-			const updatedConfig = {
-				...config,
-				embeddingDimensions: currentDimensions,
-				embeddingModel: PROVIDER_CONFIGS[config.embeddingProvider].model,
-			};
-			await saveConfig(projectRoot, updatedConfig);
-		}
-	}
-
-	// Create debug logger for always-on logging to .viberag/debug.log
-	const logger = createDebugLogger(projectRoot);
-	const indexer = new Indexer(projectRoot, logger);
+	const client = new DaemonClient(projectRoot);
 
 	try {
-		// Progress is dispatched directly to Redux by the Indexer
-		const stats = await indexer.index({force});
-		return stats;
+		await client.connect();
+		return await client.index({force});
 	} finally {
-		indexer.close();
+		await client.disconnect();
 	}
 }
 
@@ -179,18 +167,20 @@ export function formatIndexStats(stats: IndexStats): string {
 
 /**
  * Run a search query and return results.
+ * Delegates to daemon for search.
  */
 export async function runSearch(
 	projectRoot: string,
 	query: string,
 	limit: number = 10,
 ): Promise<SearchResults> {
-	const engine = new SearchEngine(projectRoot);
+	const client = new DaemonClient(projectRoot);
 
 	try {
-		return await engine.search(query, {limit});
+		await client.connect();
+		return await client.search(query, {limit});
 	} finally {
-		engine.close();
+		await client.disconnect();
 	}
 }
 
@@ -283,7 +273,7 @@ export async function getStatus(projectRoot: string): Promise<string> {
 
 /**
  * Clean/uninstall Viberag from a project.
- * Removes the entire .viberag/ directory.
+ * Shuts down daemon first, then removes the entire .viberag/ directory.
  */
 export async function runClean(projectRoot: string): Promise<string> {
 	const viberagDir = getViberagDir(projectRoot);
@@ -291,6 +281,21 @@ export async function runClean(projectRoot: string): Promise<string> {
 
 	if (!exists) {
 		return 'Viberag is not initialized in this project. Nothing to clean.';
+	}
+
+	// Shutdown daemon if running
+	const client = new DaemonClient(projectRoot);
+	try {
+		if (await client.isRunning()) {
+			await client.connect();
+			await client.shutdown('clean');
+			// Wait for daemon to exit
+			await new Promise(r => setTimeout(r, 500));
+		}
+	} catch {
+		// Ignore errors - daemon may not be running
+	} finally {
+		await client.disconnect();
 	}
 
 	await fs.rm(viberagDir, {recursive: true, force: true});

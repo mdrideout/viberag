@@ -11,23 +11,15 @@ import {createRequire} from 'node:module';
 import {FastMCP} from 'fastmcp';
 import {z} from 'zod';
 // Direct imports for fast startup (avoid barrel file)
-import {
-	configExists,
-	loadConfig,
-	saveConfig,
-	PROVIDER_CONFIGS,
-} from '../rag/config/index.js';
+import {configExists, loadConfig} from '../rag/config/index.js';
 import {
 	loadManifest,
 	manifestExists,
 	getSchemaVersionInfo,
 } from '../rag/manifest/index.js';
-import {createDebugLogger} from '../rag/logger/index.js';
-import {getIndexer} from './services/lazy-loader.js';
 import type {SearchResults, SearchFilters} from '../rag/search/types.js';
 import type {IndexStats} from '../rag/indexer/types.js';
-import {FileWatcher} from './watcher.js';
-import {WarmupManager} from './warmup.js';
+import {DaemonClient} from '../client/index.js';
 
 const require = createRequire(import.meta.url);
 const pkg = require('../../package.json') as {
@@ -244,34 +236,28 @@ function formatIndexStats(stats: IndexStats): string {
 }
 
 /**
- * MCP server with file watcher and warmup manager.
+ * MCP server with daemon client.
  */
-export interface McpServerWithWatcher {
+export interface McpServerWithDaemon {
 	server: FastMCP;
-	watcher: FileWatcher;
-	warmupManager: WarmupManager;
-	/** Start the watcher (call after server.start) */
-	startWatcher: () => Promise<void>;
-	/** Stop the watcher (call before exit) */
-	stopWatcher: () => Promise<void>;
-	/** Start warmup (call after server.start) */
-	startWarmup: () => void;
+	client: DaemonClient;
+	/** Connect to daemon (call after server.start) */
+	connectDaemon: () => Promise<void>;
+	/** Disconnect from daemon (call before exit) */
+	disconnectDaemon: () => Promise<void>;
 }
 
 /**
- * Create and configure the MCP server with file watcher and warmup manager.
+ * Create and configure the MCP server with daemon client.
  */
-export function createMcpServer(projectRoot: string): McpServerWithWatcher {
+export function createMcpServer(projectRoot: string): McpServerWithDaemon {
 	const server = new FastMCP({
 		name: 'viberag',
 		version: pkg.version,
 	});
 
-	// Create file watcher
-	const watcher = new FileWatcher(projectRoot);
-
-	// Create warmup manager for shared SearchEngine
-	const warmupManager = new WarmupManager(projectRoot);
+	// Create daemon client (auto-starts daemon if needed)
+	const client = new DaemonClient(projectRoot);
 
 	// Filters schema for transparent, AI-controlled filtering
 	const filtersSchema = z
@@ -504,19 +490,17 @@ Production code: { path_not_contains: ["test", "mock", "fixture"], is_exported: 
 					}
 				: undefined;
 
-			// Get shared search engine from warmup manager (waits for warmup if needed)
-			const engine = await warmupManager.getSearchEngine();
-
 			// Determine if debug info should be returned
 			const returnDebug =
 				args.return_debug ??
 				(args.mode === 'hybrid' || args.mode === undefined);
 
-			const results = await engine.search(args.query, {
+			// Search via daemon client
+			const results = await client.search(args.query, {
 				mode: args.mode,
 				limit: args.limit,
 				minScore: args.min_score,
-				filters,
+				filters: filters as Record<string, unknown> | undefined,
 				codeSnippet: args.code_snippet,
 				symbolName: args.symbol_name,
 				bm25Weight: args.bm25_weight,
@@ -525,7 +509,6 @@ Production code: { path_not_contains: ["test", "mock", "fixture"], is_exported: 
 				returnDebug,
 			});
 
-			// Don't close engine - it's shared across calls
 			return formatSearchResults(results, returnDebug, args.max_response_size);
 		},
 	});
@@ -551,37 +534,9 @@ Production code: { path_not_contains: ["test", "mock", "fixture"], is_exported: 
 		execute: async args => {
 			await ensureInitialized(projectRoot);
 
-			// When forcing reindex, sync config dimensions with current provider settings
-			// This handles cases where PROVIDER_CONFIGS dimensions changed (e.g., Gemini 768→1536)
-			if (args.force) {
-				const config = await loadConfig(projectRoot);
-				const currentDimensions =
-					PROVIDER_CONFIGS[config.embeddingProvider]?.dimensions;
-
-				if (
-					currentDimensions &&
-					config.embeddingDimensions !== currentDimensions
-				) {
-					const updatedConfig = {
-						...config,
-						embeddingDimensions: currentDimensions,
-						embeddingModel: PROVIDER_CONFIGS[config.embeddingProvider].model,
-					};
-					await saveConfig(projectRoot, updatedConfig);
-				}
-			}
-
-			// Create debug logger for always-on logging to .viberag/debug.log
-			const logger = createDebugLogger(projectRoot);
-			// Lazy load Indexer to avoid loading tree-sitter at server startup
-			const Indexer = await getIndexer();
-			const indexer = new Indexer(projectRoot, logger);
-			try {
-				const stats = await indexer.index({force: args.force});
-				return formatIndexStats(stats);
-			} finally {
-				indexer.close();
-			}
+			// Index via daemon client (handles dimension sync internally)
+			const stats = await client.index({force: args.force});
+			return formatIndexStats(stats);
 		},
 	});
 
@@ -642,16 +597,16 @@ Production code: { path_not_contains: ["test", "mock", "fixture"], is_exported: 
 					`Run viberag_index with force=true to reindex and enable new features.`;
 			}
 
-			// Add warmup state
-			const warmupState = warmupManager.getState();
-			response['warmup'] = {
-				status: warmupState.status,
-				provider: warmupState.provider,
-				startedAt: warmupState.startedAt,
-				readyAt: warmupState.readyAt,
-				elapsedMs: warmupState.elapsedMs,
-				error: warmupState.error,
-			};
+			// Add warmup state from daemon status
+			try {
+				const daemonStatus = await client.status();
+				response['warmup'] = {
+					status: daemonStatus.warmupStatus,
+					elapsedMs: daemonStatus.warmupElapsedMs,
+				};
+			} catch {
+				response['warmup'] = {status: 'unknown'};
+			}
 
 			return JSON.stringify(response);
 		},
@@ -665,7 +620,7 @@ Production code: { path_not_contains: ["test", "mock", "fixture"], is_exported: 
 			'how many files are being watched, pending changes, and last update time.',
 		parameters: z.object({}),
 		execute: async () => {
-			const status = watcher.getStatus();
+			const status = await client.watchStatus();
 			return JSON.stringify(status);
 		},
 	});
@@ -817,10 +772,7 @@ Metadata filters:
 		execute: async args => {
 			await ensureInitialized(projectRoot);
 
-			// Get shared search engine from warmup manager (waits for warmup if needed)
-			const engine = await warmupManager.getSearchEngine();
-
-			// Run all searches in parallel
+			// Run all searches in parallel via daemon client
 			const searchPromises = args.searches.map(async (config, index) => {
 				const filters: SearchFilters | undefined = config.filters
 					? {
@@ -835,10 +787,10 @@ Metadata filters:
 						}
 					: undefined;
 
-				const results = await engine.search(config.query, {
+				const results = await client.search(config.query, {
 					mode: config.mode,
 					limit: config.limit,
-					filters,
+					filters: filters as Record<string, unknown> | undefined,
 					bm25Weight: config.bm25_weight,
 					autoBoost: config.auto_boost,
 					returnDebug: true,
@@ -991,7 +943,6 @@ Metadata filters:
 				};
 			}
 
-			// Don't close engine - it's shared across calls
 			return JSON.stringify({
 				searchCount: args.searches.length,
 				individual,
@@ -1002,28 +953,23 @@ Metadata filters:
 
 	return {
 		server,
-		watcher,
-		warmupManager,
-		startWatcher: async () => {
-			// Only start watcher if project is initialized
+		client,
+		connectDaemon: async () => {
+			// Only connect if project is initialized
 			if (await configExists(projectRoot)) {
-				await watcher.start();
+				try {
+					await client.connect();
+					console.error('[viberag-mcp] Connected to daemon');
+				} catch (error) {
+					console.error(
+						'[viberag-mcp] Failed to connect to daemon:',
+						error instanceof Error ? error.message : error,
+					);
+				}
 			}
 		},
-		stopWatcher: async () => {
-			await watcher.stop();
-			warmupManager.close();
-		},
-		startWarmup: () => {
-			warmupManager.startWarmup({
-				onProgress: state => {
-					if (state.status === 'ready') {
-						console.error(
-							`[viberag-mcp] Warmup complete (${state.elapsedMs}ms)`,
-						);
-					}
-				},
-			});
+		disconnectDaemon: async () => {
+			await client.disconnect();
 		},
 	};
 }
