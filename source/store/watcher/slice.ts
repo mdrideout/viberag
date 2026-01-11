@@ -11,13 +11,24 @@ import {createSlice, type PayloadAction} from '@reduxjs/toolkit';
 // Types
 // ============================================================================
 
+/**
+ * WatcherStatus tracks ONLY watcher-specific concerns:
+ * - stopped: Watcher not running
+ * - starting: Watcher initializing
+ * - watching: Actively watching, ready to detect changes
+ * - debouncing: Change detected, waiting for more changes
+ * - batching: Debounce done, collecting final batch before triggering index
+ *
+ * Note: 'indexing' is NOT included here. Whether indexing is in progress
+ * is tracked by the `indexing` slice (single source of truth).
+ * Use selectIsIndexing() from indexing/selectors.ts to check indexing status.
+ */
 export type WatcherStatus =
 	| 'stopped'
 	| 'starting'
 	| 'watching'
 	| 'debouncing'
-	| 'batching'
-	| 'indexing';
+	| 'batching';
 
 export interface WatcherState {
 	/** Current watcher status */
@@ -89,14 +100,8 @@ export const watcherSlice = createSlice({
 		},
 
 		/**
-		 * Batch processing started, indexing.
-		 */
-		indexing: state => {
-			state.status = 'indexing';
-		},
-
-		/**
 		 * Index update completed successfully.
+		 * Transitions from batching back to watching.
 		 */
 		indexed: (
 			state,

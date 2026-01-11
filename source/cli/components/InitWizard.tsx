@@ -119,14 +119,14 @@ const PROVIDER_CONFIG: Record<
 	},
 };
 
-// Simple provider options for selection
+// Simple provider options for selection (ordered by speed/ease of use)
 // Note: local-4b exists in code but hidden from UI - no transformers.js-compatible ONNX available yet
 const PROVIDER_ITEMS: SelectItem<EmbeddingProviderType>[] = [
-	{label: 'Local     - Qwen3-0.6B Q8 (~700MB, ~1.2GB RAM)', value: 'local'},
-	// {label: 'Local 4B  - Qwen3-4B FP32 (~8GB, ~8GB RAM)', value: 'local-4b'}, // No ONNX available
 	{label: 'Gemini    - gemini-embedding-001 (Free tier)', value: 'gemini'},
-	{label: 'Mistral   - codestral-embed', value: 'mistral'},
 	{label: 'OpenAI    - text-embedding-3-small', value: 'openai'},
+	{label: 'Mistral   - codestral-embed', value: 'mistral'},
+	{label: 'Local     - Qwen3-0.6B Q8 (slow)', value: 'local'},
+	// {label: 'Local 4B  - Qwen3-4B FP32 (~8GB, ~8GB RAM)', value: 'local-4b'}, // No ONNX available
 ];
 
 /**
@@ -433,6 +433,7 @@ export function InitWizard({
 		return (
 			<Box flexDirection="column" borderStyle="round" paddingX={2} paddingY={1}>
 				<Text bold>Choose Embedding Provider</Text>
+				<ComparisonTable />
 				<Box marginTop={1}>
 					<SelectInput
 						items={PROVIDER_ITEMS}
@@ -446,7 +447,6 @@ export function InitWizard({
 						}}
 					/>
 				</Box>
-				<ComparisonTable />
 				<Box marginTop={1}>
 					<Text dimColor>↑/↓ navigate, Enter select, Esc cancel</Text>
 				</Box>

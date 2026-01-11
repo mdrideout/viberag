@@ -4,6 +4,7 @@ import {useAppSelector} from '../../store/hooks.js';
 import {
 	selectSlotCount,
 	selectFailures,
+	selectHasActiveSlots,
 } from '../../store/slot-progress/selectors.js';
 import {
 	selectIndexingDisplay,
@@ -103,6 +104,7 @@ export default function StatusBar({status, stats}: Props) {
 	// Redux selectors for slot progress
 	const slotCount = useAppSelector(selectSlotCount);
 	const failures = useAppSelector(selectFailures);
+	const hasActiveSlots = useAppSelector(selectHasActiveSlots);
 
 	// Determine display values based on state source
 	// For indexing: use Redux state (primary source of truth)
@@ -143,8 +145,8 @@ export default function StatusBar({status, stats}: Props) {
 		throttleInfo,
 	} = displayValues;
 
-	// Always show all slots during indexing (fixed height layout)
-	const showSlots = isIndexingActive;
+	// Only show slots when there's actual activity (API providers use slots, local doesn't)
+	const showSlots = isIndexingActive && hasActiveSlots;
 
 	// Show failure summary if any batches failed
 	const hasFailures = failures.length > 0;

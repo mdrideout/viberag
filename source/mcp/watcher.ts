@@ -15,7 +15,7 @@ import {loadGitignore} from '../rag/gitignore/index.js';
 import {createDebugLogger, type Logger} from '../rag/logger/index.js';
 import {getIndexer} from './services/lazy-loader.js';
 import type {IndexStats} from '../rag/indexer/types.js';
-import {store, WatcherActions} from '../store/index.js';
+import {store, WatcherActions, selectIsIndexing} from '../store/index.js';
 
 // Simplified Ignore interface (subset of the ignore package)
 interface Ignore {
@@ -207,8 +207,8 @@ export class FileWatcher {
 			this.batchTimeout = null;
 		}
 
-		// Flush pending changes before stopping (check Redux for indexing status)
-		const isIndexing = store.getState().watcher.status === 'indexing';
+		// Flush pending changes before stopping (check indexing slice - single source of truth)
+		const isIndexing = selectIsIndexing(store.getState());
 		if (this.pendingChanges.size > 0 && !isIndexing) {
 			this.log('info', 'Flushing pending changes before stop');
 			await this.processBatch();
@@ -308,9 +308,10 @@ export class FileWatcher {
 			return {success: true, filesProcessed: []};
 		}
 
-		// Check Redux for indexing status
-		if (store.getState().watcher.status === 'indexing') {
-			this.log('debug', 'Index already in progress, skipping batch');
+		// Check indexing slice (single source of truth) - don't trigger if already indexing
+		if (selectIsIndexing(store.getState())) {
+			this.log('debug', 'Index already in progress, deferring batch');
+			// Don't clear pendingChanges - keep them for next attempt
 			return {success: false, error: 'Index in progress', filesProcessed: []};
 		}
 
@@ -322,8 +323,12 @@ export class FileWatcher {
 			`Processing batch of ${filesToProcess.length} changed files`,
 		);
 
-		// Dispatch to Redux: indexing (single source of truth)
-		store.dispatch(WatcherActions.indexing());
+		// Transition watcher back to 'watching' BEFORE triggering indexer.
+		// The indexer will update indexing.status (single source of truth),
+		// not watcher.status. This allows watcher to continue detecting
+		// and queuing new changes while indexing runs.
+		const filesWatched = store.getState().watcher.filesWatched;
+		store.dispatch(WatcherActions.ready({filesWatched}));
 
 		try {
 			// Lazy load Indexer to avoid loading tree-sitter at server startup

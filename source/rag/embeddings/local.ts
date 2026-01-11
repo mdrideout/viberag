@@ -15,7 +15,6 @@
  */
 
 import {pipeline} from '@huggingface/transformers';
-import pLimit from 'p-limit';
 import type {
 	EmbeddingProvider,
 	ModelProgressCallback,
@@ -25,9 +24,6 @@ import type {
 const MODEL_NAME = 'onnx-community/Qwen3-Embedding-0.6B-ONNX';
 const DIMENSIONS = 1024;
 const BATCH_SIZE = 8;
-// Moderate concurrency - ONNX has a single model context but can benefit from
-// pipelining I/O between batches. Higher values may increase memory pressure.
-const LOCAL_BATCH_CONCURRENCY = 2;
 
 // Module-level cache for the ONNX pipeline
 // Shared across all LocalEmbeddingProvider instances to avoid reloading the model
@@ -50,6 +46,9 @@ export function clearCachedPipeline(): void {
 export class LocalEmbeddingProvider implements EmbeddingProvider {
 	readonly dimensions = DIMENSIONS;
 	private initialized = false;
+	/** Progress callback for per-chunk updates during embedding */
+	onBatchProgress: ((processed: number, total: number) => void) | undefined =
+		undefined;
 
 	async initialize(onProgress?: ModelProgressCallback): Promise<void> {
 		if (this.initialized) return;
@@ -125,21 +124,23 @@ export class LocalEmbeddingProvider implements EmbeddingProvider {
 			return [];
 		}
 
-		// Build list of batches
-		const batches: string[][] = [];
+		// Process texts sequentially in batches
+		// ONNX Runtime already parallelizes computation across CPU cores internally,
+		// so concurrent batch processing provides no benefit and just adds overhead.
+		const results: number[][] = [];
+		let processedCount = 0;
+
 		for (let i = 0; i < texts.length; i += BATCH_SIZE) {
-			batches.push(texts.slice(i, i + BATCH_SIZE));
+			const batch = texts.slice(i, i + BATCH_SIZE);
+			const batchResults = await this.embedBatch(batch);
+			results.push(...batchResults);
+
+			// Report progress after each batch
+			processedCount += batch.length;
+			this.onBatchProgress?.(processedCount, texts.length);
 		}
 
-		// Process batches with limited concurrency
-		// Note: Local provider doesn't use options - failure logging is for API providers
-		const limit = pLimit(LOCAL_BATCH_CONCURRENCY);
-		const batchResults = await Promise.all(
-			batches.map(batch => limit(() => this.embedBatch(batch))),
-		);
-
-		// Flatten results maintaining order
-		return batchResults.flat();
+		return results;
 	}
 
 	private async embedBatch(texts: string[]): Promise<number[][]> {

@@ -51,12 +51,13 @@ export const selectIsWatching = createSelector(
 );
 
 /**
- * Check if watcher is busy (debouncing, batching, or indexing).
+ * Check if watcher is busy (debouncing or batching).
+ * Note: Indexing status is tracked by the indexing slice, not here.
+ * Use selectIsIndexing() from indexing/selectors.ts to check if indexing is in progress.
  */
 export const selectIsWatcherBusy = createSelector(
 	[selectWatcherStatus],
-	(status): boolean =>
-		status === 'debouncing' || status === 'batching' || status === 'indexing',
+	(status): boolean => status === 'debouncing' || status === 'batching',
 );
 
 /**
@@ -69,6 +70,8 @@ export const selectPendingChangeCount = createSelector(
 
 /**
  * Get display-friendly status text.
+ * Note: Indexing status text should come from the indexing slice,
+ * not from here. Use selectIndexingDisplay() from indexing/selectors.ts.
  */
 export const selectWatcherStatusText = createSelector(
 	[selectWatcherState],
@@ -86,8 +89,6 @@ export const selectWatcherStatusText = createSelector(
 				return `Debouncing (${state.pendingPaths.length} changes)`;
 			case 'batching':
 				return `Batching (${state.pendingPaths.length} changes)`;
-			case 'indexing':
-				return 'Indexing changes...';
 		}
 	},
 );

@@ -50,3 +50,12 @@ export const selectHasRateLimitedSlots = createSelector(
 	[selectSlots],
 	(slots): boolean => slots.some(slot => slot.state === 'rate-limited'),
 );
+
+/**
+ * Check if any slot has activity (not idle).
+ * Used to hide slot rows for local models that don't use slots.
+ */
+export const selectHasActiveSlots = createSelector(
+	[selectSlots],
+	(slots): boolean => slots.some(slot => slot.state !== 'idle'),
+);

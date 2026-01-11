@@ -50,6 +50,13 @@ import {
 import pLimit from 'p-limit';
 
 /**
+ * Module-level mutex to prevent concurrent indexing across all Indexer instances.
+ * This is necessary because watcher and CLI create separate Indexer instances,
+ * and we need to prevent them from racing on manifest/storage operations.
+ */
+let globalIndexPromise: Promise<IndexStats> | null = null;
+
+/**
  * Options for the index operation.
  */
 export interface IndexOptions {
@@ -71,7 +78,6 @@ export class Indexer {
 	private logger: Logger | null = null;
 	/** Debug logger for detailed failure logging to .viberag/debug.log */
 	private debugLogger: Logger;
-	private indexPromise: Promise<IndexStats> | null = null;
 
 	constructor(projectRoot: string, logger?: Logger) {
 		this.projectRoot = projectRoot;
@@ -81,20 +87,20 @@ export class Indexer {
 
 	/**
 	 * Run the indexing pipeline.
-	 * Uses mutex to prevent concurrent index operations.
+	 * Uses global mutex to prevent concurrent index operations across all instances.
 	 */
 	async index(options: IndexOptions = {}): Promise<IndexStats> {
-		// If indexing is already in progress, wait for it
-		if (this.indexPromise) {
-			this.log('warn', 'Index already in progress, waiting for completion');
-			return this.indexPromise;
+		// If any indexer instance is already running, wait for it and return its result
+		if (globalIndexPromise) {
+			this.log('info', 'Waiting for in-progress indexing to complete');
+			return globalIndexPromise;
 		}
 
-		this.indexPromise = this.doIndex(options);
+		globalIndexPromise = this.doIndex(options);
 		try {
-			return await this.indexPromise;
+			return await globalIndexPromise;
 		} finally {
-			this.indexPromise = null;
+			globalIndexPromise = null;
 		}
 	}
 
@@ -186,54 +192,13 @@ export class Indexer {
 				);
 			}
 
-			// 6. Process new and modified files
+			// 6. Process new and modified files in two phases:
+			// Phase 1: Scan + Chunk all files upfront (spinner only)
+			// Phase 2: Embed chunks with fixed denominator (chunk-based progress)
 			const filesToProcess = [...diff.new, ...diff.modified];
-			const totalFiles = filesToProcess.length;
 
-			// Aggregated progress state - prevents race conditions between callbacks
-			// Primary progress is dispatched to Redux; callback kept for backward compat
-			const progressState = {
-				current: 0,
-				total: totalFiles,
-				stage: 'Indexing files',
-				throttleMessage: null as string | null,
-				chunksProcessed: 0,
-			};
-
-			// Emit aggregated progress to both Redux and callback
-			const emitProgress = () => {
-				// Dispatch to Redux (primary mechanism)
-				store.dispatch(
-					IndexingActions.setProgress({
-						current: progressState.current,
-						total: progressState.total,
-						stage: progressState.stage,
-						chunksProcessed: progressState.chunksProcessed,
-					}),
-				);
-				// Callback (backward compatibility)
-				progressCallback?.(
-					progressState.current,
-					progressState.total,
-					progressState.stage,
-					progressState.throttleMessage,
-					progressState.chunksProcessed,
-				);
-			};
-
-			// Wire throttle callback for rate limit feedback (API providers only)
-			if ('onThrottle' in embeddings) {
-				(embeddings as {onThrottle?: (msg: string | null) => void}).onThrottle =
-					message => {
-						progressState.throttleMessage = message;
-						// Dispatch throttle to Redux
-						store.dispatch(IndexingActions.setThrottle(message));
-						emitProgress();
-					};
-			}
-
-			if (totalFiles > 0) {
-				this.log('info', `Processing ${totalFiles} files`);
+			if (filesToProcess.length > 0) {
+				this.log('info', `Processing ${filesToProcess.length} files`);
 
 				// First, delete existing chunks for modified files
 				if (diff.modified.length > 0 && !force) {
@@ -243,93 +208,277 @@ export class Indexer {
 					stats.chunksDeleted += deletedCount;
 				}
 
-				// Process files in batches with limited concurrency
-				// This allows batch N+1 to start building while batch N is embedding
-				// With 3 concurrent batches, we maximize the chance that at least one
-				// batch is always in the embedding phase while others are chunking
-				const batchSize = 10;
-				const FILE_BATCH_CONCURRENCY = 3; // 3 file batches in flight
-				const batchLimit = pLimit(FILE_BATCH_CONCURRENCY);
-				const writeQueue: Promise<void>[] = []; // Queue storage writes
+				// ================================================================
+				// PHASE 1: Collect all chunks (spinner only - no progress bar)
+				// ================================================================
+				store.dispatch(
+					IndexingActions.setProgress({
+						current: 0,
+						total: 0, // 0/0 = spinner only
+						stage: 'Scanning files',
+					}),
+				);
+				progressCallback?.(0, 0, 'Scanning files');
 
-				// Calculate total batches for progress display
-				const totalBatches = Math.ceil(filesToProcess.length / batchSize);
+				// Import hash function once
+				const {computeStringHash} = await import('../merkle/hash.js');
 
-				// Track chunk ranges across batches
-				let accumulatedChunks = 0;
+				// Chunk type with context for Phase 2
+				type ChunkWithContext = {
+					chunk: Awaited<ReturnType<typeof chunker.chunkFile>>[0];
+					filepath: string;
+					fileHash: string;
+				};
+				const allChunksWithContext: ChunkWithContext[] = [];
 
-				// Build all batch tasks
-				const batchTasks: Array<() => Promise<void>> = [];
-				for (let i = 0; i < filesToProcess.length; i += batchSize) {
-					const batchIndex = Math.floor(i / batchSize);
-					const batch = filesToProcess.slice(i, i + batchSize);
-					const currentOffset = i;
-
-					batchTasks.push(async () => {
-						const chunkStartForThisBatch = accumulatedChunks + 1;
-						// Capture current chunk offset for cumulative progress display
-						const currentChunkOffset = accumulatedChunks;
-
-						const batchChunks = await this.processFileBatch(
-							batch,
-							chunker,
-							embeddings,
-							storage,
-							stats,
-							{
-								totalFiles,
-								currentFileOffset: currentOffset,
-								progressCallback,
-								onChunksProcessed: (count: number) => {
-									progressState.chunksProcessed += count;
-									emitProgress();
-								},
-								chunkOffset: currentChunkOffset,
-							},
+				// Read and chunk all files sequentially (tree-sitter has global state)
+				for (const filepath of filesToProcess) {
+					const absolutePath = path.join(this.projectRoot, filepath);
+					try {
+						const content = await fs.readFile(absolutePath, 'utf-8');
+						const fileHash = computeStringHash(content);
+						const chunks = await chunker.chunkFile(
+							filepath,
+							content,
+							config.chunkMaxSize,
 						);
 
-						// Update batch progress with chunk range
-						accumulatedChunks += batchChunks.length;
-						store.dispatch(
-							IndexingActions.setBatchProgress({
-								currentBatch: batchIndex + 1,
-								totalBatches,
-								chunkStart: chunkStartForThisBatch,
-								chunkEnd: accumulatedChunks,
-							}),
-						);
-
-						if (batchChunks.length > 0) {
-							// Queue storage write (don't await - allows overlap)
-							const writePromise = (async () => {
-								if (force) {
-									await storage.addChunks(batchChunks);
-								} else {
-									await storage.upsertChunks(batchChunks);
-								}
-								stats.chunksAdded += batchChunks.length;
-							})();
-							writeQueue.push(writePromise);
+						for (const chunk of chunks) {
+							allChunksWithContext.push({chunk, filepath, fileHash});
 						}
-
-						// Update progress for this batch
-						progressState.current = Math.min(
-							currentOffset + batch.length,
-							totalFiles,
-						);
-						emitProgress();
+					} catch (error) {
 						this.log(
-							'debug',
-							`Batch ${batchIndex + 1}: processed ${batch.length} files`,
+							'warn',
+							`Failed to process file: ${filepath}`,
+							error as Error,
 						);
-					});
+						continue;
+					}
 				}
 
-				// Execute batches with limited concurrency
-				await Promise.all(batchTasks.map(task => batchLimit(task)));
+				const totalChunks = allChunksWithContext.length;
+				this.log(
+					'info',
+					`Collected ${totalChunks} chunks from ${filesToProcess.length} files`,
+				);
 
-				// Wait for all storage writes to complete
-				await Promise.all(writeQueue);
+				// ================================================================
+				// PHASE 2: Embed chunks with fixed denominator (chunk-based progress)
+				// ================================================================
+				if (totalChunks > 0) {
+					// Progress state for embedding phase
+					const progressState = {
+						current: 0,
+						total: totalChunks,
+						stage: 'Indexing files',
+						throttleMessage: null as string | null,
+						chunksProcessed: 0,
+					};
+
+					// Emit progress to both Redux and callback
+					const emitProgress = () => {
+						store.dispatch(
+							IndexingActions.setProgress({
+								current: progressState.chunksProcessed,
+								total: progressState.total,
+								stage: progressState.stage,
+								chunksProcessed: progressState.chunksProcessed,
+							}),
+						);
+						progressCallback?.(
+							progressState.chunksProcessed,
+							progressState.total,
+							progressState.stage,
+							progressState.throttleMessage,
+							progressState.chunksProcessed,
+						);
+					};
+
+					// Wire throttle callback for rate limit feedback (API providers only)
+					if ('onThrottle' in embeddings) {
+						(
+							embeddings as {onThrottle?: (msg: string | null) => void}
+						).onThrottle = message => {
+							progressState.throttleMessage = message;
+							store.dispatch(IndexingActions.setThrottle(message));
+							emitProgress();
+						};
+					}
+
+					// Initialize progress display
+					emitProgress();
+
+					// Check embedding cache for ALL chunks at once
+					const contentHashes = allChunksWithContext.map(
+						c => c.chunk.contentHash,
+					);
+					const cachedEmbeddings =
+						await storage.getCachedEmbeddings(contentHashes);
+
+					// Find cache hits and misses
+					const cacheHits = allChunksWithContext.filter(c =>
+						cachedEmbeddings.has(c.chunk.contentHash),
+					);
+					const cacheMisses = allChunksWithContext.filter(
+						c => !cachedEmbeddings.has(c.chunk.contentHash),
+					);
+
+					stats.embeddingsCached += cacheHits.length;
+
+					// Update progress for cached chunks (they're "done")
+					progressState.chunksProcessed += cacheHits.length;
+					emitProgress();
+
+					// Process cache misses in batches
+					if (cacheMisses.length > 0) {
+						// Smaller batches for more frequent progress updates
+						const CHUNK_BATCH_SIZE = 20;
+						// Local providers run serially to avoid race conditions with shared
+						// progress callback. They have internal parallelism anyway.
+						const isLocalProvider =
+							embeddings instanceof LocalEmbeddingProvider ||
+							embeddings instanceof Local4BEmbeddingProvider;
+						const BATCH_CONCURRENCY = isLocalProvider ? 1 : 3;
+						const batchLimit = pLimit(BATCH_CONCURRENCY);
+						const totalBatches = Math.ceil(
+							cacheMisses.length / CHUNK_BATCH_SIZE,
+						);
+
+						const batchTasks: Array<() => Promise<void>> = [];
+						for (let i = 0; i < cacheMisses.length; i += CHUNK_BATCH_SIZE) {
+							const batchIndex = Math.floor(i / CHUNK_BATCH_SIZE);
+							const batchChunks = cacheMisses.slice(i, i + CHUNK_BATCH_SIZE);
+							const batchStartProgress = progressState.chunksProcessed;
+
+							batchTasks.push(async () => {
+								// Track progress within this batch for fine-grained updates
+								// Each batch has its own tracker to avoid race conditions
+								let lastReportedWithinBatch = 0;
+
+								// Build texts for embedding
+								const texts = batchChunks.map(c =>
+									c.chunk.contextHeader
+										? `${c.chunk.contextHeader}\n${c.chunk.text}`
+										: c.chunk.text,
+								);
+
+								// Build metadata for failure logging
+								const chunkMetadata: ChunkMetadata[] = batchChunks.map(c => ({
+									filepath: c.filepath,
+									startLine: c.chunk.startLine,
+									endLine: c.chunk.endLine,
+									size: c.chunk.text.length,
+								}));
+
+								// Wire up per-chunk progress callback for local/API providers
+								if ('onBatchProgress' in embeddings) {
+									(
+										embeddings as {
+											onBatchProgress?: (p: number, t: number) => void;
+										}
+									).onBatchProgress = (processed, _total) => {
+										const delta = processed - lastReportedWithinBatch;
+										if (delta > 0) {
+											progressState.chunksProcessed += delta;
+											lastReportedWithinBatch = processed;
+											emitProgress();
+										}
+									};
+								}
+
+								// Embed the batch
+								const newEmbeddings = await embeddings.embed(texts, {
+									chunkMetadata,
+									logger: this.debugLogger,
+									chunkOffset: batchStartProgress,
+								});
+								stats.embeddingsComputed += batchChunks.length;
+
+								// Clear callback
+								if ('onBatchProgress' in embeddings) {
+									(
+										embeddings as {
+											onBatchProgress?: (p: number, t: number) => void;
+										}
+									).onBatchProgress = undefined;
+								}
+
+								// Ensure progress is updated for any chunks not reported via callback
+								const remaining = batchChunks.length - lastReportedWithinBatch;
+								if (remaining > 0) {
+									progressState.chunksProcessed += remaining;
+								}
+
+								// Cache the new embeddings
+								const cacheEntries = batchChunks.map((c, idx) => ({
+									contentHash: c.chunk.contentHash,
+									vector: newEmbeddings[idx]!,
+									createdAt: new Date().toISOString(),
+								}));
+								await storage.cacheEmbeddings(cacheEntries);
+
+								// Add to cachedEmbeddings map for later use
+								batchChunks.forEach((c, idx) => {
+									cachedEmbeddings.set(
+										c.chunk.contentHash,
+										newEmbeddings[idx]!,
+									);
+								});
+
+								// Update batch progress display
+								store.dispatch(
+									IndexingActions.setBatchProgress({
+										currentBatch: batchIndex + 1,
+										totalBatches,
+										chunkStart: i + 1,
+										chunkEnd: i + batchChunks.length,
+									}),
+								);
+								emitProgress();
+
+								this.log(
+									'debug',
+									`Batch ${batchIndex + 1}/${totalBatches}: embedded ${batchChunks.length} chunks`,
+								);
+							});
+						}
+
+						// Execute batches with limited concurrency
+						await Promise.all(batchTasks.map(task => batchLimit(task)));
+					}
+
+					// Build CodeChunk objects and write to storage
+					const allCodeChunks: CodeChunk[] = [];
+					for (const {chunk, filepath, fileHash} of allChunksWithContext) {
+						const vector = cachedEmbeddings.get(chunk.contentHash)!;
+						allCodeChunks.push({
+							id: `${filepath}:${chunk.startLine}`,
+							vector,
+							text: chunk.text,
+							contentHash: chunk.contentHash,
+							filepath,
+							filename: path.basename(filepath),
+							extension: path.extname(filepath),
+							type: chunk.type,
+							name: chunk.name,
+							startLine: chunk.startLine,
+							endLine: chunk.endLine,
+							fileHash,
+							signature: chunk.signature,
+							docstring: chunk.docstring,
+							isExported: chunk.isExported,
+							decoratorNames: chunk.decoratorNames,
+						});
+					}
+
+					// Write all chunks to storage
+					if (force) {
+						await storage.addChunks(allCodeChunks);
+					} else {
+						await storage.upsertChunks(allCodeChunks);
+					}
+					stats.chunksAdded += allCodeChunks.length;
+				}
 			}
 
 			// 7. Update manifest with new tree and stats
@@ -346,9 +495,6 @@ export class Indexer {
 				`Index complete: ${stats.chunksAdded} chunks added, ${stats.chunksDeleted} deleted`,
 			);
 
-			// Dispatch to Redux: indexing complete
-			store.dispatch(IndexingActions.complete());
-
 			return stats;
 		} catch (error) {
 			this.log('error', 'Indexing failed', error as Error);
@@ -359,6 +505,13 @@ export class Indexer {
 				),
 			);
 			throw error;
+		} finally {
+			// Guarantee completion dispatch on all non-error exits.
+			// This handles both normal completion and early returns (e.g., no changes detected).
+			const currentStatus = store.getState().indexing.status;
+			if (currentStatus !== 'error') {
+				store.dispatch(IndexingActions.complete());
+			}
 		}
 	}
 
@@ -392,214 +545,6 @@ export class Indexer {
 				this.collectAllFilesFromSerialized(child, files);
 			}
 		}
-	}
-
-	/**
-	 * Process a batch of files: read, chunk, embed, and prepare CodeChunks.
-	 *
-	 * Strategy: Collect all chunks from all files first, then embed them
-	 * together with full concurrency for maximum throughput.
-	 *
-	 * Error handling strategy:
-	 * - File read/parse errors: Log and continue (file-specific, recoverable)
-	 * - Embedding/storage errors: Let propagate (fatal, affects all files)
-	 */
-	private async processFileBatch(
-		filepaths: string[],
-		chunker: Chunker,
-		embeddings: EmbeddingProvider,
-		storage: Storage,
-		stats: IndexStats,
-		progressContext?: {
-			totalFiles: number;
-			currentFileOffset: number;
-			progressCallback?: ProgressCallback;
-			onChunksProcessed?: (count: number) => void;
-			/** Offset for cumulative chunk numbering in slot progress display */
-			chunkOffset?: number;
-		},
-	): Promise<CodeChunk[]> {
-		// Phase 1: Read all files in PARALLEL, then chunk sequentially
-		// (tree-sitter has global state that prevents parallel chunking)
-		type FileData = {
-			filepath: string;
-			fileHash: string;
-			chunks: Awaited<ReturnType<typeof chunker.chunkFile>>;
-		};
-		const fileDataList: FileData[] = [];
-
-		// Import hash function once
-		const {computeStringHash} = await import('../merkle/hash.js');
-
-		// Read all files in parallel
-		type FileReadResult = {
-			filepath: string;
-			content: string;
-			fileHash: string;
-		};
-		const readResults = await Promise.allSettled(
-			filepaths.map(async (filepath): Promise<FileReadResult> => {
-				const absolutePath = path.join(this.projectRoot, filepath);
-				const content = await fs.readFile(absolutePath, 'utf-8');
-				const fileHash = computeStringHash(content);
-				return {filepath, content, fileHash};
-			}),
-		);
-
-		// Process read results and chunk sequentially (tree-sitter constraint)
-		for (const result of readResults) {
-			if (result.status === 'rejected') {
-				// Find the filepath from the error or skip logging if unknown
-				this.log('warn', `Failed to read file`, result.reason as Error);
-				continue;
-			}
-
-			const {filepath, content, fileHash} = result.value;
-			try {
-				const chunks = await chunker.chunkFile(
-					filepath,
-					content,
-					this.config!.chunkMaxSize,
-				);
-				fileDataList.push({filepath, fileHash, chunks});
-			} catch (error) {
-				this.log('warn', `Failed to parse file: ${filepath}`, error as Error);
-				continue;
-			}
-		}
-
-		// Collect all chunks with their file context
-		type ChunkWithContext = {
-			chunk: Awaited<ReturnType<typeof chunker.chunkFile>>[0];
-			filepath: string;
-			fileHash: string;
-		};
-		const allChunksWithContext: ChunkWithContext[] = [];
-		for (const fd of fileDataList) {
-			for (const chunk of fd.chunks) {
-				allChunksWithContext.push({
-					chunk,
-					filepath: fd.filepath,
-					fileHash: fd.fileHash,
-				});
-			}
-		}
-
-		if (allChunksWithContext.length === 0) {
-			return [];
-		}
-
-		// Phase 2: Check embedding cache for ALL chunks at once
-		const contentHashes = allChunksWithContext.map(c => c.chunk.contentHash);
-		const cachedEmbeddings = await storage.getCachedEmbeddings(contentHashes);
-
-		// Find all cache misses
-		const missingChunksWithContext = allChunksWithContext.filter(
-			c => !cachedEmbeddings.has(c.chunk.contentHash),
-		);
-
-		stats.embeddingsCached +=
-			allChunksWithContext.length - missingChunksWithContext.length;
-
-		// Phase 3: Embed ALL missing chunks together (with full concurrency)
-		if (missingChunksWithContext.length > 0) {
-			// Track chunks processed for progress updates
-			let lastReportedChunks = 0;
-
-			// Wire batch progress callback to report incremental chunks
-			if (
-				progressContext?.onChunksProcessed &&
-				'onBatchProgress' in embeddings
-			) {
-				(
-					embeddings as {onBatchProgress?: (p: number, t: number) => void}
-				).onBatchProgress = (processed, _total) => {
-					// Report only the delta since last update
-					const delta = processed - lastReportedChunks;
-					if (delta > 0) {
-						progressContext.onChunksProcessed!(delta);
-						lastReportedChunks = processed;
-					}
-				};
-			}
-
-			// Embed all chunks together with metadata for failure logging
-			const texts = missingChunksWithContext.map(c =>
-				c.chunk.contextHeader
-					? `${c.chunk.contextHeader}\n${c.chunk.text}`
-					: c.chunk.text,
-			);
-
-			// Build metadata for each chunk (used for detailed failure logging)
-			const chunkMetadata: ChunkMetadata[] = missingChunksWithContext.map(
-				c => ({
-					filepath: c.filepath,
-					startLine: c.chunk.startLine,
-					endLine: c.chunk.endLine,
-					size: c.chunk.text.length,
-				}),
-			);
-
-			const newEmbeddings = await embeddings.embed(texts, {
-				chunkMetadata,
-				logger: this.debugLogger,
-				chunkOffset: progressContext?.chunkOffset ?? 0,
-			});
-			stats.embeddingsComputed += missingChunksWithContext.length;
-
-			// Report any remaining chunks not yet reported
-			const remainingDelta =
-				missingChunksWithContext.length - lastReportedChunks;
-			if (remainingDelta > 0 && progressContext?.onChunksProcessed) {
-				progressContext.onChunksProcessed(remainingDelta);
-			}
-
-			// Clear batch progress callback
-			if ('onBatchProgress' in embeddings) {
-				(
-					embeddings as {onBatchProgress?: (p: number, t: number) => void}
-				).onBatchProgress = undefined;
-			}
-
-			// Cache the new embeddings
-			const cacheEntries = missingChunksWithContext.map((c, i) => ({
-				contentHash: c.chunk.contentHash,
-				vector: newEmbeddings[i]!,
-				createdAt: new Date().toISOString(),
-			}));
-			await storage.cacheEmbeddings(cacheEntries);
-
-			// Add to cachedEmbeddings map
-			missingChunksWithContext.forEach((c, i) => {
-				cachedEmbeddings.set(c.chunk.contentHash, newEmbeddings[i]!);
-			});
-		}
-
-		// Phase 4: Build CodeChunk objects
-		const allChunks: CodeChunk[] = [];
-		for (const {chunk, filepath, fileHash} of allChunksWithContext) {
-			const vector = cachedEmbeddings.get(chunk.contentHash)!;
-			allChunks.push({
-				id: `${filepath}:${chunk.startLine}`,
-				vector,
-				text: chunk.text,
-				contentHash: chunk.contentHash,
-				filepath,
-				filename: path.basename(filepath),
-				extension: path.extname(filepath),
-				type: chunk.type,
-				name: chunk.name,
-				startLine: chunk.startLine,
-				endLine: chunk.endLine,
-				fileHash,
-				signature: chunk.signature,
-				docstring: chunk.docstring,
-				isExported: chunk.isExported,
-				decoratorNames: chunk.decoratorNames,
-			});
-		}
-
-		return allChunks;
 	}
 
 	/**
