@@ -22,7 +22,7 @@ import {DaemonOwner} from './owner.js';
 import {DaemonServer} from './server.js';
 import {LifecycleManager} from './lifecycle.js';
 import {createHandlers} from './handlers.js';
-import {configExists, loadConfig} from '../rag/config/index.js';
+import {configExists, loadConfig} from './lib/config.js';
 
 // Use current working directory as project root
 const projectRoot = process.cwd();

@@ -5,22 +5,26 @@
  * - LanceDB connection (via Storage)
  * - FileWatcher (auto-indexing on file changes)
  * - SearchEngine (singleton, shared across requests)
- * - Indexer (on-demand, exclusive access via mutex)
+ * - IndexingService (on-demand, exclusive access via mutex)
  *
+ * Uses event-based services instead of Redux.
  * CLI and MCP clients access these resources via IPC.
  */
 
 import * as crypto from 'node:crypto';
 import path from 'node:path';
-// Direct imports for fast startup
-import {loadConfig, configExists} from '../rag/config/index.js';
-import type {ViberagConfig} from '../rag/config/index.js';
-import {loadManifest, manifestExists} from '../rag/manifest/index.js';
-import {createDebugLogger, type Logger} from '../rag/logger/index.js';
-import type {SearchResults} from '../rag/search/types.js';
-import type {IndexStats} from '../rag/indexer/types.js';
-import {store, WarmupActions} from '../store/index.js';
-import {FileWatcher, type WatcherStatus} from '../mcp/watcher.js';
+import {loadConfig, configExists, type ViberagConfig} from './lib/config.js';
+import {loadManifest, manifestExists} from './lib/manifest.js';
+import {createServiceLogger, type Logger} from './lib/logger.js';
+import {daemonState, type DaemonState} from './state.js';
+import {
+	SearchEngine,
+	IndexingService,
+	FileWatcher,
+	type SearchResults,
+	type IndexStats,
+	type WatcherStatus,
+} from './services/index.js';
 
 // ============================================================================
 // Types
@@ -50,7 +54,26 @@ export interface DaemonIndexOptions {
 }
 
 /**
+ * Slot state for concurrent embedding tracking.
+ */
+export interface SlotState {
+	state: 'idle' | 'processing' | 'rate-limited';
+	batchInfo: string | null;
+	retryInfo: string | null;
+}
+
+/**
+ * Failed chunk info.
+ */
+export interface FailedChunk {
+	batchInfo: string;
+	error: string;
+	timestamp: string;
+}
+
+/**
  * Status response for clients.
+ * Enhanced to support polling-based state synchronization.
  */
 export interface DaemonStatus {
 	initialized: boolean;
@@ -65,32 +88,25 @@ export interface DaemonStatus {
 	warmupStatus: string;
 	warmupElapsedMs?: number;
 	watcherStatus: WatcherStatus;
-}
 
-// ============================================================================
-// Lazy Loader (avoid loading heavy modules at import time)
-// ============================================================================
+	// Indexing state for polling-based updates
+	indexing: {
+		status: 'idle' | 'initializing' | 'indexing' | 'complete' | 'error';
+		current: number;
+		total: number;
+		stage: string;
+		chunksProcessed: number;
+		throttleMessage: string | null;
+		error: string | null;
+		lastCompleted: string | null;
+		percent: number;
+	};
 
-type SearchEngineType = typeof import('../rag/search/index.js').SearchEngine;
-type IndexerType = typeof import('../rag/indexer/indexer.js').Indexer;
+	// Slot progress for concurrent embedding tracking
+	slots: SlotState[];
 
-let SearchEngineClass: SearchEngineType | null = null;
-let IndexerClass: IndexerType | null = null;
-
-async function getSearchEngineClass(): Promise<SearchEngineType> {
-	if (!SearchEngineClass) {
-		const mod = await import('../rag/search/index.js');
-		SearchEngineClass = mod.SearchEngine;
-	}
-	return SearchEngineClass;
-}
-
-async function getIndexerClass(): Promise<IndexerType> {
-	if (!IndexerClass) {
-		const mod = await import('../rag/indexer/indexer.js');
-		IndexerClass = mod.Indexer;
-	}
-	return IndexerClass;
+	// Failed batches after retries exhausted
+	failures: FailedChunk[];
 }
 
 // ============================================================================
@@ -99,6 +115,7 @@ async function getIndexerClass(): Promise<IndexerType> {
 
 /**
  * Owns and manages all daemon resources.
+ * Uses event-based services wired to daemon state.
  */
 export class DaemonOwner {
 	private readonly projectRoot: string;
@@ -107,8 +124,9 @@ export class DaemonOwner {
 	private watcher: FileWatcher | null = null;
 
 	// SearchEngine singleton (lazy initialized)
-	private searchEngine: InstanceType<SearchEngineType> | null = null;
-	private warmupPromise: Promise<InstanceType<SearchEngineType>> | null = null;
+	private searchEngine: SearchEngine | null = null;
+	private warmupPromise: Promise<SearchEngine> | null = null;
+	private warmupStartTime: number | null = null;
 
 	constructor(projectRoot: string) {
 		this.projectRoot = projectRoot;
@@ -134,9 +152,9 @@ export class DaemonOwner {
 		// Load config
 		this.config = await loadConfig(this.projectRoot);
 
-		// Create debug logger
+		// Create service logger (writes to .viberag/logs/daemon/)
 		try {
-			this.logger = createDebugLogger(this.projectRoot);
+			this.logger = createServiceLogger(this.projectRoot, 'daemon');
 		} catch {
 			// Ignore - debug logging is optional
 		}
@@ -146,6 +164,17 @@ export class DaemonOwner {
 		// Start watcher (if enabled)
 		if (this.config.watch?.enabled !== false) {
 			this.watcher = new FileWatcher(this.projectRoot);
+			this.wireWatcherEvents();
+
+			// Set index trigger callback
+			this.watcher.setIndexTrigger(async () => {
+				const stats = await this.index({force: false});
+				return {
+					chunksAdded: stats.chunksAdded,
+					chunksDeleted: stats.chunksDeleted,
+				};
+			});
+
 			await this.watcher.start();
 			this.log('info', 'File watcher started');
 		}
@@ -176,7 +205,187 @@ export class DaemonOwner {
 		}
 		this.warmupPromise = null;
 
+		// Reset state
+		daemonState.reset();
+
 		this.log('info', 'Daemon shutdown complete');
+	}
+
+	// ==========================================================================
+	// Event Wiring
+	// ==========================================================================
+
+	/**
+	 * Wire watcher events to daemon state.
+	 */
+	private wireWatcherEvents(): void {
+		if (!this.watcher) return;
+
+		this.watcher.on('watcher-start', () => {
+			daemonState.updateNested('watcher', () => ({
+				watching: true,
+			}));
+		});
+
+		this.watcher.on('watcher-ready', ({filesWatched}) => {
+			daemonState.updateNested('watcher', () => ({
+				watching: true,
+				filesWatched,
+			}));
+		});
+
+		this.watcher.on('watcher-debouncing', ({pendingPaths}) => {
+			daemonState.updateNested('watcher', () => ({
+				pendingChanges: pendingPaths.length,
+				indexUpToDate: false,
+			}));
+		});
+
+		this.watcher.on('watcher-indexed', () => {
+			daemonState.updateNested('watcher', () => ({
+				lastIndexUpdate: new Date().toISOString(),
+				indexUpToDate: true,
+				pendingChanges: 0,
+			}));
+		});
+
+		this.watcher.on('watcher-stopped', () => {
+			daemonState.updateNested('watcher', () => ({
+				watching: false,
+				filesWatched: 0,
+				pendingChanges: 0,
+			}));
+		});
+
+		this.watcher.on('watcher-error', ({error}) => {
+			this.log('error', `Watcher error: ${error}`);
+		});
+	}
+
+	/**
+	 * Wire indexing service events to daemon state.
+	 */
+	private wireIndexingEvents(indexer: IndexingService): void {
+		indexer.on('start', () => {
+			daemonState.updateNested('indexing', () => ({
+				status: 'initializing' as const,
+				current: 0,
+				total: 0,
+				stage: '',
+				chunksProcessed: 0,
+				throttleMessage: null,
+				error: null,
+			}));
+			// Reset slots
+			daemonState.update(state => ({
+				slots: state.slots.map(() => ({
+					state: 'idle' as const,
+					batchInfo: null,
+					retryInfo: null,
+				})),
+				failures: [],
+			}));
+		});
+
+		indexer.on('progress', ({current, total, stage}) => {
+			let status: 'scanning' | 'chunking' | 'embedding' = 'embedding';
+			if (stage.toLowerCase().includes('scan')) {
+				status = 'scanning';
+			} else if (stage.toLowerCase().includes('chunk')) {
+				status = 'chunking';
+			}
+			daemonState.updateNested('indexing', () => ({
+				status,
+				current,
+				total,
+				stage,
+			}));
+		});
+
+		indexer.on('chunk-progress', ({chunksProcessed}) => {
+			daemonState.updateNested('indexing', () => ({
+				chunksProcessed,
+			}));
+		});
+
+		indexer.on('throttle', ({message}) => {
+			daemonState.updateNested('indexing', () => ({
+				throttleMessage: message,
+			}));
+		});
+
+		indexer.on('complete', () => {
+			daemonState.updateNested('indexing', () => ({
+				status: 'complete' as const,
+				lastCompleted: new Date().toISOString(),
+				throttleMessage: null,
+			}));
+			// Reset to idle after a short delay
+			setTimeout(() => {
+				const state = daemonState.getSnapshot();
+				if (state.indexing.status === 'complete') {
+					daemonState.updateNested('indexing', () => ({
+						status: 'idle' as const,
+					}));
+				}
+			}, 1000);
+		});
+
+		indexer.on('error', ({error}) => {
+			daemonState.updateNested('indexing', () => ({
+				status: 'error' as const,
+				error: error.message,
+			}));
+		});
+
+		// Slot events
+		indexer.on('slot-processing', ({slot, batchInfo}) => {
+			daemonState.update(state => ({
+				slots: state.slots.map((s, i) =>
+					i === slot
+						? {state: 'processing' as const, batchInfo, retryInfo: null}
+						: s,
+				),
+			}));
+		});
+
+		indexer.on('slot-rate-limited', ({slot, retryInfo}) => {
+			daemonState.update(state => ({
+				slots: state.slots.map((s, i) =>
+					i === slot ? {...s, state: 'rate-limited' as const, retryInfo} : s,
+				),
+			}));
+		});
+
+		indexer.on('slot-idle', ({slot}) => {
+			daemonState.update(state => ({
+				slots: state.slots.map((s, i) =>
+					i === slot
+						? {state: 'idle' as const, batchInfo: null, retryInfo: null}
+						: s,
+				),
+			}));
+		});
+
+		indexer.on('slot-failure', ({batchInfo, error}) => {
+			daemonState.update(state => ({
+				failures: [
+					...state.failures,
+					{batchInfo, error, timestamp: new Date().toISOString()},
+				],
+			}));
+		});
+
+		indexer.on('slots-reset', () => {
+			daemonState.update(state => ({
+				slots: state.slots.map(() => ({
+					state: 'idle' as const,
+					batchInfo: null,
+					retryInfo: null,
+				})),
+				failures: [],
+			}));
+		});
 	}
 
 	// ==========================================================================
@@ -200,23 +409,29 @@ export class DaemonOwner {
 	/**
 	 * Perform warmup - initialize SearchEngine with embedding provider.
 	 */
-	private async doWarmup(): Promise<InstanceType<SearchEngineType>> {
-		const startTime = Date.now();
+	private async doWarmup(): Promise<SearchEngine> {
+		this.warmupStartTime = Date.now();
 
 		try {
 			if (!this.config) {
 				throw new Error('Config not loaded');
 			}
 
-			// Dispatch to Redux
-			store.dispatch(
-				WarmupActions.start({provider: this.config.embeddingProvider}),
-			);
+			// Update state
+			daemonState.updateNested('warmup', () => ({
+				status: 'initializing' as const,
+				provider: this.config!.embeddingProvider,
+				error: null,
+				startedAt: new Date().toISOString(),
+			}));
+
 			this.log('info', `Warming up ${this.config.embeddingProvider} provider`);
 
-			// Lazy load SearchEngine
-			const SearchEngine = await getSearchEngineClass();
-			const engine = new SearchEngine(this.projectRoot);
+			// Create SearchEngine
+			const engine = new SearchEngine(
+				this.projectRoot,
+				this.logger ?? undefined,
+			);
 
 			// Timeout based on provider
 			const isLocal = this.config.embeddingProvider.startsWith('local');
@@ -236,20 +451,25 @@ export class DaemonOwner {
 
 			await Promise.race([initPromise, timeoutPromise]);
 
-			const elapsed = Date.now() - startTime;
+			const elapsed = Date.now() - this.warmupStartTime;
 			this.searchEngine = engine;
 
-			store.dispatch(WarmupActions.ready({elapsedMs: elapsed}));
+			daemonState.updateNested('warmup', () => ({
+				status: 'ready' as const,
+				readyAt: new Date().toISOString(),
+			}));
+
 			this.log('info', `Warmup complete (${elapsed}ms)`);
 
 			return engine;
 		} catch (error) {
-			const elapsed = Date.now() - startTime;
 			const message = error instanceof Error ? error.message : String(error);
 
-			store.dispatch(
-				WarmupActions.failed({error: message, elapsedMs: elapsed}),
-			);
+			daemonState.updateNested('warmup', () => ({
+				status: 'failed' as const,
+				error: message,
+			}));
+
 			this.log('error', `Warmup failed: ${message}`);
 
 			// Clear promise to allow retry
@@ -262,7 +482,7 @@ export class DaemonOwner {
 	/**
 	 * Get the initialized SearchEngine.
 	 */
-	private async getSearchEngine(): Promise<InstanceType<SearchEngineType>> {
+	private async getSearchEngine(): Promise<SearchEngine> {
 		if (this.searchEngine) {
 			return this.searchEngine;
 		}
@@ -293,14 +513,21 @@ export class DaemonOwner {
 	 * Index the codebase.
 	 */
 	async index(options?: DaemonIndexOptions): Promise<IndexStats> {
-		const Indexer = await getIndexerClass();
-		const indexer = new Indexer(this.projectRoot, this.logger ?? undefined);
+		// Notify watcher that indexing is starting
+		this.watcher?.setIndexingState(true);
+
+		const indexer = new IndexingService(
+			this.projectRoot,
+			this.logger ?? undefined,
+		);
+
+		// Wire events to state
+		this.wireIndexingEvents(indexer);
 
 		try {
 			// Handle force reindex - sync config dimensions
 			if (options?.force && this.config) {
-				const {PROVIDER_CONFIGS, saveConfig} =
-					await import('../rag/config/index.js');
+				const {PROVIDER_CONFIGS, saveConfig} = await import('./lib/config.js');
 				const currentDimensions =
 					PROVIDER_CONFIGS[this.config.embeddingProvider]?.dimensions;
 
@@ -323,21 +550,36 @@ export class DaemonOwner {
 			return stats;
 		} finally {
 			indexer.close();
+			this.watcher?.setIndexingState(false);
 		}
 	}
 
 	/**
 	 * Get daemon status.
+	 * Enhanced to support polling-based state synchronization.
 	 */
 	async getStatus(): Promise<DaemonStatus> {
-		const warmupState = store.getState().warmup;
+		const state = daemonState.getSnapshot();
+		const watcherStatus = this.watcher?.getStatus();
+
+		// Calculate warmup elapsed time
+		let warmupElapsedMs: number | undefined;
+		if (this.warmupStartTime) {
+			if (state.warmup.status === 'ready' || state.warmup.status === 'failed') {
+				warmupElapsedMs = state.warmup.readyAt
+					? new Date(state.warmup.readyAt).getTime() - this.warmupStartTime
+					: Date.now() - this.warmupStartTime;
+			} else if (state.warmup.status === 'initializing') {
+				warmupElapsedMs = Date.now() - this.warmupStartTime;
+			}
+		}
 
 		const status: DaemonStatus = {
 			initialized: await configExists(this.projectRoot),
 			indexed: await manifestExists(this.projectRoot),
-			warmupStatus: warmupState.status,
-			warmupElapsedMs: warmupState.elapsedMs ?? undefined,
-			watcherStatus: this.watcher?.getStatus() ?? {
+			warmupStatus: state.warmup.status,
+			warmupElapsedMs,
+			watcherStatus: watcherStatus ?? {
 				watching: false,
 				filesWatched: 0,
 				pendingChanges: 0,
@@ -346,6 +588,33 @@ export class DaemonOwner {
 				indexUpToDate: false,
 				lastError: null,
 			},
+			// Map indexing status for backwards compatibility
+			indexing: {
+				status: this.mapIndexingStatus(state.indexing.status),
+				current: state.indexing.current,
+				total: state.indexing.total,
+				stage: state.indexing.stage,
+				chunksProcessed: state.indexing.chunksProcessed,
+				throttleMessage: state.indexing.throttleMessage,
+				error: state.indexing.error,
+				lastCompleted: state.indexing.lastCompleted,
+				percent:
+					state.indexing.total > 0
+						? Math.round((state.indexing.current / state.indexing.total) * 100)
+						: 0,
+			},
+			// Slot progress for concurrent embedding tracking
+			slots: state.slots.map(s => ({
+				state: s.state,
+				batchInfo: s.batchInfo,
+				retryInfo: s.retryInfo,
+			})),
+			// Failed batches after retries exhausted
+			failures: state.failures.map(f => ({
+				batchInfo: f.batchInfo,
+				error: f.error,
+				timestamp: f.timestamp,
+			})),
 		};
 
 		// Add config info if available
@@ -365,6 +634,30 @@ export class DaemonOwner {
 		}
 
 		return status;
+	}
+
+	/**
+	 * Map internal indexing status to client-facing status.
+	 */
+	private mapIndexingStatus(
+		status: DaemonState['indexing']['status'],
+	): 'idle' | 'initializing' | 'indexing' | 'complete' | 'error' {
+		switch (status) {
+			case 'idle':
+				return 'idle';
+			case 'initializing':
+				return 'initializing';
+			case 'scanning':
+			case 'chunking':
+			case 'embedding':
+				return 'indexing';
+			case 'complete':
+				return 'complete';
+			case 'error':
+				return 'error';
+			default:
+				return 'idle';
+		}
 	}
 
 	/**
@@ -423,6 +716,13 @@ export class DaemonOwner {
 	 */
 	getPidPath(): string {
 		return path.join(this.projectRoot, '.viberag', 'daemon.pid');
+	}
+
+	/**
+	 * Get the logger instance (for centralized error logging).
+	 */
+	getLogger(): Logger | null {
+		return this.logger;
 	}
 
 	/**

@@ -5,18 +5,16 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import chalk from 'chalk';
+import {loadManifest, manifestExists} from '../../daemon/lib/manifest.js';
 import {
-	loadManifest,
-	manifestExists,
 	configExists,
 	saveConfig,
 	DEFAULT_CONFIG,
 	PROVIDER_CONFIGS,
-	getViberagDir,
-	type IndexStats,
-	type SearchResults,
 	type ViberagConfig,
-} from '../../rag/index.js';
+} from '../../daemon/lib/config.js';
+import {getViberagDir} from '../../daemon/lib/constants.js';
+import type {IndexStats, SearchResults} from '../../client/types.js';
 import {DaemonClient} from '../../client/index.js';
 import type {InitWizardConfig} from '../../common/types.js';
 

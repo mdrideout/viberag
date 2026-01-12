@@ -1,11 +1,8 @@
 /**
  * Redux store exports.
  *
- * Central export point for all store-related items:
- * - Store instance
- * - Type definitions
- * - Typed hooks
- * - Actions and selectors
+ * CLI-only Redux store for wizard and app state.
+ * Daemon state is managed separately via daemon/state.ts.
  */
 
 // Store and types
@@ -13,65 +10,6 @@ export {store, type RootState, type AppDispatch} from './store.js';
 
 // Typed hooks
 export {useAppDispatch, useAppSelector} from './hooks.js';
-
-// Slot progress slice
-export {
-	SlotProgressActions,
-	slotProgressReducer,
-	type SlotState,
-	type SlotProgressState,
-	type FailedChunk,
-} from './slot-progress/slice.js';
-
-// Slot progress selectors
-export {
-	selectSlot,
-	selectSlots,
-	selectSlotCount,
-	selectFailures,
-	selectHasRateLimitedSlots,
-} from './slot-progress/selectors.js';
-
-// Indexing slice
-export {
-	IndexingActions,
-	indexingReducer,
-	type IndexingState,
-	type IndexingStatus,
-} from './indexing/slice.js';
-
-// Indexing selectors
-export {
-	selectIndexingState,
-	selectIndexingStatus,
-	selectIndexingStage,
-	selectIndexingCurrent,
-	selectIndexingTotal,
-	selectThrottleMessage,
-	selectChunksProcessed,
-	selectIndexingError,
-	selectIsIndexing,
-	selectIndexingPercent,
-	selectIsThrottled,
-	selectIndexingColor,
-	selectIndexingDisplay,
-} from './indexing/selectors.js';
-
-// Warmup slice
-export {
-	WarmupActions,
-	warmupReducer,
-	type WarmupState,
-	type WarmupStatus,
-} from './warmup/slice.js';
-
-// Watcher slice
-export {
-	WatcherActions,
-	watcherReducer,
-	type WatcherState,
-	type WatcherStatus,
-} from './watcher/slice.js';
 
 // Wizard slice
 export {

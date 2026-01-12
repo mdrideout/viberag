@@ -26,7 +26,7 @@ import {
 
 // Common infrastructure
 import TextInput from '../common/components/TextInput.js';
-import StatusBar from '../common/components/StatusBar.js';
+import StatusBar from './components/StatusBar.js';
 import StaticWithResize from '../common/components/StaticWithResize.js';
 import {useCtrlC} from '../common/hooks/useCtrlC.js';
 import {useCommandHistory} from '../common/hooks/useCommandHistory.js';
@@ -45,6 +45,7 @@ import InitWizard from './components/InitWizard.js';
 import McpSetupWizard from './components/McpSetupWizard.js';
 import CleanWizard from './components/CleanWizard.js';
 import {useRagCommands} from './commands/useRagCommands.js';
+import {DaemonStatusProvider} from './contexts/DaemonStatusContext.js';
 import {
 	checkInitialized,
 	loadIndexStats,
@@ -52,7 +53,8 @@ import {
 	runIndex,
 	formatIndexStats,
 } from './commands/handlers.js';
-import {getViberagDir, loadConfig} from '../rag/index.js';
+import {getViberagDir} from '../daemon/lib/constants.js';
+import {loadConfig} from '../daemon/lib/config.js';
 import type {SearchResultsData} from '../common/types.js';
 
 const require = createRequire(import.meta.url);
@@ -221,7 +223,7 @@ function AppContent() {
 
 				// Automatically start indexing after init
 				addOutput('system', 'Indexing codebase...');
-				// Progress is synced from daemon via DaemonClient notifications → Redux
+				// Progress is synced via DaemonStatusContext polling
 
 				const stats = await runIndex(projectRoot, true);
 				addOutput('system', formatIndexStats(stats));
@@ -392,12 +394,16 @@ function AppContent() {
 }
 
 /**
- * Main App component with Redux Provider.
+ * Main App component with Redux Provider and DaemonStatusProvider.
  */
 export default function App() {
+	const projectRoot = process.cwd();
+
 	return (
 		<Provider store={store}>
-			<AppContent />
+			<DaemonStatusProvider projectRoot={projectRoot}>
+				<AppContent />
+			</DaemonStatusProvider>
 		</Provider>
 	);
 }

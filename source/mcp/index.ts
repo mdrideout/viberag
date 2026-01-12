@@ -11,7 +11,7 @@
  */
 
 import {createMcpServer} from './server.js';
-import {configExists} from '../rag/config/index.js';
+import {configExists} from '../daemon/lib/config.js';
 
 // Use current working directory as project root (same behavior as CLI)
 const projectRoot = process.cwd();

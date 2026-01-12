@@ -94,7 +94,7 @@ Manual MCP Setup:
 		(force: boolean) => {
 			const action = force ? 'Reindexing' : 'Indexing';
 			addOutput('system', `${action} codebase...`);
-			// Progress is synced from daemon via DaemonClient notifications → Redux
+			// Progress is synced via DaemonStatusContext polling
 
 			runIndex(projectRoot, force)
 				.then(async stats => {

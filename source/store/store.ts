@@ -1,17 +1,11 @@
 /**
  * Redux store configuration.
  *
- * Single store instance shared between React components (via Provider)
- * and Node.js code (via direct import).
+ * CLI-only store for wizard and app state.
+ * Daemon state is managed separately via daemon/state.ts.
  */
 
 import {configureStore} from '@reduxjs/toolkit';
-import {slotProgressReducer} from './slot-progress/slice.js';
-import {slotProgressListenerMiddleware} from './slot-progress/listeners.js';
-import {indexingReducer} from './indexing/slice.js';
-import {indexingListenerMiddleware} from './indexing/listeners.js';
-import {warmupReducer} from './warmup/slice.js';
-import {watcherReducer} from './watcher/slice.js';
 import {wizardReducer} from './wizard/slice.js';
 import {appReducer} from './app/slice.js';
 
@@ -21,17 +15,9 @@ import {appReducer} from './app/slice.js';
 
 export const store = configureStore({
 	reducer: {
-		slotProgress: slotProgressReducer,
-		indexing: indexingReducer,
-		warmup: warmupReducer,
-		watcher: watcherReducer,
 		wizard: wizardReducer,
 		app: appReducer,
 	},
-	middleware: getDefaultMiddleware =>
-		getDefaultMiddleware()
-			.prepend(slotProgressListenerMiddleware.middleware)
-			.prepend(indexingListenerMiddleware.middleware),
 });
 
 // ============================================================================

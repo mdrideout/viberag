@@ -30,16 +30,6 @@ export interface JsonRpcResponse {
 }
 
 /**
- * JSON-RPC 2.0 notification (no id, no response expected).
- * Used for push notifications from daemon to clients.
- */
-export interface JsonRpcNotification {
-	jsonrpc: '2.0';
-	method: string;
-	params?: Record<string, unknown>;
-}
-
-/**
  * JSON-RPC 2.0 error object.
  */
 export interface JsonRpcError {
@@ -85,18 +75,8 @@ export type DaemonMethod =
 	| 'status'
 	| 'watchStatus'
 	| 'shutdown'
-	| 'subscribe'
-	| 'ping';
-
-/**
- * Push notification types sent from daemon to subscribed clients.
- */
-export type DaemonNotification =
-	| 'indexProgress'
-	| 'indexComplete'
-	| 'slotProgress'
-	| 'watcherEvent'
-	| 'shuttingDown';
+	| 'ping'
+	| 'health';
 
 // ============================================================================
 // Protocol Version
@@ -175,21 +155,6 @@ export function formatError(
 		id,
 	};
 	return JSON.stringify(response) + '\n';
-}
-
-/**
- * Format a JSON-RPC notification (push message).
- */
-export function formatNotification(
-	method: DaemonNotification,
-	params?: Record<string, unknown>,
-): string {
-	const notification: JsonRpcNotification = {
-		jsonrpc: '2.0',
-		method,
-		...(params !== undefined && {params}),
-	};
-	return JSON.stringify(notification) + '\n';
 }
 
 // ============================================================================

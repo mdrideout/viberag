@@ -2,10 +2,10 @@
  * Daemon Connection Manager
  *
  * Low-level socket connection with message buffering and request/response handling.
+ * Pure request/response - no push notifications.
  */
 
 import * as net from 'node:net';
-import {EventEmitter} from 'node:events';
 import {MessageBuffer} from '../daemon/protocol.js';
 
 // ============================================================================
@@ -21,10 +21,8 @@ interface PendingRequest {
 interface JsonRpcMessage {
 	jsonrpc: '2.0';
 	id?: number | string;
-	method?: string;
 	result?: unknown;
 	error?: {code: number; message: string; data?: unknown};
-	params?: Record<string, unknown>;
 }
 
 // ============================================================================
@@ -40,14 +38,9 @@ const REQUEST_TIMEOUT_MS = 30000;
 
 /**
  * Socket connection with JSON-RPC message handling.
- *
- * Events:
- * - 'connect': Socket connected
- * - 'disconnect': Socket disconnected (reason: string)
- * - 'notification': Push notification received (method: string, params: unknown)
- * - 'error': Error occurred (error: Error)
+ * Pure request/response model - clients poll for state updates.
  */
-export class DaemonConnection extends EventEmitter {
+export class DaemonConnection {
 	private readonly socketPath: string;
 	private socket: net.Socket | null = null;
 	private buffer: MessageBuffer;
@@ -56,7 +49,6 @@ export class DaemonConnection extends EventEmitter {
 	private connected = false;
 
 	constructor(socketPath: string) {
-		super();
 		this.socketPath = socketPath;
 		this.buffer = new MessageBuffer();
 	}
@@ -88,7 +80,6 @@ export class DaemonConnection extends EventEmitter {
 				clearTimeout(timer);
 				this.connected = true;
 				this.buffer.clear();
-				this.emit('connect');
 				resolve();
 			});
 
@@ -97,35 +88,32 @@ export class DaemonConnection extends EventEmitter {
 			});
 
 			this.socket.on('close', () => {
-				const wasConnected = this.connected;
 				this.connected = false;
 				this.rejectPendingRequests(new Error('Connection closed'));
-
-				if (wasConnected) {
-					this.emit('disconnect', 'socket closed');
-				}
 			});
 
 			this.socket.on('error', error => {
 				clearTimeout(timer);
+				const wasConnected = this.connected;
 				this.connected = false;
 
-				if (!this.connected) {
+				if (!wasConnected) {
 					// Connection failed
 					reject(error);
-				} else {
-					// Error after connected
-					this.emit('error', error);
 				}
+				// Errors after connected are handled by close event
 			});
 		});
 	}
 
 	/**
 	 * Disconnect from the daemon.
+	 * Cleans up socket, listeners, and pending requests.
 	 */
 	disconnect(): void {
 		if (this.socket) {
+			// Remove all listeners to prevent memory leaks
+			this.socket.removeAllListeners();
 			this.socket.destroy();
 			this.socket = null;
 		}
@@ -187,7 +175,8 @@ export class DaemonConnection extends EventEmitter {
 				const parsed = JSON.parse(message) as JsonRpcMessage;
 				this.handleMessage(parsed);
 			} catch {
-				this.emit('error', new Error(`Failed to parse message: ${message}`));
+				// Malformed JSON - log but don't crash
+				console.error(`[connection] Failed to parse message: ${message}`);
 			}
 		}
 	}
@@ -196,24 +185,23 @@ export class DaemonConnection extends EventEmitter {
 	 * Handle a parsed JSON-RPC message.
 	 */
 	private handleMessage(msg: JsonRpcMessage): void {
-		if (msg.id !== undefined) {
-			// Response to a request
-			const pending = this.pendingRequests.get(msg.id);
-			if (pending) {
-				this.pendingRequests.delete(msg.id);
-				clearTimeout(pending.timer);
+		// Only handle responses (messages with id)
+		if (msg.id === undefined) {
+			return;
+		}
 
-				if (msg.error) {
-					pending.reject(
-						new Error(msg.error.message || `Error ${msg.error.code}`),
-					);
-				} else {
-					pending.resolve(msg.result);
-				}
+		const pending = this.pendingRequests.get(msg.id);
+		if (pending) {
+			this.pendingRequests.delete(msg.id);
+			clearTimeout(pending.timer);
+
+			if (msg.error) {
+				pending.reject(
+					new Error(msg.error.message || `Error ${msg.error.code}`),
+				);
+			} else {
+				pending.resolve(msg.result);
 			}
-		} else if (msg.method) {
-			// Push notification
-			this.emit('notification', msg.method, msg.params);
 		}
 	}
 

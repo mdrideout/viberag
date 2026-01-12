@@ -2,9 +2,13 @@
  * Daemon Lifecycle Manager
  *
  * Handles:
- * - Idle timeout (auto-shutdown when no clients)
+ * - Activity-based idle timeout (auto-shutdown when no activity)
  * - Signal handling (SIGINT, SIGTERM)
  * - Graceful shutdown coordination
+ *
+ * Simplified for polling-based architecture:
+ * - Tracks activity (requests) instead of client connections
+ * - Any request resets the idle timer
  */
 
 import type {DaemonOwner} from './owner.js';
@@ -33,6 +37,7 @@ export class LifecycleManager {
 
 	private idleTimer: ReturnType<typeof setTimeout> | null = null;
 	private shuttingDown = false;
+	private lastActivityTime: number = Date.now();
 
 	constructor(
 		server: DaemonServer,
@@ -43,41 +48,37 @@ export class LifecycleManager {
 		this.owner = owner;
 		this.idleTimeoutMs = idleTimeoutMs;
 
-		// Wire up server callbacks
-		this.server.onClientConnect = this.onClientConnect.bind(this);
-		this.server.onClientDisconnect = this.onClientDisconnect.bind(this);
+		// Wire up activity callback instead of connect/disconnect
+		this.server.onActivity = this.onActivity.bind(this);
 	}
 
 	/**
-	 * Called when a client connects.
+	 * Called on each request to reset idle timer.
 	 */
-	onClientConnect(_clientId: string): void {
-		this.cancelIdleTimer();
+	onActivity(): void {
+		this.lastActivityTime = Date.now();
+		this.resetIdleTimer();
 	}
 
 	/**
-	 * Called when a client disconnects.
+	 * Reset the idle timeout timer.
 	 */
-	onClientDisconnect(_clientId: string, remainingCount: number): void {
-		if (remainingCount === 0) {
-			this.startIdleTimer();
-		}
-	}
-
-	/**
-	 * Start the idle timeout timer.
-	 */
-	private startIdleTimer(): void {
+	private resetIdleTimer(): void {
 		if (this.shuttingDown) return;
 
-		this.cancelIdleTimer();
+		// Cancel existing timer
+		if (this.idleTimer) {
+			clearTimeout(this.idleTimer);
+		}
 
-		console.error(
-			`[daemon] No clients, starting idle timer (${this.idleTimeoutMs / 1000}s)`,
-		);
-
+		// Start new timer
 		this.idleTimer = setTimeout(() => {
-			console.error('[daemon] Idle timeout reached, shutting down');
+			const idleSeconds = Math.round(
+				(Date.now() - this.lastActivityTime) / 1000,
+			);
+			console.error(
+				`[daemon] Idle for ${idleSeconds}s, exceeds ${this.idleTimeoutMs / 1000}s limit`,
+			);
 			this.shutdown('idle timeout');
 		}, this.idleTimeoutMs);
 	}
@@ -119,9 +120,6 @@ export class LifecycleManager {
 		this.cancelIdleTimer();
 
 		try {
-			// Broadcast shutdown to clients
-			this.server.broadcast('shuttingDown', {reason});
-
 			// Shutdown owner (closes watcher, search engine)
 			await this.owner.shutdown();
 
@@ -141,7 +139,9 @@ export class LifecycleManager {
 	 * Start initial idle timer (for when daemon starts with no clients).
 	 */
 	startInitialIdleTimer(): void {
-		// Start idle timer immediately - will be cancelled on first connect
-		this.startIdleTimer();
+		console.error(
+			`[daemon] Starting idle timer (${this.idleTimeoutMs / 1000}s timeout)`,
+		);
+		this.resetIdleTimer();
 	}
 }

@@ -2,11 +2,30 @@
  * Client Types
  *
  * Types for daemon client communication.
+ * Simplified for polling-based architecture.
  */
 
-import type {SearchResults} from '../rag/search/types.js';
-import type {IndexStats} from '../rag/indexer/types.js';
-import type {WatcherStatus} from '../mcp/watcher.js';
+import type {SearchResults} from '../daemon/services/search/types.js';
+import type {IndexStats} from '../daemon/services/indexing.js';
+import type {WatcherStatus} from '../daemon/services/watcher.js';
+
+/**
+ * Slot state for concurrent embedding tracking.
+ */
+export interface SlotState {
+	state: 'idle' | 'processing' | 'rate-limited';
+	batchInfo: string | null;
+	retryInfo: string | null;
+}
+
+/**
+ * Failed chunk info.
+ */
+export interface FailedChunk {
+	batchInfo: string;
+	error: string;
+	timestamp: string;
+}
 
 // ============================================================================
 // Client Configuration
@@ -22,76 +41,6 @@ export interface DaemonClientOptions {
 	autoStart?: boolean;
 	/** Connection timeout in ms (default: 5000) */
 	connectTimeout?: number;
-	/** Maximum reconnect attempts (default: 3) */
-	reconnectAttempts?: number;
-}
-
-// ============================================================================
-// Connection State
-// ============================================================================
-
-/**
- * Client connection state.
- */
-export type ConnectionState =
-	| 'disconnected'
-	| 'connecting'
-	| 'connected'
-	| 'reconnecting';
-
-// ============================================================================
-// Event Types
-// ============================================================================
-
-/**
- * Index progress event data.
- */
-export interface IndexProgressEvent {
-	status: string;
-	current: number;
-	total: number;
-	stage: string;
-	chunksProcessed: number;
-	throttleMessage?: string;
-}
-
-/**
- * Index complete event data.
- */
-export interface IndexCompleteEvent {
-	success: boolean;
-	stats?: IndexStats;
-	error?: string;
-}
-
-/**
- * Watcher event data.
- */
-export interface WatcherEvent {
-	type: 'add' | 'change' | 'unlink';
-	path: string;
-}
-
-/**
- * Shutting down event data.
- */
-export interface ShuttingDownEvent {
-	reason: string;
-}
-
-/**
- * Client event types.
- */
-export interface DaemonClientEvents {
-	connect: () => void;
-	disconnect: (reason: string) => void;
-	reconnect: () => void;
-	reconnectFailed: () => void;
-	error: (error: Error) => void;
-	indexProgress: (event: IndexProgressEvent) => void;
-	indexComplete: (event: IndexCompleteEvent) => void;
-	watcherEvent: (event: WatcherEvent) => void;
-	shuttingDown: (event: ShuttingDownEvent) => void;
 }
 
 // ============================================================================
@@ -123,6 +72,7 @@ export interface ClientIndexOptions {
 
 /**
  * Daemon status response.
+ * Enhanced to support polling-based state synchronization.
  */
 export interface DaemonStatusResponse {
 	initialized: boolean;
@@ -137,21 +87,25 @@ export interface DaemonStatusResponse {
 	warmupStatus: string;
 	warmupElapsedMs?: number;
 	watcherStatus: WatcherStatus;
-}
 
-/**
- * Subscribe response.
- */
-export interface SubscribeResponse {
-	subscribed: boolean;
-	protocolVersion: number;
-	status: DaemonStatusResponse;
-	indexingState: {
-		status: string;
+	// Indexing state for polling-based updates
+	indexing: {
+		status: 'idle' | 'initializing' | 'indexing' | 'complete' | 'error';
 		current: number;
 		total: number;
 		stage: string;
+		chunksProcessed: number;
+		throttleMessage: string | null;
+		error: string | null;
+		lastCompleted: string | null;
+		percent: number;
 	};
+
+	// Slot progress for concurrent embedding tracking
+	slots: SlotState[];
+
+	// Failed batches after retries exhausted
+	failures: FailedChunk[];
 }
 
 /**

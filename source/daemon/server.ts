@@ -2,7 +2,7 @@
  * Daemon IPC Server
  *
  * Unix socket server for JSON-RPC 2.0 communication.
- * Handles client connections, request routing, and notifications.
+ * Handles client connections and request routing.
  */
 
 import * as net from 'node:net';
@@ -10,12 +10,10 @@ import * as fs from 'node:fs/promises';
 import path from 'node:path';
 import {
 	type JsonRpcRequest,
-	type DaemonNotification,
 	type ErrorCode,
 	parseRequest,
 	formatResponse,
 	formatError,
-	formatNotification,
 	ErrorCodes,
 	MessageBuffer,
 	JsonRpcParseError,
@@ -64,13 +62,14 @@ export class DaemonServer {
 
 	private server: net.Server | null = null;
 	private clients: Map<string, net.Socket> = new Map();
-	private subscribedClients: Set<string> = new Set();
 	private messageBuffers: Map<string, MessageBuffer> = new Map();
 	private nextClientId = 1;
 
 	// Callbacks for lifecycle events
 	onClientConnect?: (clientId: string) => void;
 	onClientDisconnect?: (clientId: string, remainingCount: number) => void;
+	/** Called on each request for activity-based timeout */
+	onActivity?: () => void;
 
 	constructor(owner: DaemonOwner) {
 		this.owner = owner;
@@ -122,15 +121,11 @@ export class DaemonServer {
 	 * Stop the server.
 	 */
 	async stop(): Promise<void> {
-		// Broadcast shutdown notification
-		this.broadcastToSubscribed('shuttingDown', {reason: 'server stopping'});
-
 		// Close all client connections
 		for (const socket of this.clients.values()) {
 			socket.destroy();
 		}
 		this.clients.clear();
-		this.subscribedClients.clear();
 		this.messageBuffers.clear();
 
 		// Close server
@@ -161,44 +156,6 @@ export class DaemonServer {
 	 */
 	getClientCount(): number {
 		return this.clients.size;
-	}
-
-	/**
-	 * Broadcast a notification to all subscribed clients.
-	 */
-	broadcastToSubscribed(
-		method: DaemonNotification,
-		params?: Record<string, unknown>,
-	): void {
-		const message = formatNotification(method, params);
-		for (const clientId of this.subscribedClients) {
-			const socket = this.clients.get(clientId);
-			if (socket && !socket.destroyed) {
-				socket.write(message);
-			}
-		}
-	}
-
-	/**
-	 * Broadcast a notification to all connected clients.
-	 */
-	broadcast(
-		method: DaemonNotification,
-		params?: Record<string, unknown>,
-	): void {
-		const message = formatNotification(method, params);
-		for (const socket of this.clients.values()) {
-			if (!socket.destroyed) {
-				socket.write(message);
-			}
-		}
-	}
-
-	/**
-	 * Subscribe a client to push notifications.
-	 */
-	subscribeClient(clientId: string): void {
-		this.subscribedClients.add(clientId);
 	}
 
 	/**
@@ -251,6 +208,9 @@ export class DaemonServer {
 		socket: net.Socket,
 		message: string,
 	): Promise<void> {
+		// Record activity for timeout management
+		this.onActivity?.();
+
 		let request: JsonRpcRequest;
 
 		try {
@@ -294,6 +254,19 @@ export class DaemonServer {
 			const message = error instanceof Error ? error.message : String(error);
 			const code = ((error as {code?: number}).code ??
 				ErrorCodes.INTERNAL_ERROR) as ErrorCode;
+
+			// Centralized error logging - log to both stderr and debug.log
+			// Pass Error object (not just message) to preserve stack trace
+			console.error(`[daemon] Handler error (${request.method}):`, error);
+			const logger = this.owner.getLogger();
+			if (logger) {
+				logger.error(
+					'DaemonServer',
+					`Handler error: ${request.method}`,
+					error instanceof Error ? error : new Error(message),
+				);
+			}
+
 			socket.write(formatError(request.id, code, message));
 		}
 	}
@@ -303,7 +276,6 @@ export class DaemonServer {
 	 */
 	private handleDisconnect(clientId: string): void {
 		this.clients.delete(clientId);
-		this.subscribedClients.delete(clientId);
 		this.messageBuffers.delete(clientId);
 
 		const remaining = this.clients.size;

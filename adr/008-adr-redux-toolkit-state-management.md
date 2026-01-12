@@ -2,9 +2,20 @@
 
 ## Status
 
-Accepted
+Accepted (Scope Reduced - see ADR-012)
 
-## Context
+## Current State
+
+**Redux is now CLI-only.** Per ADR-012, the daemon uses a simple state container (`daemon/state.ts`) with event-based services. Redux remains in the CLI for:
+
+- **Wizard state** - Multi-step init and MCP setup wizards
+- **App state** - Output items, initialization status, index stats
+
+The daemon slices (`indexing/`, `slot-progress/`, `warmup/`, `watcher/`) have been removed. CLI components now poll `daemon.status()` via `DaemonStatusContext` for daemon state.
+
+---
+
+## Original Context (Historical)
 
 VibeRAG manages complex state across multiple domains:
 
@@ -286,3 +297,28 @@ When adding new state:
 2. **Don't** thread callbacks through multiple layers
 3. **Do** create a slice if multiple consumers need the state
 4. **Do** dispatch actions directly from business logic
+
+## Current Architecture (Post ADR-012)
+
+The store structure has been simplified to CLI-only concerns:
+
+```
+source/store/
+├── store.ts              # Store configuration (wizard + app only)
+├── hooks.ts              # Typed useAppDispatch, useAppSelector
+├── index.ts              # Centralized exports
+│
+├── app/                  # App-level state
+│   ├── slice.ts          # Output items, init status, index stats
+│   └── selectors.ts
+│
+└── wizard/               # Wizard flows
+    ├── slice.ts          # Init wizard, MCP setup wizard
+    └── selectors.ts
+```
+
+Daemon state is now managed by:
+
+- `daemon/state.ts` - Simple state container
+- `daemon/services/` - Event-based services
+- `cli/contexts/DaemonStatusContext.tsx` - Polls daemon status for CLI components

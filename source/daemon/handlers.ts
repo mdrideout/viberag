@@ -3,13 +3,16 @@
  *
  * JSON-RPC method implementations for daemon IPC.
  * Each handler receives params and a context with access to owner and server.
+ *
+ * Simplified for polling-based architecture:
+ * - Clients poll status() for state updates
+ * - No push notifications or subscriptions
  */
 
 import {z} from 'zod';
-import {ErrorCodes, JsonRpcMethodError, PROTOCOL_VERSION} from './protocol.js';
+import {PROTOCOL_VERSION} from './protocol.js';
 import type {Handler, HandlerRegistry} from './server.js';
-import {store, selectIndexingState, selectSlots} from '../store/index.js';
-import type {SlotState} from '../store/index.js';
+import {daemonState} from './state.js';
 
 // ============================================================================
 // Parameter Schemas
@@ -39,10 +42,6 @@ const shutdownParamsSchema = z.object({
 	reason: z.string().optional(),
 });
 
-const subscribeParamsSchema = z.object({
-	protocolVersion: z.number().optional(),
-});
-
 // ============================================================================
 // Handlers
 // ============================================================================
@@ -59,83 +58,15 @@ const searchHandler: Handler = async (params, ctx) => {
 
 /**
  * Index handler.
- * Subscribes client to progress notifications during indexing.
+ * Simply runs indexing - clients poll status() for progress.
  */
 const indexHandler: Handler = async (params, ctx) => {
 	const validated = indexParamsSchema.parse(params ?? {});
 
-	// Subscribe client to receive progress updates
-	ctx.server.subscribeClient(ctx.clientId);
-
-	// Track last states for change detection
-	let lastIndexingState = selectIndexingState(store.getState());
-	let lastSlots = selectSlots(store.getState());
-
-	// Set up Redux listener to broadcast progress and slot updates
-	const unsubscribe = store.subscribe(() => {
-		const currentIndexingState = selectIndexingState(store.getState());
-		const currentSlots = selectSlots(store.getState());
-
-		// Broadcast indexing progress if changed
-		if (
-			currentIndexingState.status !== lastIndexingState.status ||
-			currentIndexingState.current !== lastIndexingState.current ||
-			currentIndexingState.total !== lastIndexingState.total ||
-			currentIndexingState.stage !== lastIndexingState.stage
-		) {
-			lastIndexingState = currentIndexingState;
-
-			ctx.server.broadcastToSubscribed('indexProgress', {
-				status: currentIndexingState.status,
-				current: currentIndexingState.current,
-				total: currentIndexingState.total,
-				stage: currentIndexingState.stage,
-				chunksProcessed: currentIndexingState.chunksProcessed,
-				throttleMessage: currentIndexingState.throttleMessage,
-			});
-		}
-
-		// Broadcast slot progress if any slot changed
-		currentSlots.forEach((slot: SlotState, index: number) => {
-			const lastSlot = lastSlots[index];
-			if (
-				!lastSlot ||
-				slot.state !== lastSlot.state ||
-				slot.batchInfo !== lastSlot.batchInfo ||
-				slot.retryInfo !== lastSlot.retryInfo
-			) {
-				ctx.server.broadcastToSubscribed('slotProgress', {
-					index,
-					...slot,
-				});
-			}
-		});
-		lastSlots = currentSlots;
-	});
-
-	try {
-		const stats = await ctx.owner.index({force: validated.force});
-
-		// Broadcast completion
-		ctx.server.broadcastToSubscribed('indexComplete', {
-			success: true,
-			stats,
-		});
-
-		return stats;
-	} catch (error) {
-		const message = error instanceof Error ? error.message : String(error);
-
-		// Broadcast failure
-		ctx.server.broadcastToSubscribed('indexComplete', {
-			success: false,
-			error: message,
-		});
-
-		throw error;
-	} finally {
-		unsubscribe();
-	}
+	// Run indexing - Redux state is updated by indexer directly
+	// Clients poll status() to see progress
+	const stats = await ctx.owner.index({force: validated.force});
+	return stats;
 };
 
 /**
@@ -154,7 +85,7 @@ const watchStatusHandler: Handler = async (_params, ctx) => {
 
 /**
  * Shutdown handler.
- * Broadcasts shutdown notification and schedules server stop.
+ * Schedules server stop.
  */
 const shutdownHandler: Handler = async (params, ctx) => {
 	const validated = shutdownParamsSchema.parse(params ?? {});
@@ -162,11 +93,6 @@ const shutdownHandler: Handler = async (params, ctx) => {
 	console.error(
 		`[daemon] Shutdown requested: ${validated.reason ?? 'no reason'}`,
 	);
-
-	// Broadcast shutdown notification
-	ctx.server.broadcast('shuttingDown', {
-		reason: validated.reason ?? 'shutdown requested',
-	});
 
 	// Schedule shutdown after response is sent
 	setImmediate(async () => {
@@ -176,44 +102,6 @@ const shutdownHandler: Handler = async (params, ctx) => {
 	});
 
 	return {success: true};
-};
-
-/**
- * Subscribe handler.
- * Subscribes client to push notifications and returns current state.
- */
-const subscribeHandler: Handler = async (params, ctx) => {
-	const validated = subscribeParamsSchema.parse(params ?? {});
-
-	// Check protocol version if provided
-	if (
-		validated.protocolVersion !== undefined &&
-		validated.protocolVersion !== PROTOCOL_VERSION
-	) {
-		throw new JsonRpcMethodError(
-			ErrorCodes.INVALID_PARAMS,
-			`Protocol version mismatch: client=${validated.protocolVersion}, daemon=${PROTOCOL_VERSION}`,
-		);
-	}
-
-	// Subscribe client
-	ctx.server.subscribeClient(ctx.clientId);
-
-	// Return current state
-	const status = await ctx.owner.getStatus();
-	const indexingState = selectIndexingState(store.getState());
-
-	return {
-		subscribed: true,
-		protocolVersion: PROTOCOL_VERSION,
-		status,
-		indexingState: {
-			status: indexingState.status,
-			current: indexingState.current,
-			total: indexingState.total,
-			stage: indexingState.stage,
-		},
-	};
 };
 
 /**
@@ -233,14 +121,14 @@ const pingHandler: Handler = async (_params, _ctx) => {
  * Returns detailed health information.
  */
 const healthHandler: Handler = async (_params, ctx) => {
-	const indexingState = selectIndexingState(store.getState());
+	const snapshot = daemonState.getSnapshot();
 
 	return {
 		healthy: true,
 		uptime: process.uptime(),
 		memoryUsage: process.memoryUsage(),
 		clients: ctx.server.getClientCount(),
-		indexStatus: indexingState.status,
+		indexStatus: snapshot.indexing.status,
 		protocolVersion: PROTOCOL_VERSION,
 	};
 };
@@ -259,7 +147,6 @@ export function createHandlers(): HandlerRegistry {
 		status: statusHandler,
 		watchStatus: watchStatusHandler,
 		shutdown: shutdownHandler,
-		subscribe: subscribeHandler,
 		ping: pingHandler,
 		health: healthHandler,
 	};

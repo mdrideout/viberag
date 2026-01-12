@@ -10,16 +10,20 @@
 import {createRequire} from 'node:module';
 import {FastMCP} from 'fastmcp';
 import {z} from 'zod';
-// Direct imports for fast startup (avoid barrel file)
-import {configExists, loadConfig} from '../rag/config/index.js';
+// Direct imports from daemon for fast startup (avoid barrel file)
+import {configExists, loadConfig} from '../daemon/lib/config.js';
 import {
 	loadManifest,
 	manifestExists,
 	getSchemaVersionInfo,
-} from '../rag/manifest/index.js';
-import type {SearchResults, SearchFilters} from '../rag/search/types.js';
-import type {IndexStats} from '../rag/indexer/types.js';
+} from '../daemon/lib/manifest.js';
+import type {
+	SearchResults,
+	SearchFilters,
+} from '../daemon/services/search/types.js';
+import type {IndexStats} from '../daemon/services/indexing.js';
 import {DaemonClient} from '../client/index.js';
+import {createServiceLogger, type Logger} from '../daemon/lib/logger.js';
 
 const require = createRequire(import.meta.url);
 const pkg = require('../../package.json') as {
@@ -258,6 +262,15 @@ export function createMcpServer(projectRoot: string): McpServerWithDaemon {
 
 	// Create daemon client (auto-starts daemon if needed)
 	const client = new DaemonClient(projectRoot);
+
+	// Create logger for error tracking (writes to .viberag/logs/mcp/)
+	let logger: Logger | null = null;
+	const getLogger = (): Logger => {
+		if (!logger) {
+			logger = createServiceLogger(projectRoot, 'mcp');
+		}
+		return logger;
+	};
 
 	// Filters schema for transparent, AI-controlled filtering
 	const filtersSchema = z
@@ -604,7 +617,20 @@ Production code: { path_not_contains: ["test", "mock", "fixture"], is_exported: 
 					status: daemonStatus.warmupStatus,
 					elapsedMs: daemonStatus.warmupElapsedMs,
 				};
-			} catch {
+			} catch (error) {
+				// Log unexpected errors (expected: daemon not running)
+				const message = error instanceof Error ? error.message : String(error);
+				const isExpected =
+					message.includes('ENOENT') || message.includes('ECONNREFUSED');
+				if (!isExpected) {
+					// Log to both stderr and debug.log - pass Error object for full stack
+					console.error('[mcp] Failed to get daemon warmup status:', error);
+					getLogger().error(
+						'MCP',
+						'Failed to get daemon warmup status',
+						error instanceof Error ? error : new Error(message),
+					);
+				}
 				response['warmup'] = {status: 'unknown'};
 			}
 
