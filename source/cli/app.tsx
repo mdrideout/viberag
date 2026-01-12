@@ -2,12 +2,10 @@ import React, {useEffect, useCallback} from 'react';
 import {createRequire} from 'node:module';
 import {Box, Text, useStdout} from 'ink';
 import {Provider} from 'react-redux';
-import {store} from '../store/store.js';
+import {store} from './store/store.js';
+import {useAppDispatch, useAppSelector} from './store/hooks.js';
+import {WizardActions} from './store/wizard/slice.js';
 import {
-	useAppDispatch,
-	useAppSelector,
-	WizardActions,
-	AppActions,
 	selectActiveWizard,
 	selectInitStep,
 	selectMcpStep,
@@ -17,12 +15,15 @@ import {
 	selectShowMcpPrompt,
 	selectExistingApiKey,
 	selectExistingProvider,
+} from './store/wizard/selectors.js';
+import {AppActions} from './store/app/slice.js';
+import {
 	selectIsInitialized,
 	selectIndexStats,
 	selectAppStatus,
 	selectOutputItems,
 	selectStartupLoaded,
-} from '../store/index.js';
+} from './store/app/selectors.js';
 
 // Common infrastructure
 import TextInput from '../common/components/TextInput.js';
@@ -44,7 +45,7 @@ import SearchResultsDisplay from './components/SearchResultsDisplay.js';
 import InitWizard from './components/InitWizard.js';
 import McpSetupWizard from './components/McpSetupWizard.js';
 import CleanWizard from './components/CleanWizard.js';
-import {useRagCommands} from './commands/useRagCommands.js';
+import {useCommands} from './commands/useCommands.js';
 import {DaemonStatusProvider} from './contexts/DaemonStatusContext.js';
 import {
 	checkInitialized,
@@ -272,7 +273,7 @@ function AppContent() {
 	});
 
 	// Command handling (all logic consolidated in useRagCommands)
-	const {isCommand, executeCommand} = useRagCommands({
+	const {isCommand, executeCommand} = useCommands({
 		addOutput,
 		addSearchResults,
 		projectRoot,

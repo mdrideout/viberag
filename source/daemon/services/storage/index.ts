@@ -20,9 +20,6 @@ import {
 	type CodeChunkRow,
 } from './types.js';
 
-export * from './types.js';
-export * from './schema.js';
-
 /**
  * Storage layer wrapping LanceDB for code chunks and embedding cache.
  */

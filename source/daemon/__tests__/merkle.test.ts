@@ -4,7 +4,8 @@
  */
 
 import {describe, it, expect, beforeEach, afterEach} from 'vitest';
-import {MerkleTree, type MerkleNode} from '../lib/merkle/index.js';
+import {MerkleTree} from '../lib/merkle/index.js';
+import type {MerkleNode} from '../lib/merkle/node.js';
 import {
 	copyFixtureToTemp,
 	addFile,

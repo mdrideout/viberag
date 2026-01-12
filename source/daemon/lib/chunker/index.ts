@@ -16,10 +16,6 @@ import {
 	type SupportedLanguage,
 } from './types.js';
 
-// Re-export types and utilities
-export * from './types.js';
-export {BoundedChannel} from './bounded-channel.js';
-
 // Use createRequire to resolve WASM file paths from tree-sitter-wasms
 const require = createRequire(import.meta.url);
 

@@ -303,10 +303,9 @@ When adding new state:
 The store structure has been simplified to CLI-only concerns:
 
 ```
-source/store/
+source/cli/store/         # Store is CLI-only (no barrel exports)
 ├── store.ts              # Store configuration (wizard + app only)
 ├── hooks.ts              # Typed useAppDispatch, useAppSelector
-├── index.ts              # Centralized exports
 │
 ├── app/                  # App-level state
 │   ├── slice.ts          # Output items, init status, index stats
@@ -315,6 +314,14 @@ source/store/
 └── wizard/               # Wizard flows
     ├── slice.ts          # Init wizard, MCP setup wizard
     └── selectors.ts
+```
+
+**Note:** The store barrel (`cli/store/index.ts`) was deleted per NO BARREL EXPORTS policy. Use direct imports:
+
+```typescript
+import {store} from './store/store.js';
+import {useAppDispatch, useAppSelector} from './store/hooks.js';
+import {AppActions} from './store/app/slice.js';
 ```
 
 Daemon state is now managed by:

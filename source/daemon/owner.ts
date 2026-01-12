@@ -17,14 +17,10 @@ import {loadConfig, configExists, type ViberagConfig} from './lib/config.js';
 import {loadManifest, manifestExists} from './lib/manifest.js';
 import {createServiceLogger, type Logger} from './lib/logger.js';
 import {daemonState, type DaemonState} from './state.js';
-import {
-	SearchEngine,
-	IndexingService,
-	FileWatcher,
-	type SearchResults,
-	type IndexStats,
-	type WatcherStatus,
-} from './services/index.js';
+import {SearchEngine} from './services/search/index.js';
+import type {SearchResults} from './services/search/types.js';
+import {IndexingService, type IndexStats} from './services/indexing.js';
+import {FileWatcher, type WatcherStatus} from './services/watcher.js';
 
 // ============================================================================
 // Types

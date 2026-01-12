@@ -5,7 +5,7 @@ import {defineConfig} from 'vitest/config';
  *
  * Splits tests into two projects:
  * - fast: CLI tests, merkle tests, grammar smoke tests (no embeddings)
- * - rag: RAG E2E tests (require embedding model)
+ * - daemon: Daemon E2E tests (require embedding model)
  *
  * This allows:
  * - Fast tests to run in parallel with threads (8 workers)
@@ -25,8 +25,8 @@ export default defineConfig({
 					include: [
 						'source/cli/__tests__/**/*.test.ts',
 						'source/mcp/__tests__/**/*.test.ts',
-						'source/rag/__tests__/merkle.test.ts',
-						'source/rag/__tests__/grammar-smoke.test.ts',
+						'source/daemon/__tests__/merkle.test.ts',
+						'source/daemon/__tests__/grammar-smoke.test.ts',
 					],
 					pool: 'threads',
 					maxWorkers: 8,
@@ -38,12 +38,12 @@ export default defineConfig({
 			{
 				extends: true,
 				test: {
-					name: 'rag',
+					name: 'daemon',
 					include: [
-						'source/rag/__tests__/rag.test.ts',
-						'source/rag/__tests__/search-*.test.ts',
-						'source/rag/__tests__/multi-language.test.ts',
-						'source/rag/__tests__/metadata-extraction.test.ts',
+						'source/daemon/__tests__/indexing.test.ts',
+						'source/daemon/__tests__/search-*.test.ts',
+						'source/daemon/__tests__/multi-language.test.ts',
+						'source/daemon/__tests__/metadata-extraction.test.ts',
 					],
 					pool: 'forks',
 					maxWorkers: 1,

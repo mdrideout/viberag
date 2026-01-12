@@ -22,48 +22,49 @@ We adopt a vertical slicing architecture where interfaces are self-contained fea
 ```
 source/
 ├── common/           # Generic React/Ink infrastructure
-│   ├── components/   # TextInput, StatusBar, CommandSuggestions
+│   ├── components/   # TextInput, CommandSuggestions
 │   ├── hooks/        # useCtrlC, useCommandHistory, useTextBuffer
 │   └── types.ts      # OutputItem, TextBufferState
 │
-├── store/            # Redux state management (see ADR-008)
-│   ├── store.ts      # Store configuration
-│   ├── hooks.ts      # Typed useAppDispatch, useAppSelector
-│   ├── index.ts      # Centralized exports
-│   └── {domain}/     # Slice per domain (app, indexing, etc.)
+├── daemon/           # Headless business logic (NO UI)
+│   ├── state.ts      # Simple state container (see ADR-012)
+│   ├── owner.ts      # Wires events to state
+│   ├── services/     # Indexing, search, storage, watcher
+│   ├── providers/    # Embedding providers (local, gemini, etc.)
+│   ├── lib/          # Pure utilities (merkle, chunker, config)
+│   └── __tests__/    # All daemon tests
 │
-├── rag/              # Headless RAG engine (NO UI)
-│   ├── indexer/      # Chunking, orchestration
-│   ├── search/       # Vector, FTS, hybrid
-│   ├── storage/      # LanceDB wrapper
-│   └── index.ts      # Public API
+├── client/           # Thin IPC client
+│   ├── index.ts      # DaemonClient class
+│   └── types.ts      # Client types
 │
 ├── cli/              # CLI interface (self-contained)
 │   ├── app.tsx       # Main component
-│   ├── components/   # WelcomeBanner (interface-specific)
+│   ├── store/        # Redux store (CLI-only, see ADR-008)
+│   ├── components/   # StatusBar, wizards
 │   ├── commands/     # Command handlers
 │   └── index.tsx     # Entry point
 │
 └── mcp/              # MCP server (self-contained)
-    ├── server.ts     # JSON-RPC server
+    ├── server.ts     # MCP tools implementation
     └── index.ts      # Entry point
 ```
 
 ### Dependency Flow
 
 ```
-common/ ← cli/ → rag/
-    ↑       ↓      ↓
-    └── store/ ←───┘
+common/ ← cli/ ↔ client/ → daemon/
+              ↓
+         cli/store/
               ↖
-         mcp/ ─┘
+    mcp/ → client/ → daemon/
 ```
 
-- **cli/** uses `common/` for UI + `rag/` for business logic + `store/` for state
-- **mcp/** uses `rag/` for business logic + `store/` for state (headless, no UI)
-- **rag/** dispatches to `store/` directly (no callback threading)
-- **common/** uses `store/` for shared state access
-- **store/** has zero dependencies on interfaces (decoupled so multiple interfaces can share state)
+- **cli/** uses `common/` for UI + `client/` for IPC + `cli/store/` for Redux state
+- **mcp/** uses `client/` for IPC to daemon (headless, no UI, no Redux)
+- **daemon/** uses event-based architecture with TypedEmitter (see ADR-012)
+- **client/** thin IPC layer over Unix socket
+- **cli/store/** CLI-only Redux for wizard and app state
 
 ### Principles
 
@@ -73,19 +74,26 @@ Each interface (cli, mcp) is a complete vertical slice with its own entry point,
 
 #### 2. Headless Engine
 
-The `rag/` module contains all business logic with no UI dependencies. Any interface can consume it:
+The `daemon/` module contains all business logic with no UI dependencies. Interfaces communicate via `client/`:
 
 ```typescript
-import {Indexer, SearchEngine} from '../rag/index.js';
+import {DaemonClient} from '../client/index.js';
+const client = new DaemonClient();
+await client.search({query: 'auth'});
 ```
 
-#### 3. Direct Imports
+#### 3. Direct Imports (NO BARREL EXPORTS)
 
-Use direct imports to specific files rather than barrel re-exports. This improves build performance and avoids circular dependency risks:
+Use direct imports to specific files. Barrel exports are FORBIDDEN:
 
 ```typescript
+// ✅ Direct imports
 import TextInput from '../common/components/TextInput.js';
 import {useCtrlC} from '../common/hooks/useCtrlC.js';
+import {SearchEngine} from '../daemon/services/search/index.js';
+
+// ❌ FORBIDDEN - barrel imports
+import {SearchEngine, Storage} from '../daemon/services/index.js';
 ```
 
 #### 4. Interface-Specific Components
@@ -97,14 +105,14 @@ Components that depend on feature state live in the interface folder:
 
 #### 5. Consolidated Command Handling
 
-Each interface owns its command routing. For CLI, `useRagCommands` hook encapsulates all `/command` handling, keeping `app.tsx` focused on composition.
+Each interface owns its command routing. For CLI, `useCommands` hook encapsulates all `/command` handling, keeping `app.tsx` focused on composition.
 
 ### Adding a New Interface
 
 To add a new interface (e.g., `web/`):
 
 1. Create `source/web/` with entry point
-2. Import from `rag/` for business logic
+2. Import from `client/` for IPC to daemon
 3. Import from `common/` if UI components are needed
 4. Add entry point to `package.json` bin
 

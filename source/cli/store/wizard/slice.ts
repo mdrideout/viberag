@@ -11,7 +11,7 @@ import type {
 	InitWizardConfig,
 	McpSetupWizardConfig,
 	McpSetupStep,
-} from '../../common/types.js';
+} from '../../../common/types.js';
 
 // ============================================================================
 // Types
@@ -24,7 +24,7 @@ export type {
 	McpSetupStep,
 	InitWizardConfig,
 	McpSetupWizardConfig,
-} from '../../common/types.js';
+} from '../../../common/types.js';
 
 // Partial config types for wizard state (fields get filled in as wizard progresses)
 export type PartialInitConfig = Partial<InitWizardConfig>;

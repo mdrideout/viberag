@@ -29,10 +29,6 @@ import {
 import {compareTrees, type TreeDiff} from './diff.js';
 import {loadGitignore, getGlobIgnorePatterns} from '../gitignore.js';
 
-export * from './node.js';
-export * from './hash.js';
-export * from './diff.js';
-
 // ============================================================================
 // Types
 // ============================================================================

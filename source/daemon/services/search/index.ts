@@ -11,14 +11,12 @@
 
 import type {Table} from '@lancedb/lancedb';
 import {loadConfig, type EmbeddingProviderType} from '../../lib/config.js';
-import {
-	GeminiEmbeddingProvider,
-	Local4BEmbeddingProvider,
-	LocalEmbeddingProvider,
-	MistralEmbeddingProvider,
-	OpenAIEmbeddingProvider,
-	type EmbeddingProvider,
-} from '../../providers/index.js';
+import {GeminiEmbeddingProvider} from '../../providers/gemini.js';
+import {Local4BEmbeddingProvider} from '../../providers/local-4b.js';
+import {LocalEmbeddingProvider} from '../../providers/local.js';
+import {MistralEmbeddingProvider} from '../../providers/mistral.js';
+import {OpenAIEmbeddingProvider} from '../../providers/openai.js';
+import type {EmbeddingProvider} from '../../providers/types.js';
 import type {Logger} from '../../lib/logger.js';
 import {Storage} from '../storage/index.js';
 import {buildDefinitionFilter, buildFilterClause} from './filters.js';
@@ -31,18 +29,6 @@ import type {
 	SearchResults,
 } from './types.js';
 import {vectorSearch} from './vector.js';
-
-export type {
-	SearchDebugInfo,
-	SearchFilters,
-	SearchMode,
-	SearchOptions,
-	SearchResult,
-	SearchResults,
-} from './types.js';
-export {vectorSearch} from './vector.js';
-export {ftsSearch, ensureFtsIndex} from './fts.js';
-export {hybridRerank} from './hybrid.js';
 
 /** Default search limit */
 const DEFAULT_LIMIT = 10;

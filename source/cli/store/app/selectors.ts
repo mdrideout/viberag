@@ -8,7 +8,7 @@ import type {
 	OutputItem,
 	IndexDisplayStats,
 	AppStatus,
-} from '../../common/types.js';
+} from '../../../common/types.js';
 
 // ============================================================================
 // Root State Type (matches store.ts RootState)

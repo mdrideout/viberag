@@ -11,7 +11,7 @@ import type {
 	IndexDisplayStats,
 	AppStatus,
 	SearchResultsData,
-} from '../../common/types.js';
+} from '../../../common/types.js';
 
 // ============================================================================
 // Types

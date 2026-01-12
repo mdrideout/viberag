@@ -11,28 +11,35 @@ Interfaces are self-contained features. Delete a folder, delete the feature.
 ```
 source/
 ├── common/           # Generic React/Ink infrastructure
-│   ├── components/   # TextInput, StatusBar, CommandSuggestions
+│   ├── components/   # TextInput, CommandSuggestions
 │   ├── hooks/        # useCtrlC, useCommandHistory, etc.
 │   └── types.ts      # OutputItem, TextBufferState
 │
-├── rag/              # Headless RAG engine (NO UI)
-│   ├── indexer/      # Chunking, orchestration
-│   ├── search/       # Vector, FTS, hybrid
-│   ├── storage/      # LanceDB wrapper
-│   ├── embeddings/   # Local embedding provider
-│   ├── merkle/       # Change detection
-│   └── index.ts      # Public API
+├── daemon/           # Headless business logic (NO UI)
+│   ├── state.ts      # Simple state container
+│   ├── owner.ts      # Wires events to state
+│   ├── services/     # Indexing, search, storage, watcher
+│   ├── providers/    # Embedding providers (local, gemini, etc.)
+│   ├── lib/          # Pure utilities (merkle, chunker, config)
+│   └── __tests__/    # All daemon tests
+│
+├── client/           # Thin IPC client
+│   ├── index.ts      # DaemonClient class
+│   └── types.ts      # Client types
 │
 ├── cli/              # CLI interface (self-contained)
 │   ├── app.tsx       # Main app component
-│   ├── components/   # WelcomeBanner
-│   ├── commands/     # handlers, useRagCommands
+│   ├── store/        # Redux store (CLI-only)
+│   ├── components/   # StatusBar, wizards
+│   ├── commands/     # useCommands, handlers
 │   └── index.tsx     # Entry point
 │
-└── mcp/              # Future: MCP server (uses rag/, no UI)
+└── mcp/              # MCP server (uses client/, no UI)
+    ├── index.ts      # Entry point
+    └── server.ts     # MCP tools implementation
 ```
 
-**Dependency flow**: `common/ ← cli/ → rag/` and `mcp/ → rag/`
+**Dependency flow**: `common/ ← cli/ ↔ client/ → daemon/` and `mcp/ → client/ → daemon/`
 
 **Principle**: Interfaces don't reach into each other. Delete cli/ → mcp/ still works.
 
@@ -47,32 +54,36 @@ import {SearchEngine} from './search/index'; // breaks at runtime
 
 ## Import Patterns
 
-### Avoid Barrel Exports for Performance-Critical Code
+### NO BARREL EXPORTS - NEVER
 
-Barrel files (`index.ts` that re-export from submodules) cause ALL submodules to load
-at import time. This is problematic for:
+**Barrel files (`index.ts` that re-export from submodules) are FORBIDDEN.**
 
-- MCP server (must start quickly for handshake)
-- Any code with native module dependencies (LanceDB, tree-sitter)
+Barrels cause:
+
+- ALL submodules to load at import time
+- Slower startup for MCP server (handshake timeout risk)
+- Circular dependency risks
+- Harder tree-shaking
 
 **Pattern:**
 
 ```typescript
-// ❌ Anti-pattern (loads ALL rag modules including native dependencies):
-import {configExists, Indexer} from '../rag/index.js';
+// ❌ FORBIDDEN - barrel imports:
+import {SearchEngine, Storage} from '../daemon/services/index.js';
 
-// ✅ Correct (loads only what's needed):
-import {configExists} from '../rag/config/index.js';
-import {Indexer} from '../rag/indexer/index.js';
+// ✅ REQUIRED - direct imports:
+import {SearchEngine} from '../daemon/services/search/index.js';
+import {Storage} from '../daemon/services/storage/index.js';
+
+// ❌ FORBIDDEN - barrel exports in index.ts:
+export * from './types.js';
+export * from './utils.js';
+
+// ✅ REQUIRED - modules export their own content only:
+// If index.ts exists, it should ONLY contain the module's own code
 ```
 
-**Where this applies:**
-
-- `source/mcp/` - Must use direct imports for fast startup
-- `source/cli/` - Can use barrel imports (startup time less critical)
-
-**Why:** Native modules (@lancedb/lancedb, tree-sitter) take 500-1000ms to load.
-Barrel imports force loading ALL exports, even if you only need one function.
+**Rule:** Every import must point to the file that DEFINES what you're importing.
 
 ## Testing Philosophy
 

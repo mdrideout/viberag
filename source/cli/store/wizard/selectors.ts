@@ -10,7 +10,7 @@ import type {
 	PartialInitConfig,
 	PartialMcpConfig,
 } from './slice.js';
-import type {EmbeddingProviderType} from '../../common/types.js';
+import type {EmbeddingProviderType} from '../../../common/types.js';
 
 // ============================================================================
 // Root State Type (matches store.ts RootState)

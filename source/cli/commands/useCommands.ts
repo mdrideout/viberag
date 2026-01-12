@@ -14,9 +14,10 @@ import {
 } from './handlers.js';
 import {setupVSCodeTerminal} from '../../common/commands/terminalSetup.js';
 import type {SearchResultsData} from '../../common/types.js';
-import {useAppDispatch, AppActions} from '../../store/index.js';
+import {useAppDispatch} from '../store/hooks.js';
+import {AppActions} from '../store/app/slice.js';
 
-type RagCommandContext = {
+type CommandContext = {
 	addOutput: (type: 'user' | 'system', content: string) => void;
 	addSearchResults: (data: SearchResultsData) => void;
 	projectRoot: string;
@@ -27,7 +28,7 @@ type RagCommandContext = {
 	isInitialized: boolean;
 };
 
-export function useRagCommands({
+export function useCommands({
 	addOutput,
 	addSearchResults,
 	projectRoot,
@@ -36,7 +37,7 @@ export function useRagCommands({
 	startMcpSetupWizard,
 	startCleanWizard,
 	isInitialized,
-}: RagCommandContext) {
+}: CommandContext) {
 	const dispatch = useAppDispatch();
 	const {exit} = useApp();
 

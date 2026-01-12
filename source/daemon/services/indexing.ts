@@ -19,15 +19,12 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import pLimit from 'p-limit';
 import {loadConfig, type ViberagConfig} from '../lib/config.js';
-import {
-	GeminiEmbeddingProvider,
-	Local4BEmbeddingProvider,
-	LocalEmbeddingProvider,
-	MistralEmbeddingProvider,
-	OpenAIEmbeddingProvider,
-	type EmbeddingProvider,
-	type ChunkMetadata,
-} from '../providers/index.js';
+import {GeminiEmbeddingProvider} from '../providers/gemini.js';
+import {Local4BEmbeddingProvider} from '../providers/local-4b.js';
+import {LocalEmbeddingProvider} from '../providers/local.js';
+import {MistralEmbeddingProvider} from '../providers/mistral.js';
+import {OpenAIEmbeddingProvider} from '../providers/openai.js';
+import type {EmbeddingProvider, ChunkMetadata} from '../providers/types.js';
 import {createServiceLogger, type Logger} from '../lib/logger.js';
 import {
 	loadManifest,
@@ -37,8 +34,10 @@ import {
 	updateManifestStats,
 	updateManifestTree,
 } from '../lib/manifest.js';
-import {MerkleTree, type SerializedNode} from '../lib/merkle/index.js';
-import {Storage, type CodeChunk} from './storage/index.js';
+import {MerkleTree} from '../lib/merkle/index.js';
+import type {SerializedNode} from '../lib/merkle/node.js';
+import {Storage} from './storage/index.js';
+import type {CodeChunk} from './storage/types.js';
 import {Chunker} from '../lib/chunker/index.js';
 import {TypedEmitter, type IndexingEvents, type SlotEvents} from './types.js';
 
