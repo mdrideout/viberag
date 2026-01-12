@@ -19,10 +19,10 @@ The viberag-mcp server was failing to start in time for some clients. Investigat
 ### The Problem
 
 ```
-mcp/server.ts imports from '../rag/index.ts' (barrel file)
-  → rag/index.ts re-exports ALL submodules
+mcp/server.ts imports from barrel file
+  → barrel re-exports ALL submodules
     → storage/index.ts → @lancedb/lancedb (NATIVE MODULE, ~500ms)
-    → indexer/chunker.ts → web-tree-sitter (WASM, ~200ms)
+    → chunker/index.ts → web-tree-sitter (WASM, ~200ms)
     → storage/schema.ts → apache-arrow (10MB JS package)
 ```
 
@@ -42,11 +42,11 @@ mcp/server.ts imports from '../rag/index.ts' (barrel file)
 Import directly from submodules, not barrel files:
 
 ```typescript
-// ❌ Anti-pattern (loads ALL rag modules):
-import {configExists, Indexer} from '../rag/index.js';
+// ❌ Anti-pattern (loads ALL modules via barrel):
+import {SearchEngine, Storage} from '../daemon/services/index.js';
 
-// ✅ Correct (loads only config module):
-import {configExists} from '../rag/config/index.js';
+// ✅ Correct (loads only what's needed):
+import {configExists} from '../daemon/lib/config.js';
 ```
 
 ### 2. Lazy Loading for Heavy Modules
@@ -54,14 +54,14 @@ import {configExists} from '../rag/config/index.js';
 Create a lazy loader service for modules with native dependencies:
 
 ```typescript
-// source/mcp/services/lazy-loader.ts
-let indexerModule: typeof import('../../rag/indexer/index.js') | null = null;
+// Lazy loading pattern for heavy modules
+let searchModule: typeof import('../client/index.js') | null = null;
 
-export async function getIndexer(): Promise<typeof IndexerType> {
-	if (!indexerModule) {
-		indexerModule = await import('../../rag/indexer/index.js');
+export async function getClient(): Promise<DaemonClient> {
+	if (!searchModule) {
+		searchModule = await import('../client/index.js');
 	}
-	return indexerModule.Indexer;
+	return new searchModule.DaemonClient(projectRoot);
 }
 ```
 
@@ -69,8 +69,8 @@ Usage in tool handlers:
 
 ```typescript
 // Load on first use, cached for subsequent calls
-const Indexer = await getIndexer();
-const indexer = new Indexer(projectRoot, logger);
+const client = await getClient();
+const results = await client.search(query);
 ```
 
 ### 3. Break Transitive Dependencies
@@ -89,20 +89,23 @@ Move shared constants to avoid pulling in heavy dependencies:
 
 ### Light Modules (Direct Import)
 
-| Module    | Path                        | Load Time |
-| --------- | --------------------------- | --------- |
-| config    | `../rag/config/index.js`    | <10ms     |
-| manifest  | `../rag/manifest/index.js`  | <10ms     |
-| logger    | `../rag/logger/index.js`    | <10ms     |
-| gitignore | `../rag/gitignore/index.js` | <10ms     |
-| constants | `../rag/constants.js`       | <5ms      |
+| Module    | Path                               | Load Time |
+| --------- | ---------------------------------- | --------- |
+| config    | `../daemon/lib/config.js`          | <10ms     |
+| manifest  | `../daemon/lib/manifest.js`        | <10ms     |
+| logger    | `../daemon/lib/logger/index.js`    | <10ms     |
+| gitignore | `../daemon/lib/gitignore/index.js` | <10ms     |
+| constants | `../daemon/lib/constants.js`       | <5ms      |
 
-### Heavy Modules (Lazy Load)
+### Heavy Modules (Lazy Load via Client)
 
-| Module       | Path                      | Heavy Dependency | Load Time  |
-| ------------ | ------------------------- | ---------------- | ---------- |
-| Indexer      | `../rag/indexer/index.js` | tree-sitter WASM | ~200-400ms |
-| SearchEngine | `../rag/search/index.js`  | @lancedb/lancedb | ~500-800ms |
+| Module       | Path                 | Heavy Dependency | Load Time  |
+| ------------ | -------------------- | ---------------- | ---------- |
+| DaemonClient | `../client/index.js` | IPC connection   | ~100-200ms |
+| (Indexer)    | daemon-internal      | tree-sitter WASM | ~200-400ms |
+| (Search)     | daemon-internal      | @lancedb/lancedb | ~500-800ms |
+
+**Note:** Heavy modules are now daemon-internal. MCP server uses the thin client, avoiding direct loading of native modules.
 
 ## Alternatives Considered
 
@@ -178,14 +181,14 @@ When adding or modifying MCP server code:
 
 ```
 Import Checks
-[ ] No imports from '../rag/index.js' (barrel file)
-[ ] Heavy modules use lazy loader (getIndexer, getSearchEngine)
+[ ] No barrel imports (NO BARREL EXPORTS policy)
+[ ] Direct imports to specific files only
 [ ] Type-only imports use 'import type' syntax
 
 Performance Checks
 [ ] No synchronous file I/O at module level
 [ ] No heavy computation at import time
-[ ] Startup tasks run after MCP handshake (server.on('connect'))
+[ ] MCP uses thin client (heavy modules in daemon process)
 
 Testing
 [ ] MCP smoke test passes
@@ -197,5 +200,5 @@ Testing
 - [MCP TypeScript SDK](https://github.com/modelcontextprotocol/typescript-sdk)
 - [FastMCP](https://github.com/punkpeye/fastmcp)
 - [MCP Development Best Practices](https://github.com/cyanheads/model-context-protocol-resources/blob/main/guides/mcp-server-development-guide.md)
-- AGENTS.md - Import patterns section
-- source/mcp/services/lazy-loader.ts - Lazy loading implementation
+- AGENTS.md - NO BARREL EXPORTS policy
+- ADR-010 - Daemon architecture (MCP uses thin client)

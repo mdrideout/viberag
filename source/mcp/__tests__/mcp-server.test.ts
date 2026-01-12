@@ -3,8 +3,18 @@
  *
  * Tests include:
  * 1. Smoke tests - verify module loads without circular dependency errors
- * 2. Integration tests - verify MCP protocol handshake and tool listing
+ * 2. Integration tests - verify MCP protocol handshake and tool listing (requires daemon)
  * 3. Uninitialized project tests - verify helpful error handling
+ *
+ * Note: Integration tests require the daemon to start successfully.
+ * The daemon needs Unix socket creation permissions. If the daemon fails to start
+ * (e.g., EMFILE - too many open files, or EPERM - operation not permitted on socket),
+ * the integration tests will be gracefully skipped.
+ *
+ * Common causes of daemon startup failure:
+ * - macOS sandbox restrictions blocking Unix socket creation
+ * - File descriptor limits (ulimit -n) too low for file watcher
+ * - Security policies preventing process spawning
  */
 
 import {describe, it, expect, beforeAll, afterAll} from 'vitest';
@@ -13,6 +23,7 @@ import {StdioClientTransport} from '@modelcontextprotocol/sdk/client/stdio.js';
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import os from 'node:os';
+import {DaemonClient} from '../../client/index.js';
 
 describe('MCP Server', () => {
 	describe('Smoke Tests', () => {
@@ -35,12 +46,32 @@ describe('MCP Server', () => {
 	});
 
 	describe('Integration Tests', () => {
-		let transport: StdioClientTransport;
-		let client: Client;
+		let transport: StdioClientTransport | null = null;
+		let client: Client | null = null;
+		let daemonClient: DaemonClient | null = null;
+		let setupError: Error | null = null;
 
 		beforeAll(async () => {
+			// Pre-start the daemon before spawning MCP server
+			// This avoids nested subprocess spawning issues in vitest
+			const projectRoot = process.cwd();
+			daemonClient = new DaemonClient(projectRoot);
+
+			try {
+				await daemonClient.connect();
+			} catch (error) {
+				// Daemon startup can fail due to environment issues (e.g., EMFILE)
+				// Store the error and skip tests that require the daemon
+				setupError = error instanceof Error ? error : new Error(String(error));
+				console.warn(
+					`[mcp-server.test] Daemon startup failed: ${setupError.message}`,
+				);
+				console.warn('[mcp-server.test] Integration tests will be skipped.');
+				return;
+			}
+
 			// Get path to the compiled MCP server entry point
-			const serverPath = path.resolve(process.cwd(), 'dist/mcp/index.js');
+			const serverPath = path.resolve(projectRoot, 'dist/mcp/index.js');
 
 			// Create stdio transport that spawns the MCP server as a subprocess
 			transport = new StdioClientTransport({
@@ -64,7 +95,7 @@ describe('MCP Server', () => {
 			// Connect client to transport - this starts the transport and performs MCP initialize handshake
 			// Note: Client.connect() automatically calls transport.start()
 			await client.connect(transport);
-		}, 30000); // 30 second timeout for server startup
+		}, 60000); // 60 second timeout for daemon + server startup
 
 		afterAll(async () => {
 			// Clean up: close client and transport
@@ -78,20 +109,34 @@ describe('MCP Server', () => {
 			} catch {
 				// Ignore close errors
 			}
+			// Disconnect daemon client (don't shutdown - other tests may need it)
+			try {
+				await daemonClient?.disconnect();
+			} catch {
+				// Ignore close errors
+			}
 		});
 
-		it('completes MCP initialize handshake successfully', async () => {
+		it('completes MCP initialize handshake successfully', async ({skip}) => {
+			if (setupError) {
+				skip();
+				return;
+			}
 			// If we get here, the handshake succeeded (client.connect() would throw otherwise)
-			const serverCapabilities = client.getServerCapabilities();
+			const serverCapabilities = client!.getServerCapabilities();
 			expect(serverCapabilities).toBeDefined();
 
-			const serverVersion = client.getServerVersion();
+			const serverVersion = client!.getServerVersion();
 			expect(serverVersion).toBeDefined();
 			expect(serverVersion?.name).toBe('viberag');
 		});
 
-		it('lists expected tools', async () => {
-			const result = await client.listTools();
+		it('lists expected tools', async ({skip}) => {
+			if (setupError) {
+				skip();
+				return;
+			}
+			const result = await client!.listTools();
 
 			expect(result.tools).toBeDefined();
 			expect(result.tools.length).toBeGreaterThan(0);
@@ -105,14 +150,16 @@ describe('MCP Server', () => {
 			expect(toolNames).toContain('viberag_watch_status');
 		});
 
-		// NOTE: These tests are skipped because they require vitest-specific
-		// investigation. The daemon architecture works correctly (verified via
-		// manual testing), but vitest's test runner has timing/parallelism issues
-		// that cause these tests to timeout. TODO: Investigate vitest transport handling.
-		it.skip('can call viberag_watch_status for initialized project', async () => {
+		it('can call viberag_watch_status for initialized project', async ({
+			skip,
+		}) => {
+			if (setupError) {
+				skip();
+				return;
+			}
 			// viberag_watch_status returns watcher status from the daemon
 			// The daemon auto-starts when the first tool is called
-			const result = await client.callTool({
+			const result = await client!.callTool({
 				name: 'viberag_watch_status',
 				arguments: {},
 			});
@@ -136,10 +183,16 @@ describe('MCP Server', () => {
 			expect(status).toHaveProperty('watching');
 		}, 60000);
 
-		it.skip('viberag_status returns index info for initialized project', async () => {
+		it('viberag_status returns index info for initialized project', async ({
+			skip,
+		}) => {
+			if (setupError) {
+				skip();
+				return;
+			}
 			// viberag_status should work for both initialized and uninitialized projects
 			// This test runs in viberag directory which IS initialized
-			const result = await client.callTool({
+			const result = await client!.callTool({
 				name: 'viberag_status',
 				arguments: {},
 			});

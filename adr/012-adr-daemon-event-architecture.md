@@ -126,22 +126,21 @@ source/daemon/                    ← SELF-CONTAINED VERTICAL SLICE
 │   ├── types.ts                  # TypedEmitter, event interfaces
 │   ├── indexing.ts               # IndexingService with events
 │   ├── watcher.ts                # FileWatcher with events
-│   ├── index.ts                  # Barrel exports
 │   ├── storage/                  # LanceDB wrapper
-│   │   ├── index.ts
+│   │   ├── index.ts              # Storage class (no re-exports)
 │   │   ├── types.ts
 │   │   └── schema.ts
 │   └── search/                   # Search engine
-│       ├── index.ts
+│       ├── index.ts              # SearchEngine class (no re-exports)
 │       ├── types.ts
 │       ├── vector.ts
 │       ├── fts.ts
 │       └── hybrid.ts
 │
-├── providers/                    # Embedding providers
-│   ├── index.ts
+├── providers/                    # Embedding providers (direct imports)
 │   ├── types.ts
 │   ├── local.ts
+│   ├── local-4b.ts
 │   ├── gemini.ts
 │   ├── openai.ts
 │   └── mistral.ts
@@ -239,13 +238,10 @@ source/
 │   ├── components/            # TextInput, CommandSuggestions
 │   └── hooks/                 # useTerminalResize, useTextBuffer
 │
-├── mcp/                       ← MCP integration (thin client)
-│   ├── index.ts
-│   └── server.ts
-│
-└── store/                     ← CLI-only Redux
-    ├── app/                   # Output items, app status
-    ├── wizard/                # Init wizard, MCP setup wizard
-    ├── store.ts
-    └── hooks.ts
+└── mcp/                       ← MCP integration (thin client)
+    ├── index.ts
+    └── server.ts
+
+# Note: Redux store is at cli/store/ (see ADR-008)
+# No barrel exports anywhere (see AGENTS.md)
 ```

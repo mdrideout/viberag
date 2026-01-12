@@ -312,8 +312,8 @@ When Sentry is added:
 - [x] DaemonOwner exposes logger (`daemon/owner.ts:483-485`)
 - [x] MCP server logger setup (`mcp/server.ts:263-270`)
 - [x] Pass Error object to console.error (preserves stack trace)
-- [x] Per-service log folders (`rag/constants.ts:52-82`)
-- [x] Hourly log rotation (`rag/logger/index.ts:150-204`)
+- [x] Per-service log folders (`daemon/lib/constants.ts`)
+- [x] Hourly log rotation (`daemon/lib/logger/index.ts`)
 - [x] Service logger factory (`createServiceLogger()`)
 - [x] CLI error handler (`cli/utils/error-handler.ts`)
 - [x] CLI logging to `.viberag/logs/cli/`

@@ -276,12 +276,11 @@ source/
 │   ├── index.ts                 # Uses DaemonClient instead of direct calls
 │   └── server.ts                # Proxies MCP tools to daemon
 │
-├── cli/
-│   └── commands/
-│       └── handlers.ts          # Uses DaemonClient for /index, /search
-│
-└── store/                       # Redux stays in daemon only
-    └── ...
+└── cli/
+    ├── store/                   # Redux stays in CLI only
+    │   └── ...
+    └── commands/
+        └── handlers.ts          # Uses DaemonClient for /index, /search
 ```
 
 ### What Changes for viberag-mcp
@@ -357,7 +356,7 @@ await fs.rm(viberagDir, {recursive: true});
 
 ### Neutral
 
-- **Redux stays** - But only in daemon process, not in clients
+- **Redux is CLI-only** - Daemon uses simple state container (see ADR-012)
 - **Same MCP interface** - Agents see no change, tools work identically
 - **Same CLI interface** - Commands work the same, just via daemon
 

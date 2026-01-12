@@ -22,7 +22,7 @@ We implement a two-pronged approach:
 
 On app startup, we enable the Kitty keyboard protocol by sending `\x1b[>1u` to stdout. This tells compatible terminals to send modifier-aware key sequences.
 
-**File**: `source/cli/hooks/useKittyKeyboard.ts`
+**File**: `source/common/hooks/useKittyKeyboard.ts`
 
 ```typescript
 const KITTY_ENABLE = '\x1b[>1u'; // Enable progressive enhancement mode 1
@@ -60,7 +60,7 @@ This sends ESC+LF when Shift+Enter is pressed, which we detect separately.
 
 ### 3. Input Detection
 
-**File**: `source/cli/components/TextInput.tsx`
+**File**: `source/common/components/TextInput.tsx`
 
 ```typescript
 useInput((input, key) => {
@@ -205,10 +205,10 @@ useInput((input, key) => {
 
 ## Files Modified
 
-- `source/cli/hooks/useKittyKeyboard.ts` - Enables/disables Kitty keyboard protocol
+- `source/common/hooks/useKittyKeyboard.ts` - Enables/disables Kitty keyboard protocol
 - `source/cli/app.tsx` - Calls useKittyKeyboard hook on mount
-- `source/cli/components/TextInput.tsx` - CSI u and ESC+LF detection
-- `source/cli/commands/terminalSetup.ts` - VS Code keybinding setup, terminal detection
+- `source/common/components/TextInput.tsx` - CSI u and ESC+LF detection
+- `source/common/commands/terminalSetup.ts` - VS Code keybinding setup, terminal detection
 
 ## Consequences
 
