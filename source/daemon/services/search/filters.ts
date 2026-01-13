@@ -19,38 +19,38 @@ export function buildFilterClause(
 
 	const conditions: string[] = [];
 
-	// Path prefix filter
+	// Path prefix filter (LIKE pattern - escape wildcards)
 	if (filters.pathPrefix) {
-		const escaped = escapeSqlString(filters.pathPrefix);
+		const escaped = escapeForLike(filters.pathPrefix);
 		conditions.push(`filepath LIKE '${escaped}%'`);
 	}
 
-	// Path contains (ALL must match)
+	// Path contains (ALL must match) (LIKE pattern - escape wildcards)
 	if (filters.pathContains && filters.pathContains.length > 0) {
 		for (const str of filters.pathContains) {
-			const escaped = escapeSqlString(str);
+			const escaped = escapeForLike(str);
 			conditions.push(`filepath LIKE '%${escaped}%'`);
 		}
 	}
 
-	// Path not contains (NONE must match)
+	// Path not contains (NONE must match) (LIKE pattern - escape wildcards)
 	if (filters.pathNotContains && filters.pathNotContains.length > 0) {
 		for (const str of filters.pathNotContains) {
-			const escaped = escapeSqlString(str);
+			const escaped = escapeForLike(str);
 			conditions.push(`filepath NOT LIKE '%${escaped}%'`);
 		}
 	}
 
-	// Type filter (chunk type: function, class, method, module)
+	// Type filter (chunk type: function, class, method, module) (equality - no wildcard escape)
 	if (filters.type && filters.type.length > 0) {
-		const types = filters.type.map(t => `'${escapeSqlString(t)}'`).join(', ');
+		const types = filters.type.map(t => `'${escapeForEquality(t)}'`).join(', ');
 		conditions.push(`type IN (${types})`);
 	}
 
-	// Extension filter
+	// Extension filter (equality - no wildcard escape)
 	if (filters.extension && filters.extension.length > 0) {
 		const extensions = filters.extension
-			.map(e => `'${escapeSqlString(e)}'`)
+			.map(e => `'${escapeForEquality(e)}'`)
 			.join(', ');
 		conditions.push(`extension IN (${extensions})`);
 	}
@@ -60,9 +60,9 @@ export function buildFilterClause(
 		conditions.push(`is_exported = ${filters.isExported}`);
 	}
 
-	// Decorator contains filter
+	// Decorator contains filter (LIKE pattern - escape wildcards)
 	if (filters.decoratorContains) {
-		const escaped = escapeSqlString(filters.decoratorContains);
+		const escaped = escapeForLike(filters.decoratorContains);
 		conditions.push(`decorator_names LIKE '%${escaped}%'`);
 	}
 
@@ -96,12 +96,12 @@ export function buildDefinitionFilter(
 	const conditions: string[] = [];
 
 	// Exact name match
-	const escaped = escapeSqlString(symbolName);
+	const escaped = escapeForEquality(symbolName);
 	conditions.push(`name = '${escaped}'`);
 
 	// Type filter for definitions (exclude module chunks)
 	if (typeFilter && typeFilter.length > 0) {
-		const types = typeFilter.map(t => `'${escapeSqlString(t)}'`).join(', ');
+		const types = typeFilter.map(t => `'${escapeForEquality(t)}'`).join(', ');
 		conditions.push(`type IN (${types})`);
 	} else {
 		// Default: look for function, class, method definitions
@@ -112,10 +112,17 @@ export function buildDefinitionFilter(
 }
 
 /**
- * Escape a string for use in SQL LIKE clause.
+ * Escape a string for use in SQL equality comparisons.
+ * Only escapes single quotes.
  */
-function escapeSqlString(str: string): string {
-	// Escape single quotes by doubling them
-	// Also escape % and _ which are LIKE wildcards
+function escapeForEquality(str: string): string {
+	return str.replace(/'/g, "''");
+}
+
+/**
+ * Escape a string for use in SQL LIKE patterns.
+ * Escapes single quotes and LIKE wildcards (% and _).
+ */
+function escapeForLike(str: string): string {
 	return str.replace(/'/g, "''").replace(/%/g, '\\%').replace(/_/g, '\\_');
 }

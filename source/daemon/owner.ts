@@ -21,6 +21,7 @@ import {SearchEngine} from './services/search/index.js';
 import type {SearchResults} from './services/search/types.js';
 import {IndexingService, type IndexStats} from './services/indexing.js';
 import {FileWatcher, type WatcherStatus} from './services/watcher.js';
+import {Storage} from './services/storage/index.js';
 
 // ============================================================================
 // Types
@@ -119,6 +120,9 @@ export class DaemonOwner {
 	private logger: Logger | null = null;
 	private watcher: FileWatcher | null = null;
 
+	// Shared Storage instance (owned by DaemonOwner)
+	private storage: Storage | null = null;
+
 	// SearchEngine singleton (lazy initialized)
 	private searchEngine: SearchEngine | null = null;
 	private warmupPromise: Promise<SearchEngine> | null = null;
@@ -157,6 +161,14 @@ export class DaemonOwner {
 
 		this.log('info', `Daemon initializing for ${this.projectRoot}`);
 
+		// Create and connect shared Storage instance
+		this.storage = new Storage(
+			this.projectRoot,
+			this.config.embeddingDimensions,
+		);
+		await this.storage.connect();
+		this.log('info', 'Storage connected');
+
 		// Start watcher (if enabled)
 		if (this.config.watch?.enabled !== false) {
 			this.watcher = new FileWatcher(this.projectRoot);
@@ -183,7 +195,7 @@ export class DaemonOwner {
 
 	/**
 	 * Shutdown the daemon owner.
-	 * Stops watcher, closes search engine.
+	 * Stops watcher, closes search engine and storage.
 	 */
 	async shutdown(): Promise<void> {
 		this.log('info', 'Daemon shutting down');
@@ -194,12 +206,18 @@ export class DaemonOwner {
 			this.watcher = null;
 		}
 
-		// Close search engine
+		// Close search engine (no longer closes storage since it's external)
 		if (this.searchEngine) {
 			this.searchEngine.close();
 			this.searchEngine = null;
 		}
 		this.warmupPromise = null;
+
+		// Close shared storage
+		if (this.storage) {
+			this.storage.close();
+			this.storage = null;
+		}
 
 		// Reset state
 		daemonState.reset();
@@ -423,11 +441,11 @@ export class DaemonOwner {
 
 			this.log('info', `Warming up ${this.config.embeddingProvider} provider`);
 
-			// Create SearchEngine
-			const engine = new SearchEngine(
-				this.projectRoot,
-				this.logger ?? undefined,
-			);
+			// Create SearchEngine with shared storage
+			const engine = new SearchEngine(this.projectRoot, {
+				logger: this.logger ?? undefined,
+				storage: this.storage ?? undefined,
+			});
 
 			// Timeout based on provider
 			const isLocal = this.config.embeddingProvider.startsWith('local');
@@ -512,10 +530,11 @@ export class DaemonOwner {
 		// Notify watcher that indexing is starting
 		this.watcher?.setIndexingState(true);
 
-		const indexer = new IndexingService(
-			this.projectRoot,
-			this.logger ?? undefined,
-		);
+		// Create IndexingService with shared storage
+		const indexer = new IndexingService(this.projectRoot, {
+			logger: this.logger ?? undefined,
+			storage: this.storage ?? undefined,
+		});
 
 		// Wire events to state
 		this.wireIndexingEvents(indexer);

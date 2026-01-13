@@ -42,6 +42,16 @@ const DEFAULT_OVERSAMPLE_MULTIPLIER = 2;
 const MAX_OVERSAMPLE_MULTIPLIER = 4;
 
 /**
+ * Options for SearchEngine constructor.
+ */
+export interface SearchEngineOptions {
+	/** Logger for debug output */
+	logger?: Logger;
+	/** External Storage instance (if provided, SearchEngine won't create or close it) */
+	storage?: Storage;
+}
+
+/**
  * Search engine for code search.
  * Supports vector, FTS, hybrid, definition, and similar search modes.
  */
@@ -52,10 +62,25 @@ export class SearchEngine {
 	private logger: Logger | null = null;
 	private initialized = false;
 	private initPromise: Promise<void> | null = null;
+	private readonly externalStorage: boolean;
 
-	constructor(projectRoot: string, logger?: Logger) {
+	constructor(projectRoot: string, options?: SearchEngineOptions | Logger) {
 		this.projectRoot = projectRoot;
-		this.logger = logger ?? null;
+
+		// Handle both old (logger) and new (options) signatures for backward compatibility
+		if (options && typeof options === 'object' && 'logger' in options) {
+			this.logger = options.logger ?? null;
+			if (options.storage) {
+				this.storage = options.storage;
+				this.externalStorage = true;
+			} else {
+				this.externalStorage = false;
+			}
+		} else {
+			// Old signature: second param is Logger directly
+			this.logger = (options as Logger | undefined) ?? null;
+			this.externalStorage = false;
+		}
 	}
 
 	/**
@@ -454,9 +479,14 @@ export class SearchEngine {
 		try {
 			const config = await loadConfig(this.projectRoot);
 
-			// Initialize storage
-			this.storage = new Storage(this.projectRoot, config.embeddingDimensions);
-			await this.storage.connect();
+			// Initialize storage (skip if provided externally)
+			if (!this.storage) {
+				this.storage = new Storage(
+					this.projectRoot,
+					config.embeddingDimensions,
+				);
+				await this.storage.connect();
+			}
 
 			// Initialize embeddings with config (includes apiKey for cloud providers)
 			this.embeddings = this.createEmbeddingProvider(config);
@@ -518,7 +548,10 @@ export class SearchEngine {
 	 * Close the search engine and free resources.
 	 */
 	close(): void {
-		this.storage?.close();
+		// Only close storage if we created it (not external)
+		if (!this.externalStorage) {
+			this.storage?.close();
+		}
 		this.embeddings?.close();
 		this.initialized = false;
 		this.log('info', 'SearchEngine closed');

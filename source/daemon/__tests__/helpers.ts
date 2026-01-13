@@ -5,12 +5,37 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
+import {createConfigForProvider} from '../lib/config.js';
 
 /** Path to the checked-in test fixtures */
 export const FIXTURES_ROOT = path.join(process.cwd(), 'test-fixtures');
 
 /** Temp directory prefix for test fixtures */
 const TEMP_PREFIX = 'viberag-test-';
+
+/**
+ * Write test config with local provider to a project directory.
+ * This enables tests to run without requiring API keys.
+ */
+async function writeTestConfig(projectRoot: string): Promise<void> {
+	const configDir = path.join(projectRoot, '.viberag');
+	await fs.mkdir(configDir, {recursive: true});
+
+	const config = {
+		...createConfigForProvider('local'),
+		watch: {
+			enabled: false, // Disable watch in tests to avoid resource issues
+			debounceMs: 500,
+			batchWindowMs: 2000,
+			awaitWriteFinish: true,
+		},
+	};
+
+	await fs.writeFile(
+		path.join(configDir, 'config.json'),
+		JSON.stringify(config, null, '\t') + '\n',
+	);
+}
 
 /** Test context with temp directory and cleanup */
 export interface TestContext {
@@ -28,6 +53,7 @@ export async function copyFixtureToTemp(
 	const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'viberag-test-'));
 
 	await copyDirectory(fixtureSource, tempDir);
+	await writeTestConfig(tempDir);
 
 	return {
 		projectRoot: tempDir,
@@ -131,6 +157,7 @@ export async function copyFixtureToSharedTemp(
 
 	const fixtureSource = path.join(FIXTURES_ROOT, fixtureName);
 	await copyDirectory(fixtureSource, sharedDir);
+	await writeTestConfig(sharedDir);
 	return sharedDir;
 }
 

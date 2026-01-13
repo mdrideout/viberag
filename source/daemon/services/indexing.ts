@@ -111,6 +111,16 @@ let globalIndexPromise: Promise<IndexStats> | null = null;
 type IndexingServiceEvents = IndexingEvents & SlotEvents;
 
 /**
+ * Options for IndexingService constructor.
+ */
+export interface IndexingServiceOptions {
+	/** Logger for debug output */
+	logger?: Logger;
+	/** External Storage instance (if provided, IndexingService won't create or close it) */
+	storage?: Storage;
+}
+
+/**
  * IndexingService - Orchestrates the full indexing pipeline.
  * Emits events for progress instead of dispatching Redux actions.
  */
@@ -122,12 +132,27 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 	private embeddings: EmbeddingProvider | null = null;
 	private logger: Logger | null = null;
 	private debugLogger: Logger;
+	private readonly externalStorage: boolean;
 
-	constructor(projectRoot: string, logger?: Logger) {
+	constructor(projectRoot: string, options?: IndexingServiceOptions | Logger) {
 		super();
 		this.projectRoot = projectRoot;
-		this.logger = logger ?? null;
 		this.debugLogger = createServiceLogger(projectRoot, 'indexer');
+
+		// Handle both old (logger) and new (options) signatures for backward compatibility
+		if (options && typeof options === 'object' && 'logger' in options) {
+			this.logger = options.logger ?? null;
+			if (options.storage) {
+				this.storage = options.storage;
+				this.externalStorage = true;
+			} else {
+				this.externalStorage = false;
+			}
+		} else {
+			// Old signature: second param is Logger directly
+			this.logger = (options as Logger | undefined) ?? null;
+			this.externalStorage = false;
+		}
 	}
 
 	/**
@@ -620,17 +645,19 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 			this.config.embeddingProvider,
 		);
 
-		// Initialize storage
-		this.emit('progress', {
-			current: 0,
-			total: 0,
-			stage: 'Connecting to database',
-		});
-		this.storage = new Storage(
-			this.projectRoot,
-			this.config.embeddingDimensions,
-		);
-		await this.storage.connect();
+		// Initialize storage (skip if provided externally)
+		if (!this.storage) {
+			this.emit('progress', {
+				current: 0,
+				total: 0,
+				stage: 'Connecting to database',
+			});
+			this.storage = new Storage(
+				this.projectRoot,
+				this.config.embeddingDimensions,
+			);
+			await this.storage.connect();
+		}
 
 		// Initialize chunker
 		this.emit('progress', {current: 0, total: 0, stage: 'Loading parsers'});
@@ -714,7 +741,10 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 	 * Close all resources.
 	 */
 	close(): void {
-		this.storage?.close();
+		// Only close storage if we created it (not external)
+		if (!this.externalStorage) {
+			this.storage?.close();
+		}
 		this.chunker?.close();
 		this.embeddings?.close();
 		this.log('info', 'Indexer closed');
