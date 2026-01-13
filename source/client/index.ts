@@ -227,7 +227,12 @@ export class DaemonClient {
 }
 
 // Re-export types and utilities
-export {getSocketPath, isDaemonRunning} from './auto-start.js';
+export {
+	getSocketPath,
+	getLockPath,
+	isDaemonRunning,
+	isDaemonLocked,
+} from './auto-start.js';
 export type {
 	DaemonClientOptions,
 	ClientSearchOptions,

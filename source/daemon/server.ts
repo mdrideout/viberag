@@ -85,6 +85,31 @@ export class DaemonServer {
 	}
 
 	/**
+	 * Check if a socket is connectable (live daemon responding).
+	 */
+	private isSocketLive(socketPath: string, timeout = 1000): Promise<boolean> {
+		return new Promise(resolve => {
+			const socket = net.createConnection(socketPath);
+
+			const timer = setTimeout(() => {
+				socket.destroy();
+				resolve(false);
+			}, timeout);
+
+			socket.on('connect', () => {
+				clearTimeout(timer);
+				socket.destroy();
+				resolve(true);
+			});
+
+			socket.on('error', () => {
+				clearTimeout(timer);
+				resolve(false);
+			});
+		});
+	}
+
+	/**
 	 * Start the server.
 	 */
 	async start(): Promise<void> {
@@ -93,10 +118,29 @@ export class DaemonServer {
 		await fs.mkdir(viberagDir, {recursive: true});
 
 		// Clean up stale socket file if it exists
+		// Note: We hold the daemon lock at this point, so any existing socket is stale.
+		// Safety check: verify socket is not connectable before deleting
 		try {
+			await fs.access(this.socketPath);
+			// Socket file exists - verify it's stale by trying to connect
+			const isLive = await this.isSocketLive(this.socketPath);
+			if (isLive) {
+				// This should never happen if lock is working correctly
+				throw new Error(
+					'Socket is still connectable - another daemon may be running despite lock',
+				);
+			}
+			// Socket is stale, safe to delete
 			await fs.unlink(this.socketPath);
-		} catch {
-			// Ignore - file may not exist
+			console.error('[daemon] Cleaned up stale socket file');
+		} catch (err) {
+			// File doesn't exist or other error - continue
+			if (
+				err instanceof Error &&
+				err.message.includes('another daemon may be running')
+			) {
+				throw err;
+			}
 		}
 
 		// Write PID file

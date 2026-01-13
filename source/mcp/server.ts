@@ -791,7 +791,7 @@ Metadata filters:
 				.optional()
 				.default(DEFAULT_MAX_RESPONSE_SIZE)
 				.describe(
-					'Maximum response size in bytes (default: 100KB). ' +
+					'Maximum response size in bytes (default: 50KB, max: 100KB). ' +
 						'Reduces merged result count to fit; does NOT truncate text.',
 				),
 		}),

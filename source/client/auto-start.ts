@@ -2,7 +2,7 @@
  * Daemon Auto-Start Logic
  *
  * Handles spawning the daemon if not running and waiting for it to be ready.
- * Uses PID file for coordination to handle race conditions.
+ * Uses proper-lockfile for single-instance coordination.
  */
 
 import {spawn} from 'node:child_process';
@@ -10,6 +10,7 @@ import * as crypto from 'node:crypto';
 import * as net from 'node:net';
 import * as fs from 'node:fs/promises';
 import path from 'node:path';
+import lockfile from 'proper-lockfile';
 
 // ============================================================================
 // Constants
@@ -48,6 +49,35 @@ export function getSocketPath(projectRoot: string): string {
  */
 export function getPidPath(projectRoot: string): string {
 	return path.join(projectRoot, '.viberag', 'daemon.pid');
+}
+
+/**
+ * Get the lock file path for a project.
+ */
+export function getLockPath(projectRoot: string): string {
+	return path.join(projectRoot, '.viberag', 'daemon.lock');
+}
+
+// ============================================================================
+// Lock Check
+// ============================================================================
+
+/**
+ * Check if the daemon lock is held (daemon is running or starting).
+ * This is faster than socket connection check for detecting running daemon.
+ */
+export async function isDaemonLocked(projectRoot: string): Promise<boolean> {
+	const lockPath = getLockPath(projectRoot);
+	try {
+		const isLocked = await lockfile.check(projectRoot, {
+			lockfilePath: lockPath,
+			stale: 30000, // Same as daemon lock settings
+		});
+		return isLocked;
+	} catch {
+		// Lock file doesn't exist or other error - not locked
+		return false;
+	}
 }
 
 // ============================================================================
@@ -217,20 +247,33 @@ async function waitForSocket(
 /**
  * Ensure the daemon is running for a project.
  * Starts it if not running, waits for it to be ready.
+ *
+ * Uses lock-based coordination to prevent race conditions:
+ * 1. Check if socket is connectable (daemon fully running)
+ * 2. Check if lock is held (daemon is starting up)
+ * 3. Only spawn if neither - prevents multiple spawn attempts
  */
 export async function ensureDaemonRunning(projectRoot: string): Promise<void> {
 	const socketPath = getSocketPath(projectRoot);
 	const pidPath = getPidPath(projectRoot);
 
-	// Try to connect to existing daemon
+	// Try to connect to existing daemon (fast path)
 	if (await isSocketConnectable(socketPath)) {
 		return; // Daemon already running
+	}
+
+	// Check if daemon is starting (lock held but socket not ready yet)
+	// This prevents multiple clients from spawning daemons concurrently
+	if (await isDaemonLocked(projectRoot)) {
+		// Daemon is starting, wait for socket without spawning
+		await waitForSocket(socketPath);
+		return;
 	}
 
 	// Check for stale files and clean up
 	await cleanupStaleFiles(socketPath, pidPath);
 
-	// Spawn daemon
+	// Spawn daemon - it will acquire the lock before anything else
 	await spawnDaemon(projectRoot);
 
 	// Wait for socket to become available
@@ -239,8 +282,14 @@ export async function ensureDaemonRunning(projectRoot: string): Promise<void> {
 
 /**
  * Check if the daemon is currently running.
+ * Returns true if either the socket is connectable OR the lock is held.
  */
 export async function isDaemonRunning(projectRoot: string): Promise<boolean> {
 	const socketPath = getSocketPath(projectRoot);
-	return isSocketConnectable(socketPath, 1000);
+	// Check socket first (daemon fully running)
+	if (await isSocketConnectable(socketPath, 1000)) {
+		return true;
+	}
+	// Check lock (daemon is starting)
+	return isDaemonLocked(projectRoot);
 }

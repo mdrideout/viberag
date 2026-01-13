@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted (Updated)
+Accepted (Updated January 2026)
 
 ## Context
 
@@ -15,45 +15,46 @@ VibeRAG needs embedding models to convert code into vectors for semantic search.
 
 ## Decision
 
-We support three embedding providers, selectable during `/init`:
+We support four embedding providers, selectable during `/init`:
 
 ### Provider Comparison
 
-| Provider | Model                        | Dimensions | Context   | Cost      | Status      |
-| -------- | ---------------------------- | ---------- | --------- | --------- | ----------- |
-| Local\*  | jina-embeddings-v2-base-code | 768        | 8K tokens | Free      | Implemented |
-| Gemini   | text-embedding-004           | 768        | 2K tokens | Free tier | Implemented |
-| Mistral  | codestral-embed              | 1536       | 8K tokens | $0.10/1M  | Implemented |
-| OpenAI   | text-embedding-3-large       | 3072       | 8K tokens | $0.13/1M  | Implemented |
+| Provider | Model                  | Dimensions | Context    | Cost      | Status      |
+| -------- | ---------------------- | ---------- | ---------- | --------- | ----------- |
+| Local    | Qwen3-Embedding-0.6B   | 1024       | 32K tokens | Free      | Implemented |
+| Gemini\* | gemini-embedding-001   | 1536       | 2K tokens  | Free tier | Implemented |
+| Mistral  | codestral-embed        | 1536       | 8K tokens  | $0.10/1M  | Implemented |
+| OpenAI   | text-embedding-3-small | 1536       | 8K tokens  | $0.02/1M  | Implemented |
 
-\*Recommended for offline use and code-optimized embeddings.
+\*Default provider - fast API with generous free tier.
 
-### Local (Default, Implemented)
+### Local (Implemented)
 
-**Model**: `jinaai/jina-embeddings-v2-base-code` with int8 (q8) quantization
+**Model**: `Qwen/Qwen3-Embedding-0.6B` with int8 (q8) quantization
 
 **Strengths**:
 
-- Purpose-built for code, trained on GitHub data
-- Supports 30+ programming languages
-- 8K token context handles large functions without truncation
+- Strong embedding quality from Qwen3 architecture
+- 32K token context handles entire files without truncation
 - Zero latency, works offline, no API costs
-- ~161MB model size with q8 quantization
+- ~700MB model download, ~1.2GB RAM usage
 
 **Trade-offs**:
 
 - Lower retrieval quality than cloud options
 - First run requires model download
+- Slower than API providers for large codebases
 
-### Gemini (Implemented)
+### Gemini (Default, Implemented)
 
-**Model**: `text-embedding-004`
+**Model**: `gemini-embedding-001`
 
 **Strengths**:
 
 - Google's embedding model with strong general-purpose performance
 - Generous free tier (1,500 requests/min)
 - Fast inference via API
+- 1536 dimensions for good semantic capture
 
 **Trade-offs**:
 
@@ -61,37 +62,35 @@ We support three embedding providers, selectable during `/init`:
 - Not specifically optimized for code
 - Requires API key
 
-### Mistral (Implemented, Recommended)
+### Mistral (Implemented)
 
 **Model**: `codestral-embed`
 
 **Strengths**:
 
 - Code-optimized embedding model from Mistral AI
-- 1024 dimensions capture more semantic nuance
-- 8K token context matches local model
+- 1536 dimensions capture semantic nuance
+- 8K token context handles most code files
 - Good balance of quality and cost
 
 **Trade-offs**:
 
 - Requires API key and costs money for large codebases
-- Higher dimensions mean slightly larger vector storage
 
 ### OpenAI (Implemented)
 
-**Model**: `text-embedding-3-large`
+**Model**: `text-embedding-3-small`
 
 **Strengths**:
 
-- Highest quality embeddings
-- 3072 dimensions for maximum semantic nuance
+- High quality embeddings from OpenAI
+- 1536 dimensions for good semantic capture
 - 8K token context
 
 **Trade-offs**:
 
-- Highest cost ($0.13/1M tokens)
 - Requires API key
-- Largest vector storage requirements
+- Slightly lower quality than larger OpenAI models
 
 ## Implementation
 
@@ -116,7 +115,7 @@ The local provider uses `@huggingface/transformers` for ONNX inference:
 ```typescript
 const model = await pipeline(
 	'feature-extraction',
-	'jinaai/jina-embeddings-v2-base-code',
+	'Qwen/Qwen3-Embedding-0.6B',
 	{
 		dtype: 'q8', // int8 quantization for smaller size
 	},
@@ -128,20 +127,20 @@ const model = await pipeline(
 ```typescript
 export const PROVIDER_CONFIGS = {
 	local: {
-		model: 'jinaai/jina-embeddings-v2-base-code',
-		dimensions: 768,
+		model: 'Qwen/Qwen3-Embedding-0.6B',
+		dimensions: 1024,
 	},
 	gemini: {
-		model: 'text-embedding-004',
-		dimensions: 768,
+		model: 'gemini-embedding-001',
+		dimensions: 1536,
 	},
 	mistral: {
 		model: 'codestral-embed',
 		dimensions: 1536,
 	},
 	openai: {
-		model: 'text-embedding-3-large',
-		dimensions: 3072,
+		model: 'text-embedding-3-small',
+		dimensions: 1536,
 	},
 };
 ```
@@ -158,11 +157,16 @@ This is acceptable for a local tool where reindexing is fast.
 
 ## Alternatives Considered
 
-### OpenAI text-embedding-3-small
+### Jina Embeddings v2 (Previously Used)
 
-- Good accuracy but no code-specific training
-- Requires API key for all use
-- Rejected: No offline option, not code-optimized
+- `jinaai/jina-embeddings-v2-base-code` - 768 dimensions, 8K context
+- Replaced by Qwen3-Embedding-0.6B for better quality and larger context window
+
+### OpenAI text-embedding-3-large
+
+- Higher quality (3072 dimensions)
+- Higher cost ($0.13/1M tokens)
+- Rejected: Cost-to-benefit ratio not justified for code search
 
 ### CodeBERT
 
@@ -176,27 +180,21 @@ This is acceptable for a local tool where reindexing is fast.
 - Expensive ($0.20/1M tokens)
 - Rejected: Cost prohibitive for local tool
 
-### BGE Models (bge-small-en, bge-base-en)
-
-- Fast, small, good general embeddings
-- Not trained on code
-- Rejected: Jina's code-specific training provides better retrieval for code
-
 ## Consequences
 
 ### Positive
 
-- **Zero-cost default**: Local model works offline without API keys
-- **Code-optimized**: Jina model trained specifically on code
-- **Large context**: 8K tokens handles most functions without splitting
-- **Cloud options**: Gemini, Mistral, and OpenAI available for faster indexing
+- **Cloud default**: Gemini provides fast indexing with free tier
+- **Offline option**: Local model works without API keys
+- **Large context**: 32K tokens (local) handles entire files without splitting
+- **Multiple options**: Users can choose based on their needs
 
 ### Negative
 
-- **~161MB download**: Local model requires initial download
+- **~700MB download**: Local model requires initial download
 - **No hot-swapping**: Changing provider requires full reindex
 
 ### Neutral
 
-- Local model uses ~500MB RAM during inference
+- Local model uses ~1.2GB RAM during inference
 - Cloud providers add network latency but parallelize well

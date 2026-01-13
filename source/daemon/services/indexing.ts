@@ -20,7 +20,6 @@ import path from 'node:path';
 import pLimit from 'p-limit';
 import {loadConfig, type ViberagConfig} from '../lib/config.js';
 import {GeminiEmbeddingProvider} from '../providers/gemini.js';
-import {Local4BEmbeddingProvider} from '../providers/local-4b.js';
 import {LocalEmbeddingProvider} from '../providers/local.js';
 import {MistralEmbeddingProvider} from '../providers/mistral.js';
 import {OpenAIEmbeddingProvider} from '../providers/openai.js';
@@ -350,8 +349,7 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 					if (cacheMisses.length > 0) {
 						const CHUNK_BATCH_SIZE = 20;
 						const isLocalProvider =
-							embeddings instanceof LocalEmbeddingProvider ||
-							embeddings instanceof Local4BEmbeddingProvider;
+							embeddings instanceof LocalEmbeddingProvider;
 						const BATCH_CONCURRENCY = isLocalProvider ? 1 : 3;
 						const batchLimit = pLimit(BATCH_CONCURRENCY);
 
@@ -683,8 +681,6 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 		switch (config.embeddingProvider) {
 			case 'local':
 				return new LocalEmbeddingProvider();
-			case 'local-4b':
-				return new Local4BEmbeddingProvider();
 			case 'gemini':
 				return new GeminiEmbeddingProvider(apiKey);
 			case 'mistral':

@@ -87,10 +87,28 @@ export class FileWatcher extends TypedEmitter<WatcherEvents> {
 	}
 
 	/**
-	 * Notify watcher that indexing has started (called by daemon owner).
+	 * Notify watcher that indexing has started/stopped (called by daemon owner).
+	 * When indexing completes, checks for accumulated changes and reschedules batch.
 	 */
 	setIndexingState(isIndexing: boolean): void {
+		const wasIndexing = this.isIndexing;
 		this.isIndexing = isIndexing;
+
+		// When indexing completes, check if changes accumulated during indexing
+		if (wasIndexing && !isIndexing && this.pendingChanges.size > 0) {
+			this.log(
+				'debug',
+				`Changes accumulated during indexing (${this.pendingChanges.size}), scheduling batch`,
+			);
+			// Start a new batch timer to process accumulated changes
+			if (!this.batchTimeout) {
+				const watchConfig = this.config?.watch ?? {batchWindowMs: 2000};
+				this.batchTimeout = setTimeout(() => {
+					this.batchTimeout = null;
+					this.processBatch();
+				}, watchConfig.batchWindowMs);
+			}
+		}
 	}
 
 	/**

@@ -62,10 +62,8 @@ async function runStartupTasks(): Promise<void> {
 server.on('connect', () => {
 	// Run startup tasks in the background (don't block the connection)
 	runStartupTasks().catch(error => {
-		console.error(
-			'[viberag-mcp] Startup tasks failed:',
-			error instanceof Error ? error.message : error,
-		);
+		// Pass Error object directly to preserve stack trace (ADR-011)
+		console.error('[viberag-mcp] Startup tasks failed:', error);
 	});
 });
 
@@ -75,9 +73,7 @@ server
 		transportType: 'stdio',
 	})
 	.catch(error => {
-		console.error(
-			'[viberag-mcp] Failed to start server:',
-			error instanceof Error ? error.message : error,
-		);
+		// Pass Error object directly to preserve stack trace (ADR-011)
+		console.error('[viberag-mcp] Failed to start server:', error);
 		process.exit(1);
 	});

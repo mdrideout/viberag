@@ -66,21 +66,15 @@ export type IndexDisplayStats = {
 /**
  * Embedding provider types.
  *
- * Local providers (no API key required):
+ * Local provider (no API key required):
  * - local: Qwen3-Embedding-0.6B Q8 (1024d) - ~700MB download, ~1.2GB RAM
- * - local-4b: Qwen3-Embedding-4B FP32 (2560d) - ~8GB download, ~8GB RAM
  *
  * API providers:
  * - gemini: gemini-embedding-001 (1536d) - Free tier
  * - mistral: codestral-embed (1536d) - Code-optimized
  * - openai: text-embedding-3-small (1536d) - Fast API
  */
-export type EmbeddingProviderType =
-	| 'local'
-	| 'local-4b'
-	| 'gemini'
-	| 'mistral'
-	| 'openai';
+export type EmbeddingProviderType = 'local' | 'gemini' | 'mistral' | 'openai';
 
 /**
  * OpenAI API regional endpoints for data residency.

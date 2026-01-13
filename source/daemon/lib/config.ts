@@ -62,10 +62,6 @@ export const PROVIDER_CONFIGS: Record<
 		model: 'Qwen/Qwen3-Embedding-0.6B',
 		dimensions: 1024,
 	},
-	'local-4b': {
-		model: 'Qwen/Qwen3-Embedding-4B',
-		dimensions: 2560,
-	},
 	gemini: {
 		model: 'gemini-embedding-001',
 		dimensions: 1536,

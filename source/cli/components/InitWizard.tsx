@@ -77,16 +77,6 @@ const PROVIDER_CONFIG: Record<
 		note: '~700MB download, ~1.2GB RAM',
 		description: 'Offline, no API key needed',
 	},
-	'local-4b': {
-		name: 'Local 4B',
-		model: 'Qwen3-4B FP32',
-		modelFull: 'Qwen/Qwen3-Embedding-4B',
-		dims: '2560',
-		context: '32K',
-		cost: 'Free',
-		note: '~8GB download, ~8GB RAM',
-		description: 'Offline, better quality (+5 MTEB)',
-	},
 	gemini: {
 		name: 'Gemini',
 		model: 'gemini-embedding-001',
@@ -120,13 +110,11 @@ const PROVIDER_CONFIG: Record<
 };
 
 // Simple provider options for selection (ordered by speed/ease of use)
-// Note: local-4b exists in code but hidden from UI - no transformers.js-compatible ONNX available yet
 const PROVIDER_ITEMS: SelectItem<EmbeddingProviderType>[] = [
 	{label: 'Gemini    - gemini-embedding-001 (Free tier)', value: 'gemini'},
 	{label: 'OpenAI    - text-embedding-3-small', value: 'openai'},
 	{label: 'Mistral   - codestral-embed', value: 'mistral'},
 	{label: 'Local     - Qwen3-0.6B Q8 (slow)', value: 'local'},
-	// {label: 'Local 4B  - Qwen3-4B FP32 (~8GB, ~8GB RAM)', value: 'local-4b'}, // No ONNX available
 ];
 
 /**

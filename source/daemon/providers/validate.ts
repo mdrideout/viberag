@@ -64,8 +64,8 @@ export async function validateApiKey(
 	apiKey: string,
 	options?: ValidateApiKeyOptions,
 ): Promise<ValidationResult> {
-	// Local providers don't need API key validation
-	if (provider === 'local' || provider === 'local-4b') {
+	// Local provider doesn't need API key validation
+	if (provider === 'local') {
 		return {valid: true};
 	}
 

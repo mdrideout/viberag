@@ -12,7 +12,6 @@
 import type {Table} from '@lancedb/lancedb';
 import {loadConfig, type EmbeddingProviderType} from '../../lib/config.js';
 import {GeminiEmbeddingProvider} from '../../providers/gemini.js';
-import {Local4BEmbeddingProvider} from '../../providers/local-4b.js';
 import {LocalEmbeddingProvider} from '../../providers/local.js';
 import {MistralEmbeddingProvider} from '../../providers/mistral.js';
 import {OpenAIEmbeddingProvider} from '../../providers/openai.js';
@@ -484,8 +483,6 @@ export class SearchEngine {
 		switch (config.embeddingProvider) {
 			case 'local':
 				return new LocalEmbeddingProvider();
-			case 'local-4b':
-				return new Local4BEmbeddingProvider();
 			case 'gemini':
 				return new GeminiEmbeddingProvider(apiKey);
 			case 'mistral':

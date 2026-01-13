@@ -12,12 +12,15 @@
  * It creates a socket at .viberag/daemon.sock and a PID file at .viberag/daemon.pid.
  *
  * The daemon will:
+ * - Acquire exclusive lock to prevent multiple instances
  * - Start the file watcher for auto-indexing
  * - Warm up the embedding provider
  * - Listen for IPC requests (search, index, status, etc.)
  * - Auto-shutdown after 5 minutes of idle (no connected clients)
  */
 
+import path from 'node:path';
+import lockfile from 'proper-lockfile';
 import {DaemonOwner} from './owner.js';
 import {DaemonServer} from './server.js';
 import {LifecycleManager} from './lifecycle.js';
@@ -27,13 +30,70 @@ import {configExists, loadConfig} from './lib/config.js';
 // Use current working directory as project root
 const projectRoot = process.cwd();
 
+// Lock file path - inside .viberag directory
+const LOCK_FILE_PATH = path.join(projectRoot, '.viberag', 'daemon.lock');
+
+// Lock release function - set when lock is acquired
+let releaseLock: (() => Promise<void>) | null = null;
+
+/**
+ * Acquire exclusive daemon lock to prevent multiple instances.
+ * Uses proper-lockfile which is cross-platform and handles crash recovery.
+ */
+async function acquireDaemonLock(): Promise<() => Promise<void>> {
+	try {
+		const release = await lockfile.lock(projectRoot, {
+			lockfilePath: LOCK_FILE_PATH,
+			stale: 30000, // Lock is stale after 30s without mtime update
+			update: 10000, // Update mtime every 10s to prove liveness
+			retries: 0, // Fail immediately if locked
+			onCompromised: err => {
+				// Another process stole our lock (very rare edge case)
+				console.error('[daemon] Lock compromised:', err.message);
+				console.error('[daemon] Another daemon may have started. Exiting.');
+				process.exit(1);
+			},
+		});
+
+		console.error('[daemon] Acquired exclusive lock');
+		return release;
+	} catch (err) {
+		if (err instanceof Error && 'code' in err && err.code === 'ELOCKED') {
+			console.error('[daemon] Another daemon is already running');
+			console.error('[daemon] Only one daemon per project is allowed.');
+			process.exit(1);
+		}
+		throw err;
+	}
+}
+
+/**
+ * Release the daemon lock on exit.
+ */
+function setupLockRelease(release: () => Promise<void>): void {
+	releaseLock = release;
+
+	// Release lock on clean exit
+	const cleanup = () => {
+		if (releaseLock) {
+			// Synchronous-ish cleanup - lockfile handles this gracefully
+			releaseLock().catch(() => {});
+			releaseLock = null;
+		}
+	};
+
+	process.on('exit', cleanup);
+	process.on('SIGINT', cleanup);
+	process.on('SIGTERM', cleanup);
+}
+
 /**
  * Main daemon entry point.
  */
 async function main(): Promise<void> {
 	console.error(`[daemon] Starting for ${projectRoot}`);
 
-	// Verify project is initialized
+	// Verify project is initialized (needed before lock since lock is in .viberag/)
 	if (!(await configExists(projectRoot))) {
 		console.error('[daemon] Project not initialized');
 		console.error(
@@ -41,6 +101,11 @@ async function main(): Promise<void> {
 		);
 		process.exit(1);
 	}
+
+	// Acquire exclusive lock BEFORE any other operations
+	// This prevents multiple daemons from running concurrently
+	const release = await acquireDaemonLock();
+	setupLockRelease(release);
 
 	// Load config
 	await loadConfig(projectRoot);
@@ -74,9 +139,7 @@ async function main(): Promise<void> {
 
 // Run main with error handling
 main().catch(error => {
-	console.error(
-		'[daemon] Fatal error:',
-		error instanceof Error ? error.message : error,
-	);
+	// Pass Error object directly to preserve stack trace (ADR-011)
+	console.error('[daemon] Fatal error:', error);
 	process.exit(1);
 });
