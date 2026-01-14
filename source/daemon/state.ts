@@ -12,6 +12,8 @@
  * - Easy to test (just check state object)
  */
 
+import type {IndexStats as IndexingRunStats} from './services/indexing.js';
+
 // ============================================================================
 // Type Definitions
 // ============================================================================
@@ -46,6 +48,7 @@ export interface IndexingState {
 	throttleMessage: string | null;
 	error: string | null;
 	lastCompleted: string | null;
+	lastStats: IndexingRunStats | null;
 }
 
 export interface SlotInfo {
@@ -100,6 +103,7 @@ function createInitialState(): DaemonState {
 			throttleMessage: null,
 			error: null,
 			lastCompleted: null,
+			lastStats: null,
 		},
 		slots: Array.from({length: DEFAULT_SLOT_COUNT}, () => ({
 			state: 'idle' as const,

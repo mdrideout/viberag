@@ -72,6 +72,7 @@ export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes];
 export type DaemonMethod =
 	| 'search'
 	| 'index'
+	| 'indexAsync'
 	| 'status'
 	| 'watchStatus'
 	| 'shutdown'

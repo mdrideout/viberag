@@ -227,7 +227,11 @@ function AppContent() {
 				// Progress is synced via DaemonStatusContext polling
 
 				const stats = await runIndex(projectRoot, true);
-				addOutput('system', formatIndexStats(stats));
+				if (stats) {
+					addOutput('system', formatIndexStats(stats));
+				} else {
+					addOutput('system', 'Index complete.');
+				}
 
 				// Reload stats after indexing
 				const newStats = await loadIndexStats(projectRoot);
@@ -241,6 +245,8 @@ function AppContent() {
 					'system',
 					`Init failed: ${err instanceof Error ? err.message : String(err)}`,
 				);
+			} finally {
+				dispatch(AppActions.setReady());
 			}
 		},
 		[projectRoot, isInitialized, startMcpSetupWizard, dispatch, addOutput],

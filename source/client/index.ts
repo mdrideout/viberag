@@ -20,6 +20,7 @@ import type {
 	DaemonClientOptions,
 	ClientSearchOptions,
 	ClientIndexOptions,
+	IndexStartResponse,
 	DaemonStatusResponse,
 	PingResponse,
 	SearchResults,
@@ -168,6 +169,17 @@ export class DaemonClient {
 			'index',
 			options as unknown as Record<string, unknown>,
 		) as Promise<IndexStats>;
+	}
+
+	/**
+	 * Start indexing asynchronously.
+	 */
+	async indexAsync(options?: ClientIndexOptions): Promise<IndexStartResponse> {
+		await this.ensureConnected();
+		return this.connection!.request(
+			'indexAsync',
+			options as unknown as Record<string, unknown>,
+		) as Promise<IndexStartResponse>;
 	}
 
 	/**

@@ -99,7 +99,11 @@ Manual MCP Setup:
 
 			runIndex(projectRoot, force)
 				.then(async stats => {
-					addOutput('system', formatIndexStats(stats));
+					if (stats) {
+						addOutput('system', formatIndexStats(stats));
+					} else {
+						addOutput('system', 'Index complete.');
+					}
 					// Reload stats after indexing
 					const newStats = await loadIndexStats(projectRoot);
 					dispatch(AppActions.setIndexStats(newStats));

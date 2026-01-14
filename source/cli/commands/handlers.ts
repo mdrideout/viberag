@@ -129,19 +129,58 @@ export async function runInit(
  * Run the indexer and return stats.
  * Delegates to daemon which handles dimension sync internally.
  *
- * Note: Progress is dispatched by the daemon and forwarded to clients.
+ * Note: Indexing starts asynchronously; completion is detected via status polling.
  */
 export async function runIndex(
 	projectRoot: string,
 	force: boolean = false,
-): Promise<IndexStats> {
+): Promise<IndexStats | null> {
 	const client = new DaemonClient(projectRoot);
 
 	try {
 		await client.connect();
-		return await client.index({force});
+		const initialStatus = await client.status();
+		const previousCompletion = initialStatus.indexing.lastCompleted;
+
+		await client.indexAsync({force});
+		return await waitForIndexCompletion(client, previousCompletion);
 	} finally {
 		await client.disconnect();
+	}
+}
+
+/**
+ * Poll daemon status until a new index completion is observed.
+ */
+async function waitForIndexCompletion(
+	client: DaemonClient,
+	previousLastCompleted: string | null,
+): Promise<IndexStats | null> {
+	const pollIntervalMs = 500;
+	const statsGraceMs = 5000;
+	let completionDetectedAt: number | null = null;
+
+	for (;;) {
+		const status = await client.status();
+
+		if (status.indexing.status === 'error') {
+			throw new Error(status.indexing.error ?? 'Index failed');
+		}
+
+		const lastCompleted = status.indexing.lastCompleted;
+		if (lastCompleted && lastCompleted !== previousLastCompleted) {
+			if (status.indexing.lastStats) {
+				return status.indexing.lastStats;
+			}
+
+			if (completionDetectedAt === null) {
+				completionDetectedAt = Date.now();
+			} else if (Date.now() - completionDetectedAt > statsGraceMs) {
+				return null;
+			}
+		}
+
+		await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
 	}
 }
 

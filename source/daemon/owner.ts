@@ -96,6 +96,7 @@ export interface DaemonStatus {
 		throttleMessage: string | null;
 		error: string | null;
 		lastCompleted: string | null;
+		lastStats: IndexStats | null;
 		percent: number;
 	};
 
@@ -562,6 +563,9 @@ export class DaemonOwner {
 			}
 
 			const stats = await indexer.index({force: options?.force ?? false});
+			daemonState.updateNested('indexing', () => ({
+				lastStats: stats,
+			}));
 			return stats;
 		} finally {
 			indexer.close();
@@ -613,6 +617,7 @@ export class DaemonOwner {
 				throttleMessage: state.indexing.throttleMessage,
 				error: state.indexing.error,
 				lastCompleted: state.indexing.lastCompleted,
+				lastStats: state.indexing.lastStats,
 				percent:
 					state.indexing.total > 0
 						? Math.round((state.indexing.current / state.indexing.total) * 100)

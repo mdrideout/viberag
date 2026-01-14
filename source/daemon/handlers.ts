@@ -38,6 +38,13 @@ const indexParamsSchema = z.object({
 	force: z.boolean().optional(),
 });
 
+const ACTIVE_INDEX_STATUSES = new Set([
+	'initializing',
+	'scanning',
+	'chunking',
+	'embedding',
+]);
+
 const shutdownParamsSchema = z.object({
 	reason: z.string().optional(),
 });
@@ -67,6 +74,31 @@ const indexHandler: Handler = async (params, ctx) => {
 	// Clients poll status() to see progress
 	const stats = await ctx.owner.index({force: validated.force});
 	return stats;
+};
+
+/**
+ * Index async handler.
+ * Starts indexing in the background and returns immediately.
+ * Clients poll status() to see progress and completion.
+ */
+const indexAsyncHandler: Handler = async (params, ctx) => {
+	const validated = indexParamsSchema.parse(params ?? {});
+	const currentStatus = daemonState.getSnapshot().indexing.status;
+
+	if (ACTIVE_INDEX_STATUSES.has(currentStatus)) {
+		return {started: false, reason: 'in_progress'};
+	}
+
+	void ctx.owner.index({force: validated.force}).catch(error => {
+		console.error('[daemon] Async index failed:', error);
+		const logger = ctx.owner.getLogger();
+		if (logger) {
+			const err = error instanceof Error ? error : new Error(String(error));
+			logger.error('DaemonServer', 'Async index failed', err);
+		}
+	});
+
+	return {started: true};
 };
 
 /**
@@ -144,6 +176,7 @@ export function createHandlers(): HandlerRegistry {
 	return {
 		search: searchHandler,
 		index: indexHandler,
+		indexAsync: indexAsyncHandler,
 		status: statusHandler,
 		watchStatus: watchStatusHandler,
 		shutdown: shutdownHandler,

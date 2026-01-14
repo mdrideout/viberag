@@ -71,6 +71,14 @@ export interface ClientIndexOptions {
 }
 
 /**
+ * Index start response for async indexing.
+ */
+export interface IndexStartResponse {
+	started: boolean;
+	reason?: 'in_progress';
+}
+
+/**
  * Daemon status response.
  * Enhanced to support polling-based state synchronization.
  */
@@ -98,6 +106,7 @@ export interface DaemonStatusResponse {
 		throttleMessage: string | null;
 		error: string | null;
 		lastCompleted: string | null;
+		lastStats: IndexStats | null;
 		percent: number;
 	};
 
