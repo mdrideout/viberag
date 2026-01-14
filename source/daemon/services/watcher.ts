@@ -279,11 +279,16 @@ export class FileWatcher extends TypedEmitter<WatcherEvents> {
 	/**
 	 * Handle a file change event.
 	 */
-	private handleChange(event: 'add' | 'change' | 'unlink', path: string): void {
+	private handleChange(
+		event: 'add' | 'change' | 'unlink',
+		filePath: string,
+	): void {
 		if (!this.config || !this.gitignore) return;
 
+		const normalizedPath = filePath.replace(/\\/g, '/');
+
 		// Skip if path is ignored by gitignore
-		if (this.gitignore.ignores(path)) {
+		if (this.gitignore.ignores(normalizedPath)) {
 			return;
 		}
 
@@ -291,15 +296,15 @@ export class FileWatcher extends TypedEmitter<WatcherEvents> {
 		if (
 			event !== 'unlink' &&
 			this.config.extensions.length > 0 &&
-			!hasValidExtension(path, this.config.extensions)
+			!hasValidExtension(normalizedPath, this.config.extensions)
 		) {
 			return;
 		}
 
-		this.log('debug', `File ${event}: ${path}`);
+		this.log('debug', `File ${event}: ${normalizedPath}`);
 
 		// Add to pending changes
-		this.pendingChanges.add(path);
+		this.pendingChanges.add(normalizedPath);
 		this.indexUpToDate = false;
 
 		// Emit debouncing event

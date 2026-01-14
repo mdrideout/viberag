@@ -10,6 +10,7 @@ import * as crypto from 'node:crypto';
 import * as net from 'node:net';
 import * as fs from 'node:fs/promises';
 import path from 'node:path';
+import {fileURLToPath} from 'node:url';
 import lockfile from 'proper-lockfile';
 
 // ============================================================================
@@ -180,8 +181,7 @@ async function cleanupStaleFiles(
 function findDaemonScript(): string {
 	// When running from dist/, the daemon is at ../daemon/index.js
 	// When running from source/, use npx as fallback
-	const moduleUrl = new URL(import.meta.url);
-	const modulePath = moduleUrl.pathname;
+	const modulePath = fileURLToPath(import.meta.url);
 	const daemonPath = path.resolve(
 		path.dirname(modulePath),
 		'../daemon/index.js',
