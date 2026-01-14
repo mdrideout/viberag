@@ -102,7 +102,8 @@ export function isExpectedError(error: unknown): boolean {
 		message.includes('ENOENT') ||
 		message.includes('ECONNREFUSED') ||
 		message.includes('Not connected') ||
-		message.includes('connect ENOENT')
+		message.includes('connect ENOENT') ||
+		message.includes('Connection closed')
 	);
 }
 

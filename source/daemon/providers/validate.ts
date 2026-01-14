@@ -175,8 +175,9 @@ async function validateOpenAIKey(
 			Authorization: `Bearer ${apiKey}`,
 		},
 		body: JSON.stringify({
-			model: 'text-embedding-3-small',
+			model: 'text-embedding-3-large',
 			input: ['test'],
+			dimensions: 1536,
 		}),
 	});
 

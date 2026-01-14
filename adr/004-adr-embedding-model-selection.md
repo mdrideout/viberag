@@ -24,7 +24,7 @@ We support four embedding providers, selectable during `/init`:
 | Local    | Qwen3-Embedding-0.6B   | 1024       | 32K tokens | Free      | Implemented |
 | Gemini\* | gemini-embedding-001   | 1536       | 2K tokens  | Free tier | Implemented |
 | Mistral  | codestral-embed        | 1536       | 8K tokens  | $0.10/1M  | Implemented |
-| OpenAI   | text-embedding-3-small | 1536       | 8K tokens  | $0.02/1M  | Implemented |
+| OpenAI   | text-embedding-3-large | 1536       | 8K tokens  | $0.13/1M  | Implemented |
 
 \*Default provider - fast API with generous free tier.
 
@@ -79,18 +79,19 @@ We support four embedding providers, selectable during `/init`:
 
 ### OpenAI (Implemented)
 
-**Model**: `text-embedding-3-small`
+**Model**: `text-embedding-3-large` with reduced dimensions (1536)
 
 **Strengths**:
 
-- High quality embeddings from OpenAI
-- 1536 dimensions for good semantic capture
+- Highest quality embeddings from OpenAI
+- Uses Matryoshka Representation Learning for efficient dimension reduction
+- 1536 dimensions (reduced from 3072) for storage efficiency
 - 8K token context
 
 **Trade-offs**:
 
 - Requires API key
-- Slightly lower quality than larger OpenAI models
+- Higher cost than text-embedding-3-small ($0.13/1M vs $0.02/1M)
 
 ## Implementation
 
@@ -139,7 +140,7 @@ export const PROVIDER_CONFIGS = {
 		dimensions: 1536,
 	},
 	openai: {
-		model: 'text-embedding-3-small',
+		model: 'text-embedding-3-large',
 		dimensions: 1536,
 	},
 };

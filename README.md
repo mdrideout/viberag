@@ -575,13 +575,13 @@ Choose your embedding provider during `/init`:
 - Initial indexing may take time; future updates are incremental
 - Works great for code and natural language (docs, docstrings, code comments, etc.)
 
-### Cloud Providers - Fastest, Best Quality
+### Cloud Providers - Fastest, Best Quality, Largest Vocabulary
 
 | Provider | Model                  | Dims | Cost      | Get API Key                                             |
 | -------- | ---------------------- | ---- | --------- | ------------------------------------------------------- |
 | Gemini   | gemini-embedding-001   | 1536 | Free tier | [Google AI Studio](https://aistudio.google.com)         |
 | Mistral  | codestral-embed        | 1536 | $0.10/1M  | [Mistral Console](https://console.mistral.ai/api-keys/) |
-| OpenAI   | text-embedding-3-small | 1536 | $0.02/1M  | [OpenAI Platform](https://platform.openai.com/api-keys) |
+| OpenAI   | text-embedding-3-large | 1536 | $0.13/1M  | [OpenAI Platform](https://platform.openai.com/api-keys) |
 
 - **Gemini** - Free tier available, great for getting started
 - **Mistral** - Code-optimized embeddings for technical content

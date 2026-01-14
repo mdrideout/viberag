@@ -1,14 +1,13 @@
 /**
  * StatusBar Component
  *
- * Displays current status, indexing progress, and slot activity.
+ * Displays current status and indexing progress.
  * Uses DaemonStatusContext for daemon state instead of Redux.
  */
 
 import React, {useState, useEffect} from 'react';
 import {Box, Text} from 'ink';
 import {useDaemonStatus} from '../contexts/DaemonStatusContext.js';
-import {SlotRow} from './SlotRow.js';
 import type {AppStatus, IndexDisplayStats} from '../../common/types.js';
 
 type Props = {
@@ -142,13 +141,8 @@ export default function StatusBar({status, stats}: Props) {
 
 	const isIndexingActive = indexingDisplay.isActive;
 
-	// Get slots and failures from daemon status
-	const slots = daemonStatus?.slots ?? [];
+	// Get failures from daemon status
 	const failures = daemonStatus?.failures ?? [];
-
-	// Check if any slots are active (not idle)
-	const hasActiveSlots = slots.some(slot => slot.state !== 'idle');
-	const slotCount = slots.length;
 
 	// Determine display values based on state source
 	const nonIndexingStatus = formatNonIndexingStatus(status);
@@ -187,9 +181,6 @@ export default function StatusBar({status, stats}: Props) {
 		throttleInfo,
 	} = displayValues;
 
-	// Only show slots when there's actual activity (API providers use slots, local doesn't)
-	const showSlots = isIndexingActive && hasActiveSlots;
-
 	// Show failure summary if any batches failed
 	const hasFailures = failures.length > 0;
 
@@ -215,15 +206,6 @@ export default function StatusBar({status, stats}: Props) {
 				</Box>
 				<Text dimColor>{statsText}</Text>
 			</Box>
-
-			{/* Per-slot lines - fixed height layout during indexing */}
-			{showSlots && (
-				<Box flexDirection="column" paddingLeft={2}>
-					{Array.from({length: slotCount}, (_, i) => (
-						<SlotRow key={i} slotIndex={i} isLast={i === slotCount - 1} />
-					))}
-				</Box>
-			)}
 
 			{/* Failure summary - shown after indexing completes with errors */}
 			{hasFailures && (

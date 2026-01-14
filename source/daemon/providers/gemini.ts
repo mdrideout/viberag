@@ -4,7 +4,7 @@
  * Uses gemini-embedding-001 model with 1536 dimensions.
  * Note: The model defaults to 3072 dims but we explicitly request 1536 for:
  * - Good balance of quality and storage
- * - Matches OpenAI text-embedding-3-small dimensions
+ * - Matches OpenAI text-embedding-3-large reduced dimensions
  *
  * Free tier available with generous limits.
  */

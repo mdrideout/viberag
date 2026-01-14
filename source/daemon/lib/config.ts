@@ -71,7 +71,7 @@ export const PROVIDER_CONFIGS: Record<
 		dimensions: 1536,
 	},
 	openai: {
-		model: 'text-embedding-3-small',
+		model: 'text-embedding-3-large',
 		dimensions: 1536,
 	},
 };

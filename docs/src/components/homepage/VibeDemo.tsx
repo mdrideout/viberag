@@ -272,7 +272,7 @@ const TerminalDemo: React.FC = () => {
 								<span className="text-transparent">❯</span>
 								<span className="text-slate-400 w-16">OpenAI</span>
 								<span className="text-slate-500">-</span>
-								<span className="text-slate-500">text-embedding-3-small</span>
+								<span className="text-slate-500">text-embedding-3-large</span>
 							</button>
 						</div>
 					</div>

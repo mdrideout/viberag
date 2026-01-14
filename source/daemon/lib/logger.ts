@@ -186,21 +186,18 @@ export function createServiceLogger(
 	projectRoot: string,
 	service: ServiceName,
 ): Logger {
-	let initializedDir: string | null = null;
-
-	function ensureDir() {
-		const serviceDir = getServiceLogsDir(projectRoot, service);
-		if (initializedDir !== serviceDir) {
-			fs.mkdirSync(serviceDir, {recursive: true});
-			initializedDir = serviceDir;
-		}
-	}
-
 	function write(entry: string) {
-		ensureDir();
-		// Get current hourly log path (recalculated each write for rotation)
-		const logPath = getServiceLogPath(projectRoot, service);
-		fs.appendFileSync(logPath, entry + '\n');
+		try {
+			// Always ensure directory exists before writing
+			// (handles case where .viberag/ was deleted during reinit)
+			const serviceDir = getServiceLogsDir(projectRoot, service);
+			fs.mkdirSync(serviceDir, {recursive: true});
+			// Get current hourly log path (recalculated each write for rotation)
+			const logPath = getServiceLogPath(projectRoot, service);
+			fs.appendFileSync(logPath, entry + '\n');
+		} catch {
+			// Silently ignore logging failures - don't crash the app for logging
+		}
 	}
 
 	return {

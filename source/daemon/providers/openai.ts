@@ -1,8 +1,8 @@
 /**
  * OpenAI embedding provider using OpenAI API.
  *
- * Uses text-embedding-3-small model (1536 dimensions).
- * Good quality with fast API responses and low cost ($0.02/1M tokens).
+ * Uses text-embedding-3-large model with reduced dimensions (1536).
+ * High quality embeddings with fast API responses ($0.13/1M tokens).
  */
 
 import type {
@@ -19,7 +19,8 @@ import {
 } from './api-utils.js';
 
 const DEFAULT_API_BASE = 'https://api.openai.com/v1';
-const MODEL = 'text-embedding-3-small';
+const MODEL = 'text-embedding-3-large';
+const DIMENSIONS = 1536; // Reduced from 3072 for storage efficiency
 // OpenAI limits: 8,191 tokens/text, 300,000 tokens/batch, 2,048 texts/batch
 // Chunks are ~2000 chars + context header ≈ 800-1000 tokens each
 // 32 chunks × 1000 tokens = 32,000 tokens (well under 300k limit)
@@ -28,7 +29,7 @@ const BATCH_SIZE = 32;
 
 /**
  * OpenAI embedding provider.
- * Uses text-embedding-3-small model via OpenAI API.
+ * Uses text-embedding-3-large model via OpenAI API with reduced dimensions.
  *
  * Supports regional endpoints for corporate accounts with data residency:
  * - Default: https://api.openai.com/v1
@@ -138,6 +139,7 @@ export class OpenAIEmbeddingProvider implements EmbeddingProvider {
 			body: JSON.stringify({
 				model: MODEL,
 				input: texts,
+				dimensions: DIMENSIONS,
 			}),
 		});
 

@@ -72,7 +72,7 @@ export type IndexDisplayStats = {
  * API providers:
  * - gemini: gemini-embedding-001 (1536d) - Free tier
  * - mistral: codestral-embed (1536d) - Code-optimized
- * - openai: text-embedding-3-small (1536d) - Fast API
+ * - openai: text-embedding-3-large (1536d) - Highest quality
  */
 export type EmbeddingProviderType = 'local' | 'gemini' | 'mistral' | 'openai';
 

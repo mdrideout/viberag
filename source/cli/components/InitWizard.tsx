@@ -99,20 +99,20 @@ const PROVIDER_CONFIG: Record<
 	},
 	openai: {
 		name: 'OpenAI',
-		model: 'text-embed-3-sm',
-		modelFull: 'text-embedding-3-small',
+		model: 'text-embed-3-lg',
+		modelFull: 'text-embedding-3-large',
 		dims: '1536',
 		context: '8K',
-		cost: '$0.02/1M',
+		cost: '$0.13/1M',
 		note: 'API key required',
-		description: 'Fast and reliable API',
+		description: 'Highest quality embeddings',
 	},
 };
 
 // Simple provider options for selection (ordered by speed/ease of use)
 const PROVIDER_ITEMS: SelectItem<EmbeddingProviderType>[] = [
 	{label: 'Gemini    - gemini-embedding-001 (Free tier)', value: 'gemini'},
-	{label: 'OpenAI    - text-embedding-3-small', value: 'openai'},
+	{label: 'OpenAI    - text-embedding-3-large', value: 'openai'},
 	{label: 'Mistral   - codestral-embed', value: 'mistral'},
 	{label: 'Local     - Qwen3-0.6B Q8 (slow)', value: 'local'},
 ];
@@ -143,9 +143,9 @@ const FRONTIER_MODELS_DATA = [
 	},
 	{
 		Provider: 'OpenAI',
-		Model: 'text-embed-3-small',
+		Model: 'text-embed-3-large',
 		Dims: '1536',
-		Cost: '$0.02/1M',
+		Cost: '$0.13/1M',
 	},
 ];
 
@@ -233,7 +233,7 @@ function ComparisonTable(): React.ReactElement {
 				<Text bold color="green">
 					Frontier Models
 				</Text>
-				<Text dimColor> - Fastest, Best Quality</Text>
+				<Text dimColor> - Fastest, Best Quality, Largest Vocabulary</Text>
 			</Box>
 			<SimpleTable data={FRONTIER_MODELS_DATA} columns={frontierColumns} />
 		</Box>
