@@ -92,6 +92,9 @@ export class MerkleTree {
 		_excludePatterns: string[],
 		previousTree?: MerkleTree,
 	): Promise<MerkleTree> {
+		const normalizePath = (filePath: string): string =>
+			filePath.replace(/\\/g, '/');
+
 		// Build a lookup map from the previous tree for mtime optimization
 		const previousNodes = previousTree
 			? buildNodeLookup(previousTree.root)
@@ -123,10 +126,11 @@ export class MerkleTree {
 			ignore: globIgnorePatterns,
 		});
 
-		stats.filesScanned = files.length;
+		const normalizedFiles = files.map(normalizePath);
+		stats.filesScanned = normalizedFiles.length;
 
 		// Filter using gitignore and optionally by extension
-		const validFiles = files.filter(relativePath => {
+		const validFiles = normalizedFiles.filter(relativePath => {
 			// Apply gitignore rules
 			if (gitignore.ignores(relativePath)) {
 				return false;
