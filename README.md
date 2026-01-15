@@ -51,9 +51,10 @@ When using a coding agent like [Claude Code](https://claude.ai/code), add `use v
 - **Semantic code search** - Find code by meaning, not just keywords
 - **Flexible embeddings** - Local model (offline, free) or cloud providers (Gemini, Mistral, OpenAI)
 - **MCP server** - Works with Claude Code, Cursor, VS Code Copilot, and more
-- **Automatic Incremental indexing** - Watches for file changes (respects `.gitignore`) and reindexes only what has changed in real time
+- **Automatic incremental indexing** - Watches for file changes (respects `.gitignore`) and reindexes only what has changed in real time
 - **Resilient indexing** - Retries embedding errors and reports failed batches in `/status`
 - **Multi-language support** - TypeScript, JavaScript, Python, Go, Rust, and more
+- **Blazing fast** - The data storage and search functionality is local on your machine, meaning the full power of your machine can churn through massive amounts of data and execute complex search queries in milliseconds.
 
 ### How It Works:
 
@@ -69,9 +70,11 @@ Semantic search is especially useful in monorepos, where you may be trying to un
 
 ### Embedding Models
 
+_All options store embeddings and indexed data on your local machine_
+
 - **Local:** You can use a locally run embedding model ([Qwen3-Embedding-0.6B](https://huggingface.co/Qwen/Qwen3-Embedding-0.6B)) so that nothing leaves your machine. This has a smaller vocabulary and is only recommended for privacy and offline concerns.
 
-- **Recommended:** API based embeddings from [Gemini](https://ai.google.dev/gemini-api/docs/embeddings), [OpenAI](https://platform.openai.com/docs/guides/embeddings), and [Mistral](https://docs.mistral.ai/capabilities/embeddings) are recommended for the largest vocabulary and highest quality semantic meaning.
+- **Recommended:** API generated embeddings from [Gemini](https://ai.google.dev/gemini-api/docs/embeddings), [OpenAI](https://platform.openai.com/docs/guides/embeddings), and [Mistral](https://docs.mistral.ai/capabilities/embeddings) are recommended for the largest vocabulary and highest quality semantic meaning.
   - These embeddings are very affordable at ~10 - 15 cents per million tokens.
   - A typical codebase can be indexed for pennies
 
