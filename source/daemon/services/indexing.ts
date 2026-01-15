@@ -146,6 +146,7 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 	private logger: Logger | null = null;
 	private debugLogger: Logger;
 	private readonly externalStorage: boolean;
+	private suppressEvents = false;
 
 	constructor(projectRoot: string, options?: IndexingServiceOptions | Logger) {
 		super();
@@ -202,6 +203,7 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 		const {force = false} = options;
 		const failedFilesThisRun = new Set<string>();
 		const failedBatches: BatchFailureInfo[] = [];
+		this.suppressEvents = false;
 
 		// Emit start event
 		this.emit('start');
@@ -373,6 +375,9 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 
 					// Emit progress helper
 					const emitProgress = () => {
+						if (this.suppressEvents) {
+							return;
+						}
 						this.emit('progress', {
 							current: chunksProcessed,
 							total: totalChunks,
@@ -386,9 +391,10 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 						(
 							embeddings as {onThrottle?: (msg: string | null) => void}
 						).onThrottle = message => {
-							if (message) {
-								this.emit('throttle', {message});
+							if (this.suppressEvents) {
+								return;
 							}
+							this.emit('throttle', {message});
 						};
 					}
 
@@ -455,6 +461,9 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 											onBatchProgress?: (p: number, t: number) => void;
 										}
 									).onBatchProgress = (processed, _total) => {
+										if (this.suppressEvents) {
+											return;
+										}
 										const delta = processed - lastReportedWithinBatch;
 										if (delta > 0) {
 											chunksProcessed += delta;
@@ -585,6 +594,7 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 
 			return stats;
 		} catch (error) {
+			this.suppressEvents = true;
 			this.log('error', 'Indexing failed', error as Error);
 			this.emit('error', {
 				error: error instanceof Error ? error : new Error(String(error)),
@@ -620,24 +630,36 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 
 		if ('onSlotProcessing' in provider) {
 			provider.onSlotProcessing = (slot, batchInfo) => {
+				if (this.suppressEvents) {
+					return;
+				}
 				this.emit('slot-processing', {slot, batchInfo});
 			};
 		}
 
 		if ('onSlotRateLimited' in provider) {
 			provider.onSlotRateLimited = (slot, _batchInfo, retryInfo) => {
+				if (this.suppressEvents) {
+					return;
+				}
 				this.emit('slot-rate-limited', {slot, retryInfo});
 			};
 		}
 
 		if ('onSlotIdle' in provider) {
 			provider.onSlotIdle = slot => {
+				if (this.suppressEvents) {
+					return;
+				}
 				this.emit('slot-idle', {slot});
 			};
 		}
 
 		if ('onSlotFailure' in provider) {
 			provider.onSlotFailure = data => {
+				if (this.suppressEvents) {
+					return;
+				}
 				const failure: BatchFailureInfo = {
 					batchInfo: data.batchInfo,
 					files: data.files,
@@ -658,6 +680,9 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 
 		if ('onResetSlots' in provider) {
 			provider.onResetSlots = () => {
+				if (this.suppressEvents) {
+					return;
+				}
 				this.emit('slots-reset');
 			};
 		}
@@ -821,6 +846,7 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 	 * Close all resources.
 	 */
 	close(): void {
+		this.suppressEvents = true;
 		// Only close storage if we created it (not external)
 		if (!this.externalStorage) {
 			this.storage?.close();

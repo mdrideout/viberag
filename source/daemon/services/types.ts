@@ -58,8 +58,8 @@ export interface IndexingEvents {
 	/** Chunk processing progress */
 	'chunk-progress': [data: {chunksProcessed: number}];
 
-	/** Rate limiting message from embedding provider */
-	throttle: [data: {message: string}];
+	/** Rate limiting message from embedding provider (null clears) */
+	throttle: [data: {message: string | null}];
 
 	/** Indexing completed successfully */
 	complete: [data: {stats: IndexStats}];

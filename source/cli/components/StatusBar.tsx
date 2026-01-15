@@ -115,7 +115,8 @@ function deriveIndexingDisplay(indexing: {
 		percent: indexing.percent,
 		stage: indexing.stage,
 		chunkInfo,
-		throttleInfo: indexing.throttleMessage,
+		throttleInfo:
+			indexing.throttleMessage !== null ? 'Requests retrying...' : null,
 		color,
 	};
 }

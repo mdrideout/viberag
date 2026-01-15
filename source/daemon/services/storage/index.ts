@@ -335,10 +335,15 @@ export class Storage {
 		this.ensureConnected();
 		if (entries.length === 0) return;
 
-		const rows = entries.map(embeddingToRow) as unknown as Record<
-			string,
-			unknown
-		>[];
+		// Deduplicate by content hash to avoid merge-insert ambiguity.
+		const uniqueEntries = new Map<string, CachedEmbedding>();
+		for (const entry of entries) {
+			uniqueEntries.set(entry.contentHash, entry);
+		}
+
+		const rows = Array.from(uniqueEntries.values()).map(
+			embeddingToRow,
+		) as unknown as Record<string, unknown>[];
 
 		// Use merge insert for upsert behavior
 		await this.getCacheTable()
