@@ -19,8 +19,8 @@ export {CONCURRENCY};
 /** Delay (ms) between batch completion and next batch start (per slot) */
 export const BATCH_DELAY_MS = 200;
 
-/** Max retry attempts on rate limit */
-export const MAX_RETRIES = 12;
+/** Maximum attempts per batch (initial attempt + retries) */
+export const MAX_ATTEMPTS = 10;
 
 /** Initial backoff (ms) */
 export const INITIAL_BACKOFF_MS = 1000;
@@ -121,13 +121,6 @@ export interface ApiProviderCallbacks {
 		timestamp: string;
 	}) => void;
 	onResetSlots?: () => void;
-
-	/**
-	 * When set to true, callbacks will be skipped.
-	 * Used to prevent stale progress updates after an error occurs
-	 * while other concurrent batches are still completing.
-	 */
-	aborted?: boolean;
 }
 
 /**
@@ -148,6 +141,7 @@ export interface BatchMetadata {
  * Retries on:
  * - Rate limit errors (429, quota exceeded)
  * - Transient API errors (e.g., Gemini's spurious "API key expired" bug)
+ * - Any other error (best-effort retry)
  *
  * @param fn - The async function to execute
  * @param callbacks - Optional callbacks for throttle notifications
@@ -162,38 +156,40 @@ export async function withRetry<T>(
 	let attempt = 0;
 	let backoffMs = INITIAL_BACKOFF_MS;
 
-	while (true) {
+	while (attempt < MAX_ATTEMPTS) {
 		try {
+			attempt++;
 			const result = await fn();
 			// Clear throttle message on success (if was throttling)
-			// Skip if aborted (another batch failed)
-			if (attempt > 0 && !callbacks?.aborted) {
+			if (attempt > 1) {
 				callbacks?.onThrottle?.(null);
 				onRetrying?.(null);
 			}
 			return result;
 		} catch (error) {
-			if (isRetriableError(error) && attempt < MAX_RETRIES) {
-				attempt++;
-				const secs = Math.round(backoffMs / 1000);
-				const retryInfo = `retry ${attempt}/${MAX_RETRIES} in ${secs}s`;
-
-				// Provide context-appropriate message
-				// Skip if aborted (another batch failed)
-				if (!callbacks?.aborted) {
-					const isTransient = isTransientApiError(error);
-					const reason = isTransient ? 'Transient API error' : 'Rate limited';
-
-					callbacks?.onThrottle?.(`${reason} - ${retryInfo}`);
-					onRetrying?.(retryInfo);
-				}
-				await sleep(backoffMs);
-				backoffMs = Math.min(backoffMs * 2, MAX_BACKOFF_MS);
-			} else {
+			if (attempt >= MAX_ATTEMPTS) {
 				throw error;
 			}
+
+			const secs = Math.round(backoffMs / 1000);
+			const retryInfo = `retry ${attempt + 1}/${MAX_ATTEMPTS} in ${secs}s`;
+			const isTransient = isTransientApiError(error);
+			const isRateLimit = isRateLimitError(error);
+			const reason = isRateLimit
+				? 'Rate limited'
+				: isTransient
+					? 'Transient API error'
+					: 'Error';
+
+			callbacks?.onThrottle?.(`${reason} - ${retryInfo}`);
+			onRetrying?.(retryInfo);
+
+			await sleep(backoffMs);
+			backoffMs = Math.min(backoffMs * 2, MAX_BACKOFF_MS);
 		}
 	}
+
+	throw new Error('Max retry attempts exceeded');
 }
 
 /**
@@ -203,8 +199,7 @@ export async function withRetry<T>(
  * Slot progress is reported via callbacks, which the daemon owner wires to state.
  * Each slot index (0 to CONCURRENCY-1) is reused as batches complete.
  *
- * When an error occurs, sets callbacks.aborted = true to prevent stale progress
- * updates from concurrent batches that are still completing. Failures are logged
+ * When an error occurs, failures are logged
  * with detailed chunk metadata if provided.
  *
  * @param batches - Array of batches to process
@@ -214,7 +209,7 @@ export async function withRetry<T>(
  * @param batchMetadata - Optional metadata per batch for detailed failure logging
  * @param logger - Optional logger for debug output
  * @param chunkOffset - Optional offset for cumulative chunk numbering (default: 0)
- * @returns Flattened array of results
+ * @returns Flattened array of results (null entries for failed batches)
  */
 export async function processBatchesWithLimit<T>(
 	batches: T[][],
@@ -227,7 +222,7 @@ export async function processBatchesWithLimit<T>(
 	batchMetadata?: BatchMetadata[],
 	logger?: Logger,
 	chunkOffset: number = 0,
-): Promise<number[][]> {
+): Promise<Array<number[] | null>> {
 	const limit = pLimit(CONCURRENCY);
 	let processedItems = 0;
 	const totalItems = batches.reduce((sum, batch) => sum + batch.length, 0);
@@ -235,103 +230,84 @@ export async function processBatchesWithLimit<T>(
 	// Track which slot index to assign next (wraps around CONCURRENCY)
 	let nextSlotIndex = 0;
 
-	try {
-		const batchResults = await Promise.all(
-			batches.map((batch, batchIndex) =>
-				limit(async () => {
-					// Assign slot index (reuse slots as batches complete)
-					const slotIndex = nextSlotIndex++ % CONCURRENCY;
-					// Calculate cumulative chunk positions (with offset from prior batches)
-					const startChunk =
-						chunkOffset + batchIndex * (batchSize ?? batch.length) + 1;
-					const endChunk = startChunk + batch.length - 1;
-					const batchInfo = `chunks ${startChunk}-${endChunk}`;
+	const batchResults = await Promise.all(
+		batches.map((batch, batchIndex) =>
+			limit(async () => {
+				// Assign slot index (reuse slots as batches complete)
+				const slotIndex = nextSlotIndex++ % CONCURRENCY;
+				// Calculate cumulative chunk positions (with offset from prior batches)
+				const startChunk =
+					chunkOffset + batchIndex * (batchSize ?? batch.length) + 1;
+				const endChunk = startChunk + batch.length - 1;
+				const batchInfo = `chunks ${startChunk}-${endChunk}`;
 
-					// Report slot as processing via callback
-					if (!callbacks?.aborted) {
+				// Report slot as processing via callback
+				callbacks?.onSlotProcessing?.(slotIndex, batchInfo);
+
+				// Callback for when this slot enters retry state
+				const onRetrying = (retryInfo: string | null) => {
+					if (retryInfo) {
+						callbacks?.onSlotRateLimited?.(slotIndex, batchInfo, retryInfo);
+					} else {
+						// Cleared - back to processing
 						callbacks?.onSlotProcessing?.(slotIndex, batchInfo);
 					}
+				};
 
-					// Callback for when this slot enters retry state
-					const onRetrying = (retryInfo: string | null) => {
-						if (callbacks?.aborted) return;
-						if (retryInfo) {
-							callbacks?.onSlotRateLimited?.(slotIndex, batchInfo, retryInfo);
-						} else {
-							// Cleared - back to processing
-							callbacks?.onSlotProcessing?.(slotIndex, batchInfo);
-						}
-					};
-
-					let result: number[][];
-					try {
-						result = await processBatch(batch, onRetrying);
-					} catch (error) {
-						// Log detailed failure info before re-throwing
-						const errorMsg =
-							error instanceof Error ? error.message : String(error);
-						const batchMeta = batchMetadata?.[batchIndex];
-
-						// Log to debug.log with full chunk context
-						if (logger) {
-							logger.error('api-utils', 'Batch failed after retries', {
-								batchIndex,
-								batchInfo,
-								chunkCount: batch.length,
-								files: batchMeta?.filepaths ?? [],
-								lineRanges: batchMeta?.lineRanges ?? [],
-								sizes: batchMeta?.sizes ?? [],
-								error: errorMsg,
-							} as unknown as Error);
-						}
-
-						// Report failure via callback
-						callbacks?.onSlotFailure?.({
-							batchInfo,
-							files: batchMeta?.filepaths ?? [],
-							chunkCount: batch.length,
-							error: errorMsg,
-							timestamp: new Date().toISOString(),
-						});
-
-						// Re-throw to trigger outer catch (abort and cleanup)
-						throw error;
-					}
-
-					// Skip updates if aborted (another batch failed)
-					if (callbacks?.aborted) {
-						callbacks?.onSlotIdle?.(slotIndex);
-						return result;
-					}
+				try {
+					const result = await processBatch(batch, onRetrying);
 
 					// Delay before releasing the slot (rate limit protection)
 					await sleep(BATCH_DELAY_MS);
-
-					// Report slot as idle via callback
 					callbacks?.onSlotIdle?.(slotIndex);
 
-					// Report progress per-batch
 					processedItems += batch.length;
 					callbacks?.onBatchProgress?.(processedItems, totalItems);
 					return result;
-				}),
-			),
-		);
+				} catch (error) {
+					const errorMsg =
+						error instanceof Error ? error.message : String(error);
+					const batchMeta = batchMetadata?.[batchIndex];
 
-		// Reset all slots when complete
-		callbacks?.onResetSlots?.();
+					// Log to debug.log with full chunk context
+					if (logger) {
+						logger.error('api-utils', 'Batch failed after retries', {
+							batchIndex,
+							batchInfo,
+							chunkCount: batch.length,
+							files: batchMeta?.filepaths ?? [],
+							lineRanges: batchMeta?.lineRanges ?? [],
+							sizes: batchMeta?.sizes ?? [],
+							error: errorMsg,
+						} as unknown as Error);
+					}
 
-		return batchResults.flat();
-	} catch (error) {
-		// Set aborted flag to stop progress updates from other concurrent batches
-		// that are still completing in the background
-		if (callbacks) {
-			callbacks.aborted = true;
-		}
-		// Reset slots on error
-		callbacks?.onResetSlots?.();
-		throw error;
-	}
+					// Report failure via callback
+					callbacks?.onSlotFailure?.({
+						batchInfo,
+						files: batchMeta?.filepaths ?? [],
+						chunkCount: batch.length,
+						error: errorMsg,
+						timestamp: new Date().toISOString(),
+					});
+
+					// Delay before releasing the slot (rate limit protection)
+					await sleep(BATCH_DELAY_MS);
+					callbacks?.onSlotIdle?.(slotIndex);
+
+					processedItems += batch.length;
+					callbacks?.onBatchProgress?.(processedItems, totalItems);
+
+					return Array.from({length: batch.length}, () => null);
+				}
+			}),
+		),
+	);
+
+	// Reset all slots when complete
+	callbacks?.onResetSlots?.();
+
+	return batchResults.flat();
 }
 
 /**

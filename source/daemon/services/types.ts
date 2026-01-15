@@ -86,7 +86,15 @@ export interface SlotEvents {
 	'slot-success': [data: {slot: number}];
 
 	/** Slot failed after retries */
-	'slot-failure': [data: {slot: number; error: string; batchInfo: string}];
+	'slot-failure': [
+		data: {
+			slot: number;
+			error: string;
+			batchInfo: string;
+			files: string[];
+			chunkCount: number;
+		},
+	];
 
 	/** Slot returned to idle state */
 	'slot-idle': [data: {slot: number}];

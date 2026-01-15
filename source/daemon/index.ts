@@ -120,11 +120,11 @@ async function main(): Promise<void> {
 	// Register handlers
 	server.setHandlers(createHandlers());
 
-	// Initialize owner (starts watcher, begins warmup)
-	await owner.initialize();
-
 	// Start server
 	await server.start();
+
+	// Initialize owner (starts watcher, begins warmup)
+	await owner.initialize();
 
 	// Register signal handlers
 	lifecycle.registerSignalHandlers();

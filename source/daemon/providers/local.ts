@@ -115,7 +115,10 @@ export class LocalEmbeddingProvider implements EmbeddingProvider {
 		onProgress?.('ready');
 	}
 
-	async embed(texts: string[], _options?: EmbedOptions): Promise<number[][]> {
+	async embed(
+		texts: string[],
+		_options?: EmbedOptions,
+	): Promise<Array<number[] | null>> {
 		if (!this.initialized) {
 			await this.initialize();
 		}

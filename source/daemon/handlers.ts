@@ -60,6 +60,7 @@ const searchHandler: Handler = async (params, ctx) => {
 	const validated = searchParamsSchema.parse(params ?? {});
 	const {query, ...options} = validated;
 
+	await ctx.owner.ensureInitialized();
 	return ctx.owner.search(query, options);
 };
 
@@ -70,6 +71,7 @@ const searchHandler: Handler = async (params, ctx) => {
 const indexHandler: Handler = async (params, ctx) => {
 	const validated = indexParamsSchema.parse(params ?? {});
 
+	await ctx.owner.ensureInitialized();
 	// Run indexing - Redux state is updated by indexer directly
 	// Clients poll status() to see progress
 	const stats = await ctx.owner.index({force: validated.force});
@@ -89,6 +91,7 @@ const indexAsyncHandler: Handler = async (params, ctx) => {
 		return {started: false, reason: 'in_progress'};
 	}
 
+	await ctx.owner.ensureInitialized();
 	void ctx.owner.index({force: validated.force}).catch(error => {
 		console.error('[daemon] Async index failed:', error);
 		const logger = ctx.owner.getLogger();
@@ -112,6 +115,7 @@ const statusHandler: Handler = async (_params, ctx) => {
  * Watch status handler.
  */
 const watchStatusHandler: Handler = async (_params, ctx) => {
+	await ctx.owner.ensureInitialized();
 	return ctx.owner.getWatcherStatus();
 };
 

@@ -51,8 +51,27 @@ When using a coding agent like [Claude Code](https://claude.ai/code), add `use v
 - **Semantic code search** - Find code by meaning, not just keywords
 - **Flexible embeddings** - Local model (offline, free) or cloud providers (Gemini, Mistral, OpenAI)
 - **MCP server** - Works with Claude Code, Cursor, VS Code Copilot, and more
-- **Automatic Incremental indexing** - Watches for file changes and reindexes only what has changed in real time
+- **Automatic Incremental indexing** - Watches for file changes (respects `.gitignore`) and reindexes only what has changed in real time
+- **Resilient indexing** - Retries embedding errors and reports failed batches in `/status`
 - **Multi-language support** - TypeScript, JavaScript, Python, Go, Rust, and more
+
+## Troubleshooting
+
+### Watcher EMFILE (too many open files)
+
+Large repos can exceed OS watch limits. The watcher now honors `.gitignore`, but if you still see EMFILE:
+
+- Add more ignores in `.gitignore` to reduce watched files.
+- Increase OS limits:
+  - macOS: raise `kern.maxfiles`, `kern.maxfilesperproc`, and `ulimit -n`
+  - Linux: raise `fs.inotify.max_user_watches`, `fs.inotify.max_user_instances`, and `ulimit -n`
+
+### Index failures (network/API errors)
+
+Embedding batches retry up to 10 attempts. If failures persist:
+
+- Run `/status` to see failed batch counts.
+- Re-run `/index` to retry failed files once connectivity is stable.
 
 ### How It Works:
 

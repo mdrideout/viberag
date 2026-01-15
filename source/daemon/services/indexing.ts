@@ -75,6 +75,17 @@ export interface IndexOptions {
 }
 
 /**
+ * Failed embedding batch info for diagnostics and retry tracking.
+ */
+type BatchFailureInfo = {
+	batchInfo: string;
+	files: string[];
+	chunkCount: number;
+	error: string;
+	timestamp: string;
+};
+
+/**
  * Create empty index stats.
  */
 function createEmptyIndexStats(): IndexStats {
@@ -118,6 +129,8 @@ export interface IndexingServiceOptions {
 	logger?: Logger;
 	/** External Storage instance (if provided, IndexingService won't create or close it) */
 	storage?: Storage;
+	/** Optional embedding provider override (used for testing or custom embeddings) */
+	embeddings?: EmbeddingProvider;
 }
 
 /**
@@ -140,13 +153,20 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 		this.debugLogger = createServiceLogger(projectRoot, 'indexer');
 
 		// Handle both old (logger) and new (options) signatures for backward compatibility
-		if (options && typeof options === 'object' && 'logger' in options) {
+		if (
+			options &&
+			typeof options === 'object' &&
+			('logger' in options || 'storage' in options || 'embeddings' in options)
+		) {
 			this.logger = options.logger ?? null;
 			if (options.storage) {
 				this.storage = options.storage;
 				this.externalStorage = true;
 			} else {
 				this.externalStorage = false;
+			}
+			if (options.embeddings) {
+				this.embeddings = options.embeddings;
 			}
 		} else {
 			// Old signature: second param is Logger directly
@@ -180,6 +200,8 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 	private async doIndex(options: IndexOptions = {}): Promise<IndexStats> {
 		const stats = createEmptyIndexStats();
 		const {force = false} = options;
+		const failedFilesThisRun = new Set<string>();
+		const failedBatches: BatchFailureInfo[] = [];
 
 		// Emit start event
 		this.emit('start');
@@ -235,8 +257,28 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 				`Changes: ${diff.new.length} new, ${diff.modified.length} modified, ${diff.deleted.length} deleted`,
 			);
 
+			// Retry any files that previously failed to embed (excluding deleted files)
+			const previousFailedFiles = new Set(manifest.failedFiles ?? []);
+			diff.deleted.forEach(file => previousFailedFiles.delete(file));
+			const failedFilesToRetry = Array.from(previousFailedFiles);
+			const hasFailuresToRetry = failedFilesToRetry.length > 0;
+			const hasStaleFailures =
+				(manifest.failedFiles ?? []).length !== failedFilesToRetry.length ||
+				(manifest.failedBatches ?? []).length > 0;
+			if (hasFailuresToRetry) {
+				this.log(
+					'info',
+					`Retrying ${failedFilesToRetry.length} previously failed files`,
+				);
+			}
+
 			// Short-circuit if no changes
-			if (!diff.hasChanges && !force) {
+			if (!diff.hasChanges && !force && !hasFailuresToRetry) {
+				if (hasStaleFailures) {
+					manifest.failedFiles = failedFilesToRetry;
+					manifest.failedBatches = [];
+					await saveManifest(this.projectRoot, manifest);
+				}
 				this.log('info', 'No changes detected');
 				this.emit('complete', {
 					stats: {
@@ -265,16 +307,20 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 			}
 
 			// 6. Process new and modified files
-			const filesToProcess = [...diff.new, ...diff.modified];
+			const filesToProcess = Array.from(
+				new Set([...diff.new, ...diff.modified, ...failedFilesToRetry]),
+			);
 
 			if (filesToProcess.length > 0) {
 				this.log('info', `Processing ${filesToProcess.length} files`);
 
-				// Delete existing chunks for modified files
-				if (diff.modified.length > 0 && !force) {
-					const deletedCount = await storage.deleteChunksByFilepaths(
-						diff.modified,
-					);
+				// Delete existing chunks for modified + previously failed files
+				const filesToDelete = Array.from(
+					new Set([...diff.modified, ...failedFilesToRetry]),
+				);
+				if (filesToDelete.length > 0 && !force) {
+					const deletedCount =
+						await storage.deleteChunksByFilepaths(filesToDelete);
 					stats.chunksDeleted += deletedCount;
 				}
 
@@ -310,6 +356,7 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 							`Failed to process file: ${filepath}`,
 							error as Error,
 						);
+						failedFilesThisRun.add(filepath);
 						continue;
 					}
 				}
@@ -346,7 +393,9 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 					}
 
 					// Wire slot progress callbacks for API providers
-					this.wireSlotCallbacks(embeddings);
+					this.wireSlotCallbacks(embeddings, failure => {
+						failedBatches.push(failure);
+					});
 
 					// Initialize progress display
 					emitProgress();
@@ -420,7 +469,10 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 									logger: this.debugLogger,
 									chunkOffset: batchStartProgress,
 								});
-								stats.embeddingsComputed += batchChunks.length;
+								const successfulEmbeddings = newEmbeddings.filter(
+									(vector): vector is number[] => vector !== null,
+								);
+								stats.embeddingsComputed += successfulEmbeddings.length;
 
 								// Clear callback
 								if ('onBatchProgress' in embeddings) {
@@ -438,20 +490,27 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 								}
 
 								// Cache the new embeddings
-								const cacheEntries = batchChunks.map((c, idx) => ({
-									contentHash: c.chunk.contentHash,
-									vector: newEmbeddings[idx]!,
-									createdAt: new Date().toISOString(),
-								}));
-								await storage.cacheEmbeddings(cacheEntries);
-
-								// Add to cachedEmbeddings map
+								const cacheEntries: Array<{
+									contentHash: string;
+									vector: number[];
+									createdAt: string;
+								}> = [];
 								batchChunks.forEach((c, idx) => {
-									cachedEmbeddings.set(
-										c.chunk.contentHash,
-										newEmbeddings[idx]!,
-									);
+									const vector = newEmbeddings[idx];
+									if (!vector) {
+										failedFilesThisRun.add(c.filepath);
+										return;
+									}
+									cacheEntries.push({
+										contentHash: c.chunk.contentHash,
+										vector,
+										createdAt: new Date().toISOString(),
+									});
+									cachedEmbeddings.set(c.chunk.contentHash, vector);
 								});
+								if (cacheEntries.length > 0) {
+									await storage.cacheEmbeddings(cacheEntries);
+								}
 
 								emitProgress();
 							});
@@ -463,7 +522,11 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 					// Build CodeChunk objects and write to storage
 					const allCodeChunks: CodeChunk[] = [];
 					for (const {chunk, filepath, fileHash} of allChunksWithContext) {
-						const vector = cachedEmbeddings.get(chunk.contentHash)!;
+						const vector = cachedEmbeddings.get(chunk.contentHash);
+						if (!vector) {
+							failedFilesThisRun.add(filepath);
+							continue;
+						}
 						allCodeChunks.push({
 							id: `${filepath}:${chunk.startLine}`,
 							vector,
@@ -500,6 +563,8 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 				totalFiles: currentTree.fileCount,
 				totalChunks: chunkCount,
 			});
+			manifest.failedFiles = Array.from(failedFilesThisRun);
+			manifest.failedBatches = failedBatches;
 
 			await saveManifest(this.projectRoot, manifest);
 			this.log(
@@ -531,7 +596,10 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 	/**
 	 * Wire slot progress callbacks from embedding provider to events.
 	 */
-	private wireSlotCallbacks(embeddings: EmbeddingProvider): void {
+	private wireSlotCallbacks(
+		embeddings: EmbeddingProvider,
+		onFailure?: (failure: BatchFailureInfo) => void,
+	): void {
 		const provider = embeddings as {
 			onSlotProcessing?: (index: number, batchInfo: string) => void;
 			onSlotRateLimited?: (
@@ -570,11 +638,21 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 
 		if ('onSlotFailure' in provider) {
 			provider.onSlotFailure = data => {
+				const failure: BatchFailureInfo = {
+					batchInfo: data.batchInfo,
+					files: data.files,
+					chunkCount: data.chunkCount,
+					error: data.error,
+					timestamp: data.timestamp,
+				};
 				this.emit('slot-failure', {
 					slot: 0, // Failure doesn't specify slot in current impl
-					error: data.error,
-					batchInfo: data.batchInfo,
+					error: failure.error,
+					batchInfo: failure.batchInfo,
+					files: failure.files,
+					chunkCount: failure.chunkCount,
 				});
+				onFailure?.(failure);
 			};
 		}
 
@@ -673,7 +751,9 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 				? `Loading ${providerName} model`
 				: `Connecting to ${providerName}`,
 		});
-		this.embeddings = this.createEmbeddingProvider(this.config);
+		if (!this.embeddings) {
+			this.embeddings = this.createEmbeddingProvider(this.config);
+		}
 
 		// Pass model progress to events for local models
 		await this.embeddings.initialize(

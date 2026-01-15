@@ -48,6 +48,12 @@ User runs /clean in CLI
 
 Adopt a **per-project daemon architecture** where a single daemon process owns all mutable state for a project, and CLI/MCP processes become thin clients.
 
+### Startup Behavior
+
+- The daemon opens its IPC socket immediately so clients can connect without startup timeouts.
+- Owner initialization (file watcher + warmup) runs after the socket is live.
+- Handlers that need the owner block until initialization completes; status reflects warmup and watcher state.
+
 ### Daemon Locality
 
 **One daemon per `.viberag/` directory** (i.e., per project):

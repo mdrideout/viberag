@@ -61,6 +61,8 @@ export interface FailureInfo {
 	batchInfo: string;
 	error: string;
 	timestamp: string;
+	files: string[];
+	chunkCount: number;
 }
 
 export interface WatcherState {

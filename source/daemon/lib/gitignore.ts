@@ -32,7 +32,7 @@ interface Ignore {
  * Patterns that should always be ignored, regardless of .gitignore.
  * These are internal/system directories that should never be indexed.
  */
-const ALWAYS_IGNORED = [
+export const ALWAYS_IGNORED_DIRS = [
 	'.git',
 	'.viberag',
 	'node_modules', // Fallback in case not in .gitignore
@@ -88,7 +88,12 @@ const ALWAYS_IGNORED_PATTERNS = [
 /**
  * Cache of Ignore instances per project root.
  */
-const ignoreCache = new Map<string, Ignore>();
+type GitignoreCacheEntry = {
+	ignore: Ignore;
+	mtimeMs: number | null;
+};
+
+const ignoreCache = new Map<string, GitignoreCacheEntry>();
 
 // ============================================================================
 // Core Functions
@@ -102,16 +107,25 @@ const ignoreCache = new Map<string, Ignore>();
  * @returns Ignore instance for filtering
  */
 export async function loadGitignore(projectRoot: string): Promise<Ignore> {
+	const gitignorePath = path.join(projectRoot, '.gitignore');
+	let gitignoreMtime: number | null = null;
+	try {
+		const stats = await fs.stat(gitignorePath);
+		gitignoreMtime = stats.mtimeMs;
+	} catch {
+		// .gitignore doesn't exist, treat as no file
+	}
+
 	// Check cache first
 	const cached = ignoreCache.get(projectRoot);
-	if (cached) {
-		return cached;
+	if (cached && cached.mtimeMs === gitignoreMtime) {
+		return cached.ignore;
 	}
 
 	const ig = ignore();
 
 	// Add always-ignored patterns (directories)
-	ig.add(ALWAYS_IGNORED);
+	ig.add(ALWAYS_IGNORED_DIRS);
 
 	// Add always-ignored files (lock files)
 	ig.add(ALWAYS_IGNORED_FILES);
@@ -120,16 +134,17 @@ export async function loadGitignore(projectRoot: string): Promise<Ignore> {
 	ig.add(ALWAYS_IGNORED_PATTERNS);
 
 	// Try to load .gitignore
-	const gitignorePath = path.join(projectRoot, '.gitignore');
-	try {
-		const content = await fs.readFile(gitignorePath, 'utf-8');
-		ig.add(content);
-	} catch {
-		// .gitignore doesn't exist, that's fine
+	if (gitignoreMtime !== null) {
+		try {
+			const content = await fs.readFile(gitignorePath, 'utf-8');
+			ig.add(content);
+		} catch {
+			// .gitignore exists but can't be read, ignore
+		}
 	}
 
 	// Cache the instance
-	ignoreCache.set(projectRoot, ig);
+	ignoreCache.set(projectRoot, {ignore: ig, mtimeMs: gitignoreMtime});
 
 	return ig;
 }
@@ -201,8 +216,10 @@ export async function getGlobIgnorePatterns(
 ): Promise<string[]> {
 	const patterns: string[] = [];
 
-	// Always exclude these directories (same as ALWAYS_IGNORED)
-	patterns.push('**/.git/**', '**/.viberag/**', '**/node_modules/**');
+	// Always exclude these directories (same as ALWAYS_IGNORED_DIRS)
+	for (const dir of ALWAYS_IGNORED_DIRS) {
+		patterns.push(`**/${dir}/**`);
+	}
 
 	// Always exclude lock files (same as ALWAYS_IGNORED_FILES)
 	for (const file of ALWAYS_IGNORED_FILES) {

@@ -11,6 +11,14 @@
 import {describe, it, expect, beforeEach, afterEach} from 'vitest';
 import {IndexingService} from '../services/indexing.js';
 import {SearchEngine} from '../services/search/index.js';
+import {loadManifest} from '../lib/manifest.js';
+import {LocalEmbeddingProvider} from '../providers/local.js';
+import {chunk, processBatchesWithLimit} from '../providers/api-utils.js';
+import type {
+	EmbedOptions,
+	EmbeddingProvider,
+	ModelProgressCallback,
+} from '../providers/types.js';
 import {
 	copyFixtureToTemp,
 	addFile,
@@ -19,6 +27,100 @@ import {
 	waitForFs,
 	type TestContext,
 } from './helpers.js';
+
+class FlakyBatchEmbeddingProvider implements EmbeddingProvider {
+	readonly dimensions: number;
+	onBatchProgress?: (processed: number, total: number) => void;
+	onSlotProcessing?: (index: number, batchInfo: string) => void;
+	onSlotRateLimited?: (
+		index: number,
+		batchInfo: string,
+		retryInfo: string,
+	) => void;
+	onSlotIdle?: (index: number) => void;
+	onSlotFailure?: (data: {
+		batchInfo: string;
+		files: string[];
+		chunkCount: number;
+		error: string;
+		timestamp: string;
+	}) => void;
+	onResetSlots?: () => void;
+	onThrottle?: (message: string | null) => void;
+
+	private readonly delegate: LocalEmbeddingProvider;
+	private readonly failFile: string | null;
+	private readonly batchSize: number;
+
+	constructor(failFile: string | null, batchSize: number = 1) {
+		this.delegate = new LocalEmbeddingProvider();
+		this.dimensions = this.delegate.dimensions;
+		this.failFile = failFile;
+		this.batchSize = batchSize;
+	}
+
+	async initialize(onProgress?: ModelProgressCallback): Promise<void> {
+		await this.delegate.initialize(onProgress);
+	}
+
+	async embed(
+		texts: string[],
+		options?: EmbedOptions,
+	): Promise<Array<number[] | null>> {
+		if (texts.length === 0) {
+			return [];
+		}
+
+		const batches = chunk(texts, this.batchSize);
+		const batchIndexLookup = new Map(
+			batches.map((batch, index) => [batch, index]),
+		);
+		const metadata = options?.chunkMetadata ?? [];
+		const metadataBatches = chunk(metadata, this.batchSize).map(batch => ({
+			filepaths: batch.map(item => item.filepath),
+			lineRanges: batch.map(item => ({
+				start: item.startLine,
+				end: item.endLine,
+			})),
+			sizes: batch.map(item => item.size),
+		}));
+
+		return processBatchesWithLimit(
+			batches,
+			async batch => {
+				const batchIndex = batchIndexLookup.get(batch) ?? 0;
+				const batchMeta = metadataBatches[batchIndex];
+				if (this.failFile && batchMeta?.filepaths.includes(this.failFile)) {
+					throw new Error('Simulated embedding failure');
+				}
+
+				const vectors = await this.delegate.embed(batch);
+				return vectors as number[][];
+			},
+			{
+				onBatchProgress: this.onBatchProgress,
+				onSlotProcessing: this.onSlotProcessing,
+				onSlotRateLimited: this.onSlotRateLimited,
+				onSlotIdle: this.onSlotIdle,
+				onSlotFailure: this.onSlotFailure,
+				onResetSlots: this.onResetSlots,
+				onThrottle: this.onThrottle,
+			},
+			this.batchSize,
+			metadataBatches,
+			options?.logger,
+			options?.chunkOffset ?? 0,
+		);
+	}
+
+	async embedSingle(text: string): Promise<number[]> {
+		return this.delegate.embedSingle(text);
+	}
+
+	close(): void {
+		this.delegate.close();
+	}
+}
 
 describe('Indexing E2E', () => {
 	let ctx: TestContext;
@@ -334,6 +436,63 @@ describe('Error handling', () => {
 
 		// Index should complete successfully
 		expect(stats.filesScanned).toBeGreaterThan(0);
+	}, 60_000);
+
+	it('records failed batches and clears them after a successful reindex', async () => {
+		const failingProvider = new FlakyBatchEmbeddingProvider('math.py');
+		const indexer = new IndexingService(ctx.projectRoot, {
+			embeddings: failingProvider,
+		});
+		await indexer.index();
+		indexer.close();
+
+		const manifest = await loadManifest(ctx.projectRoot);
+		expect(manifest.failedBatches.length).toBeGreaterThan(0);
+		expect(manifest.failedFiles).toContain('math.py');
+
+		const search = new SearchEngine(ctx.projectRoot);
+		const results = await search.search('fetch data API request');
+		expect(
+			results.results.some(r => r.filepath.includes('http_client.ts')),
+		).toBe(true);
+		search.close();
+
+		const healthyProvider = new FlakyBatchEmbeddingProvider(null);
+		const indexer2 = new IndexingService(ctx.projectRoot, {
+			embeddings: healthyProvider,
+		});
+		await indexer2.index();
+		indexer2.close();
+
+		const clearedManifest = await loadManifest(ctx.projectRoot);
+		expect(clearedManifest.failedBatches.length).toBe(0);
+		expect(clearedManifest.failedFiles.length).toBe(0);
+	}, 60_000);
+
+	it('drops failed file entries when the file is deleted', async () => {
+		const failingProvider = new FlakyBatchEmbeddingProvider('math.py');
+		const indexer = new IndexingService(ctx.projectRoot, {
+			embeddings: failingProvider,
+		});
+		await indexer.index();
+		indexer.close();
+
+		let manifest = await loadManifest(ctx.projectRoot);
+		expect(manifest.failedFiles).toContain('math.py');
+
+		await deleteFile(ctx.projectRoot, 'math.py');
+		await waitForFs();
+
+		const healthyProvider = new FlakyBatchEmbeddingProvider(null);
+		const indexer2 = new IndexingService(ctx.projectRoot, {
+			embeddings: healthyProvider,
+		});
+		await indexer2.index();
+		indexer2.close();
+
+		manifest = await loadManifest(ctx.projectRoot);
+		expect(manifest.failedFiles).not.toContain('math.py');
+		expect(manifest.failedBatches.length).toBe(0);
 	}, 60_000);
 });
 

@@ -25,6 +25,8 @@ export interface FailedChunk {
 	batchInfo: string;
 	error: string;
 	timestamp: string;
+	files: string[];
+	chunkCount: number;
 }
 
 // ============================================================================

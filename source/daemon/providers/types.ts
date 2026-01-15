@@ -62,9 +62,12 @@ export interface EmbeddingProvider {
 	 * Generate embeddings for multiple texts.
 	 * @param texts - Array of text strings to embed
 	 * @param options - Optional settings for logging and metadata
-	 * @returns Array of embedding vectors (one per text)
+	 * @returns Array of embedding vectors (one per text), null when embedding fails
 	 */
-	embed(texts: string[], options?: EmbedOptions): Promise<number[][]>;
+	embed(
+		texts: string[],
+		options?: EmbedOptions,
+	): Promise<Array<number[] | null>>;
 
 	/**
 	 * Generate embedding for a single text.

@@ -71,7 +71,10 @@ export class MistralEmbeddingProvider implements EmbeddingProvider {
 		this.initialized = true;
 	}
 
-	async embed(texts: string[], options?: EmbedOptions): Promise<number[][]> {
+	async embed(
+		texts: string[],
+		options?: EmbedOptions,
+	): Promise<Array<number[] | null>> {
 		if (!this.initialized) {
 			await this.initialize();
 		}
@@ -162,7 +165,11 @@ export class MistralEmbeddingProvider implements EmbeddingProvider {
 
 	async embedSingle(text: string): Promise<number[]> {
 		const results = await this.embed([text]);
-		return results[0]!;
+		const vector = results[0];
+		if (!vector) {
+			throw new Error('Mistral embedding failed');
+		}
+		return vector;
 	}
 
 	close(): void {

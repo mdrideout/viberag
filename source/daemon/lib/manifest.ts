@@ -19,6 +19,14 @@ export interface ManifestStats {
 	totalChunks: number;
 }
 
+export interface ManifestFailure {
+	batchInfo: string;
+	files: string[];
+	chunkCount: number;
+	error: string;
+	timestamp: string;
+}
+
 export interface Manifest {
 	version: number;
 	schemaVersion: number; // Database schema version for migration detection
@@ -26,6 +34,8 @@ export interface Manifest {
 	updatedAt: string; // ISO timestamp
 	tree: object | null; // Serialized MerkleTree
 	stats: ManifestStats;
+	failedFiles: string[];
+	failedBatches: ManifestFailure[];
 }
 
 // ============================================================================
@@ -47,6 +57,8 @@ export function createEmptyManifest(): Manifest {
 			totalFiles: 0,
 			totalChunks: 0,
 		},
+		failedFiles: [],
+		failedBatches: [],
 	};
 }
 

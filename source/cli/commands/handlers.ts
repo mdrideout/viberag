@@ -304,6 +304,12 @@ export async function getStatus(projectRoot: string): Promise<string> {
 		`  Total files: ${manifest.stats.totalFiles}`,
 		`  Total chunks: ${manifest.stats.totalChunks}`,
 	];
+	const failedFiles = manifest.failedFiles ?? [];
+	const failedBatches = manifest.failedBatches ?? [];
+	if (failedFiles.length > 0 || failedBatches.length > 0) {
+		lines.push(`  Failed files: ${failedFiles.length}`);
+		lines.push(`  Failed batches: ${failedBatches.length}`);
+	}
 
 	return lines.join('\n');
 }

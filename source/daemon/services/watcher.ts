@@ -8,9 +8,14 @@
  */
 
 import {watch, type FSWatcher} from 'chokidar';
+import path from 'node:path';
 import {loadConfig, type ViberagConfig} from '../lib/config.js';
 import {hasValidExtension} from '../lib/merkle/hash.js';
-import {loadGitignore} from '../lib/gitignore.js';
+import {
+	ALWAYS_IGNORED_DIRS,
+	clearGitignoreCache,
+	loadGitignore,
+} from '../lib/gitignore.js';
 import {createServiceLogger, type Logger} from '../lib/logger.js';
 import {TypedEmitter, type WatcherEvents} from './types.js';
 
@@ -57,6 +62,7 @@ export class FileWatcher extends TypedEmitter<WatcherEvents> {
 	private watcher: FSWatcher | null = null;
 	private logger: Logger | null = null;
 	private gitignore: Ignore | null = null;
+	private gitignoreReloadPromise: Promise<void> | null = null;
 
 	// Internal status tracking
 	private filesWatched = 0;
@@ -145,21 +151,27 @@ export class FileWatcher extends TypedEmitter<WatcherEvents> {
 
 		// Chokidar v5: watch directory '.' instead of glob '**/*'
 		const ignored = (filePath: string): boolean => {
-			const normalized = filePath.replace(/\\/g, '/');
-			const ignoredDirs = ['.git', '.viberag', 'node_modules'];
+			const {relativePath, isOutside} = this.normalizePathForIgnore(filePath);
+			if (isOutside) {
+				return true;
+			}
 
-			for (const dir of ignoredDirs) {
+			if (!relativePath) {
+				return false;
+			}
+
+			for (const dir of ALWAYS_IGNORED_DIRS) {
 				if (
-					normalized === dir ||
-					normalized.startsWith(`${dir}/`) ||
-					normalized.includes(`/${dir}/`) ||
-					normalized.includes(`/${dir}`)
+					relativePath === dir ||
+					relativePath.startsWith(`${dir}/`) ||
+					relativePath.includes(`/${dir}/`) ||
+					relativePath.includes(`/${dir}`)
 				) {
 					return true;
 				}
 			}
 
-			return false;
+			return this.gitignore?.ignores(relativePath) ?? false;
 		};
 
 		// Create watcher
@@ -277,6 +289,53 @@ export class FileWatcher extends TypedEmitter<WatcherEvents> {
 	}
 
 	/**
+	 * Normalize a path to a gitignore-safe relative path.
+	 */
+	private normalizePathForIgnore(filePath: string): {
+		relativePath: string | null;
+		isOutside: boolean;
+	} {
+		if (!filePath) {
+			return {relativePath: null, isOutside: false};
+		}
+
+		if (path.isAbsolute(filePath)) {
+			const relative = path.relative(this.projectRoot, filePath);
+			if (!relative) {
+				return {relativePath: null, isOutside: false};
+			}
+
+			const normalizedRelative = relative
+				.replace(/\\/g, '/')
+				.replace(/^\.\//, '');
+			if (normalizedRelative === '.') {
+				return {relativePath: null, isOutside: false};
+			}
+
+			if (
+				normalizedRelative === '..' ||
+				normalizedRelative.startsWith('..') ||
+				path.isAbsolute(relative)
+			) {
+				return {relativePath: null, isOutside: true};
+			}
+
+			return {relativePath: normalizedRelative, isOutside: false};
+		}
+
+		const normalized = filePath.replace(/\\/g, '/').replace(/^\.\//, '');
+		if (!normalized || normalized === '.' || normalized === '..') {
+			return {relativePath: null, isOutside: false};
+		}
+
+		if (normalized.startsWith('/')) {
+			return {relativePath: normalized.slice(1), isOutside: false};
+		}
+
+		return {relativePath: normalized, isOutside: false};
+	}
+
+	/**
 	 * Handle a file change event.
 	 */
 	private handleChange(
@@ -285,10 +344,20 @@ export class FileWatcher extends TypedEmitter<WatcherEvents> {
 	): void {
 		if (!this.config || !this.gitignore) return;
 
-		const normalizedPath = filePath.replace(/\\/g, '/');
+		const {relativePath, isOutside} = this.normalizePathForIgnore(filePath);
+		if (isOutside || !relativePath) {
+			return;
+		}
+
+		const normalizedPath = relativePath;
+		const isGitignore = normalizedPath === '.gitignore';
+
+		if (isGitignore) {
+			this.reloadGitignore();
+		}
 
 		// Skip if path is ignored by gitignore
-		if (this.gitignore.ignores(normalizedPath)) {
+		if (!isGitignore && this.gitignore.ignores(normalizedPath)) {
 			return;
 		}
 
@@ -296,6 +365,7 @@ export class FileWatcher extends TypedEmitter<WatcherEvents> {
 		if (
 			event !== 'unlink' &&
 			this.config.extensions.length > 0 &&
+			!isGitignore &&
 			!hasValidExtension(normalizedPath, this.config.extensions)
 		) {
 			return;
@@ -419,5 +489,27 @@ export class FileWatcher extends TypedEmitter<WatcherEvents> {
 		if (level === 'error') {
 			console.error(`${prefix} ${message}`);
 		}
+	}
+
+	/**
+	 * Reload gitignore rules when .gitignore changes.
+	 */
+	private reloadGitignore(): void {
+		if (this.gitignoreReloadPromise) {
+			return;
+		}
+
+		this.gitignoreReloadPromise = (async () => {
+			clearGitignoreCache(this.projectRoot);
+			this.gitignore = await loadGitignore(this.projectRoot);
+			this.log('info', 'Reloaded .gitignore rules');
+		})()
+			.catch(error => {
+				const message = error instanceof Error ? error.message : String(error);
+				this.log('error', `Failed to reload .gitignore: ${message}`);
+			})
+			.finally(() => {
+				this.gitignoreReloadPromise = null;
+			});
 	}
 }

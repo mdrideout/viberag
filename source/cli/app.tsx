@@ -269,7 +269,7 @@ function AppContent() {
 			addOutput('system', 'Initialization cancelled.');
 		}
 		// MCP wizard cancel just closes silently
-	}, [dispatch, activeWizard]);
+	}, [dispatch, activeWizard, addOutput]);
 
 	// Handle Ctrl+C with status message callback
 	const {handleCtrlC} = useCtrlC({

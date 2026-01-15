@@ -76,7 +76,10 @@ export class GeminiEmbeddingProvider implements EmbeddingProvider {
 		this.initialized = true;
 	}
 
-	async embed(texts: string[], options?: EmbedOptions): Promise<number[][]> {
+	async embed(
+		texts: string[],
+		options?: EmbedOptions,
+	): Promise<Array<number[] | null>> {
 		if (!this.initialized) {
 			await this.initialize();
 		}

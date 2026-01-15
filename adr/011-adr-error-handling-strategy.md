@@ -228,6 +228,15 @@ function handleCliError(component: string, error: unknown): void {
    }
    ```
 
+## Retry Policy for API Embeddings
+
+Embedding API calls use a shared `withRetry()` helper that retries all errors, not just rate limits or known transient issues. This keeps indexing resilient in flaky network conditions.
+
+- Maximum attempts: 10 per batch (initial attempt + retries)
+- Backoff: exponential with a max of 60s
+- After the final attempt fails, the batch is recorded as failed and indexing continues
+- Failures are surfaced via daemon status and persisted in the manifest for retry on later runs
+
 ### Log File Location
 
 Per-service folders with hourly rotation:

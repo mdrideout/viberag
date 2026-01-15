@@ -66,6 +66,8 @@ export interface FailedChunk {
 	batchInfo: string;
 	error: string;
 	timestamp: string;
+	files: string[];
+	chunkCount: number;
 }
 
 /**
@@ -120,6 +122,7 @@ export class DaemonOwner {
 	private config: ViberagConfig | null = null;
 	private logger: Logger | null = null;
 	private watcher: FileWatcher | null = null;
+	private initializePromise: Promise<void> | null = null;
 
 	// Shared Storage instance (owned by DaemonOwner)
 	private storage: Storage | null = null;
@@ -142,6 +145,26 @@ export class DaemonOwner {
 	 * Loads config, starts watcher, begins warmup.
 	 */
 	async initialize(): Promise<void> {
+		if (this.initializePromise) {
+			return this.initializePromise;
+		}
+
+		this.initializePromise = this.doInitialize().catch(error => {
+			this.initializePromise = null;
+			throw error;
+		});
+
+		return this.initializePromise;
+	}
+
+	/**
+	 * Ensure the daemon owner is initialized.
+	 */
+	async ensureInitialized(): Promise<void> {
+		await this.initialize();
+	}
+
+	private async doInitialize(): Promise<void> {
 		// Check if project is initialized
 		if (!(await configExists(this.projectRoot))) {
 			throw new Error(
@@ -184,8 +207,16 @@ export class DaemonOwner {
 				};
 			});
 
-			await this.watcher.start();
-			this.log('info', 'File watcher started');
+			void this.watcher
+				.start()
+				.then(() => {
+					this.log('info', 'File watcher started');
+				})
+				.catch(error => {
+					const message =
+						error instanceof Error ? error.message : String(error);
+					this.log('error', `File watcher failed to start: ${message}`);
+				});
 		}
 
 		// Start warmup in background (don't await)
@@ -382,11 +413,17 @@ export class DaemonOwner {
 			}));
 		});
 
-		indexer.on('slot-failure', ({batchInfo, error}) => {
+		indexer.on('slot-failure', ({batchInfo, error, files, chunkCount}) => {
 			daemonState.update(state => ({
 				failures: [
 					...state.failures,
-					{batchInfo, error, timestamp: new Date().toISOString()},
+					{
+						batchInfo,
+						error,
+						timestamp: new Date().toISOString(),
+						files,
+						chunkCount,
+					},
 				],
 			}));
 		});
@@ -398,7 +435,6 @@ export class DaemonOwner {
 					batchInfo: null,
 					retryInfo: null,
 				})),
-				failures: [],
 			}));
 		});
 	}
@@ -634,6 +670,8 @@ export class DaemonOwner {
 				batchInfo: f.batchInfo,
 				error: f.error,
 				timestamp: f.timestamp,
+				files: f.files,
+				chunkCount: f.chunkCount,
 			})),
 		};
 
