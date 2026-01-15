@@ -69,9 +69,11 @@ Semantic search is especially useful in monorepos, where you may be trying to un
 
 ### Embedding Models
 
-- You can use a locally run embedding model ([Qwen3-Embedding-0.6B](https://huggingface.co/Qwen/Qwen3-Embedding-0.6B)) so that nothing leaves your machine.
+- **Local:** You can use a locally run embedding model ([Qwen3-Embedding-0.6B](https://huggingface.co/Qwen/Qwen3-Embedding-0.6B)) so that nothing leaves your machine. This has a smaller vocabulary and is only recommended for privacy and offline concerns.
 
-- SOTA API based embeddings from [Gemini](https://ai.google.dev/gemini-api/docs/embeddings), [OpenAI](https://platform.openai.com/docs/guides/embeddings), and [Mistral](https://docs.mistral.ai/capabilities/embeddings) are also supported.
+- **Recommended:** API based embeddings from [Gemini](https://ai.google.dev/gemini-api/docs/embeddings), [OpenAI](https://platform.openai.com/docs/guides/embeddings), and [Mistral](https://docs.mistral.ai/capabilities/embeddings) are recommended for the largest vocabulary and highest quality semantic meaning.
+  - These embeddings are very affordable at ~10 - 15 cents per million tokens.
+  - A typical codebase can be indexed for pennies
 
 ## MCP Server
 
