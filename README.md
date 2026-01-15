@@ -55,24 +55,6 @@ When using a coding agent like [Claude Code](https://claude.ai/code), add `use v
 - **Resilient indexing** - Retries embedding errors and reports failed batches in `/status`
 - **Multi-language support** - TypeScript, JavaScript, Python, Go, Rust, and more
 
-## Troubleshooting
-
-### Watcher EMFILE (too many open files)
-
-Large repos can exceed OS watch limits. The watcher now honors `.gitignore`, but if you still see EMFILE:
-
-- Add more ignores in `.gitignore` to reduce watched files.
-- Increase OS limits:
-  - macOS: raise `kern.maxfiles`, `kern.maxfilesperproc`, and `ulimit -n`
-  - Linux: raise `fs.inotify.max_user_watches`, `fs.inotify.max_user_instances`, and `ulimit -n`
-
-### Index failures (network/API errors)
-
-Embedding batches retry up to 10 attempts. If failures persist:
-
-- Run `/status` to see failed batch counts.
-- Re-run `/index` to retry failed files once connectivity is stable.
-
 ### How It Works:
 
 Your coding agent would normally use Search / Grep / Find and guess search terms that are relevant. VibeRAG indexes the codebase into a local vector database (based on [lancedb](https://lancedb.com/)) and can use semantic search to find all relevant code snippets even if the search terms are not exact.
@@ -724,3 +706,21 @@ Use `codebase_parallel_search` to run multiple search strategies in a single cal
 ```
 
 This provides comprehensive coverage without multiple round-trips.
+
+## Troubleshooting
+
+### Watcher EMFILE (too many open files)
+
+Large repos can exceed OS watch limits. The watcher now honors `.gitignore`, but if you still see EMFILE:
+
+- Add more ignores in `.gitignore` to reduce watched files.
+- Increase OS limits:
+  - macOS: raise `kern.maxfiles`, `kern.maxfilesperproc`, and `ulimit -n`
+  - Linux: raise `fs.inotify.max_user_watches`, `fs.inotify.max_user_instances`, and `ulimit -n`
+
+### Index failures (network/API errors)
+
+Embedding batches retry up to 10 attempts. If failures persist:
+
+- Run `/status` to see failed batch counts.
+- Re-run `/index` to retry failed files once connectivity is stable.
