@@ -122,8 +122,14 @@ export class OpenAIEmbeddingProvider implements EmbeddingProvider {
 
 		return processBatchesWithLimit(
 			batches,
-			(batch, onRetrying) =>
-				withRetry(() => this.embedBatch(batch), callbacks, onRetrying),
+			(batch, onRetrying, context) =>
+				withRetry(
+					() => this.embedBatch(batch),
+					callbacks,
+					onRetrying,
+					options?.logger,
+					context,
+				),
 			callbacks,
 			BATCH_SIZE,
 			batchMetadata,

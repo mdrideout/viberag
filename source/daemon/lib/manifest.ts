@@ -152,6 +152,7 @@ export function updateManifestStats(
 ): Manifest {
 	return {
 		...manifest,
+		schemaVersion: SCHEMA_VERSION,
 		stats,
 		updatedAt: new Date().toISOString(),
 	};
@@ -166,6 +167,7 @@ export function updateManifestTree(
 ): Manifest {
 	return {
 		...manifest,
+		schemaVersion: SCHEMA_VERSION,
 		tree,
 		updatedAt: new Date().toISOString(),
 	};

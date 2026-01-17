@@ -14,7 +14,7 @@ export type ChunkType = 'function' | 'class' | 'method' | 'module';
  * Represents a semantic unit of code (function, class, method, or module).
  */
 export interface CodeChunk {
-	/** Unique ID: "{filepath}:{startLine}" */
+	/** Unique ID: "{filepath}:{startLine}-{endLine}:{contentHash}[:dupIndex]" */
 	id: string;
 	/** Embedding vector */
 	vector: number[];

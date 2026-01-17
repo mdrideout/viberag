@@ -113,7 +113,7 @@ export const TABLE_NAMES = {
  * This is defined here instead of storage/schema.ts to avoid importing
  * apache-arrow (10MB package) when only the version number is needed.
  */
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 // ============================================================================
 // Language Configuration

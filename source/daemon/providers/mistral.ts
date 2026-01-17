@@ -24,6 +24,7 @@ const MODEL = 'codestral-embed';
 // Chunks are ~2000 chars but token count varies (code can be 1.5-2x tokens/char)
 // 8 chunks × ~1500 tokens worst case = 12,000 tokens (75% margin under 16k limit)
 const BATCH_SIZE = 8;
+const REQUEST_CONCURRENCY = 2;
 
 /**
  * Mistral embedding provider.
@@ -107,13 +108,20 @@ export class MistralEmbeddingProvider implements EmbeddingProvider {
 
 		return processBatchesWithLimit(
 			batches,
-			(batch, onRetrying) =>
-				withRetry(() => this.embedBatch(batch), callbacks, onRetrying),
+			(batch, onRetrying, context) =>
+				withRetry(
+					() => this.embedBatch(batch),
+					callbacks,
+					onRetrying,
+					options?.logger,
+					context,
+				),
 			callbacks,
 			BATCH_SIZE,
 			batchMetadata,
 			options?.logger,
 			options?.chunkOffset ?? 0,
+			REQUEST_CONCURRENCY,
 		);
 	}
 

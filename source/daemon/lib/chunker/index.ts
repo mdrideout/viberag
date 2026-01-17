@@ -1546,6 +1546,45 @@ export class Chunker {
 
 		for (let i = 0; i < chunkLines.length; i++) {
 			const line = chunkLines[i]!;
+			const lineNumber = chunk.startLine + i;
+
+			if (line.length > maxSize) {
+				if (currentLines.length > 0) {
+					const chunkEndLine = currentStartLine + currentLines.length - 1;
+					result.push(
+						this.createSplitChunk(
+							chunk,
+							currentLines,
+							currentStartLine,
+							chunkEndLine,
+							filepath,
+							partIndex > 0,
+						),
+					);
+					partIndex++;
+					currentLines = [];
+					currentSize = 0;
+				}
+
+				const segments = this.splitLongLine(line, maxSize);
+				for (const segment of segments) {
+					result.push(
+						this.createSplitChunk(
+							chunk,
+							[segment],
+							lineNumber,
+							lineNumber,
+							filepath,
+							partIndex > 0,
+						),
+					);
+					partIndex++;
+				}
+
+				currentStartLine = lineNumber + 1;
+				continue;
+			}
+
 			const lineSize = line.length + 1; // +1 for newline
 
 			// Check if adding this line would exceed max size
@@ -1574,7 +1613,7 @@ export class Chunker {
 				} else {
 					// No overlap or previous chunk too small
 					currentLines = [];
-					currentStartLine = chunk.startLine + i;
+					currentStartLine = lineNumber;
 					currentSize = 0;
 				}
 			}
@@ -1598,6 +1637,14 @@ export class Chunker {
 		}
 
 		return result;
+	}
+
+	private splitLongLine(line: string, maxSize: number): string[] {
+		const segments: string[] = [];
+		for (let i = 0; i < line.length; i += maxSize) {
+			segments.push(line.slice(i, i + maxSize));
+		}
+		return segments;
 	}
 
 	/**

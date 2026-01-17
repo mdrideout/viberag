@@ -89,6 +89,24 @@ export function isTransientApiError(error: unknown): boolean {
 }
 
 /**
+ * Check if an error indicates a hard token/context length limit.
+ */
+export function isContextLengthError(error: unknown): boolean {
+	if (error instanceof Error) {
+		const msg = error.message.toLowerCase();
+		return (
+			msg.includes('maximum context length') ||
+			(msg.includes('context length') && msg.includes('token')) ||
+			(msg.includes('exceeding max') && msg.includes('token')) ||
+			(msg.includes('exceeds max') && msg.includes('token')) ||
+			msg.includes('maximum number of tokens') ||
+			msg.includes('input token count')
+		);
+	}
+	return false;
+}
+
+/**
  * Check if an error should trigger a retry (rate limit OR transient error).
  */
 export function isRetriableError(error: unknown): boolean {
@@ -135,13 +153,18 @@ export interface BatchMetadata {
 	sizes: number[];
 }
 
+export interface BatchContext {
+	batchIndex: number;
+	batchInfo: string;
+}
+
 /**
  * Execute an async function with exponential backoff retry on retriable errors.
  *
  * Retries on:
  * - Rate limit errors (429, quota exceeded)
  * - Transient API errors (e.g., Gemini's spurious "API key expired" bug)
- * - Any other error (best-effort retry)
+ * - Any other error (best-effort retry, except hard context length errors)
  *
  * @param fn - The async function to execute
  * @param callbacks - Optional callbacks for throttle notifications
@@ -152,9 +175,14 @@ export async function withRetry<T>(
 	fn: () => Promise<T>,
 	callbacks?: ApiProviderCallbacks,
 	onRetrying?: (retryInfo: string | null) => void,
+	logger?: Logger,
+	context?: BatchContext,
 ): Promise<T> {
 	let attempt = 0;
 	let backoffMs = INITIAL_BACKOFF_MS;
+	const contextInfo = context
+		? {batchInfo: context.batchInfo, batchIndex: context.batchIndex}
+		: {};
 
 	while (attempt < MAX_ATTEMPTS) {
 		try {
@@ -167,6 +195,23 @@ export async function withRetry<T>(
 			}
 			return result;
 		} catch (error) {
+			const errorMessage =
+				error instanceof Error ? error.message : String(error);
+			const errorPreview =
+				errorMessage.length > 500
+					? `${errorMessage.slice(0, 500)}...`
+					: errorMessage;
+
+			if (isContextLengthError(error)) {
+				if (logger) {
+					logger.warn('api-utils', 'Non-retriable error, skipping retries', {
+						...contextInfo,
+						error: errorPreview,
+					});
+				}
+				throw error;
+			}
+
 			if (attempt >= MAX_ATTEMPTS) {
 				throw error;
 			}
@@ -180,6 +225,19 @@ export async function withRetry<T>(
 				: isTransient
 					? 'Transient API error'
 					: 'Error';
+
+			if (logger) {
+				logger.warn('api-utils', 'Retrying batch', {
+					...contextInfo,
+					attempt,
+					nextAttempt: attempt + 1,
+					maxAttempts: MAX_ATTEMPTS,
+					backoffMs,
+					reason,
+					retryInfo,
+					error: errorPreview,
+				});
+			}
 
 			callbacks?.onThrottle?.(`${reason} - ${retryInfo}`);
 			onRetrying?.(retryInfo);
@@ -197,7 +255,7 @@ export async function withRetry<T>(
  * Reports progress per-batch (more granular than group-based).
  *
  * Slot progress is reported via callbacks, which the daemon owner wires to state.
- * Each slot index (0 to CONCURRENCY-1) is reused as batches complete.
+ * Each slot index (0 to concurrency - 1) is reused as batches complete.
  *
  * When an error occurs, failures are logged
  * with detailed chunk metadata if provided.
@@ -209,6 +267,7 @@ export async function withRetry<T>(
  * @param batchMetadata - Optional metadata per batch for detailed failure logging
  * @param logger - Optional logger for debug output
  * @param chunkOffset - Optional offset for cumulative chunk numbering (default: 0)
+ * @param concurrency - Optional concurrency override for API requests
  * @returns Flattened array of results (null entries for failed batches)
  */
 export async function processBatchesWithLimit<T>(
@@ -216,30 +275,33 @@ export async function processBatchesWithLimit<T>(
 	processBatch: (
 		batch: T[],
 		onRetrying?: (retryInfo: string | null) => void,
+		context?: BatchContext,
 	) => Promise<number[][]>,
 	callbacks?: ApiProviderCallbacks,
 	batchSize?: number,
 	batchMetadata?: BatchMetadata[],
 	logger?: Logger,
 	chunkOffset: number = 0,
+	concurrency: number = CONCURRENCY,
 ): Promise<Array<number[] | null>> {
-	const limit = pLimit(CONCURRENCY);
+	const limit = pLimit(concurrency);
 	let processedItems = 0;
 	const totalItems = batches.reduce((sum, batch) => sum + batch.length, 0);
 
-	// Track which slot index to assign next (wraps around CONCURRENCY)
+	// Track which slot index to assign next (wraps around concurrency)
 	let nextSlotIndex = 0;
 
 	const batchResults = await Promise.all(
 		batches.map((batch, batchIndex) =>
 			limit(async () => {
 				// Assign slot index (reuse slots as batches complete)
-				const slotIndex = nextSlotIndex++ % CONCURRENCY;
+				const slotIndex = nextSlotIndex++ % concurrency;
 				// Calculate cumulative chunk positions (with offset from prior batches)
 				const startChunk =
 					chunkOffset + batchIndex * (batchSize ?? batch.length) + 1;
 				const endChunk = startChunk + batch.length - 1;
 				const batchInfo = `chunks ${startChunk}-${endChunk}`;
+				const context = {batchIndex, batchInfo};
 
 				// Report slot as processing via callback
 				callbacks?.onSlotProcessing?.(slotIndex, batchInfo);
@@ -255,7 +317,7 @@ export async function processBatchesWithLimit<T>(
 				};
 
 				try {
-					const result = await processBatch(batch, onRetrying);
+					const result = await processBatch(batch, onRetrying, context);
 
 					// Delay before releasing the slot (rate limit protection)
 					await sleep(BATCH_DELAY_MS);
@@ -271,7 +333,7 @@ export async function processBatchesWithLimit<T>(
 
 					// Log with full chunk context (service logger)
 					if (logger) {
-						logger.error('api-utils', 'Batch failed after retries', {
+						logger.error('api-utils', 'Batch failed', {
 							batchIndex,
 							batchInfo,
 							chunkCount: batch.length,

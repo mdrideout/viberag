@@ -29,12 +29,14 @@ export {SCHEMA_VERSION};
  * - docstring: Extracted documentation
  * - is_exported: Whether symbol is exported
  * - decorator_names: Comma-separated decorator names
+ *
+ * Schema v3 keeps the same fields but updates chunk IDs to avoid collisions.
  */
 export function createCodeChunksSchema(
 	dimensions: number = DEFAULT_EMBEDDING_DIMENSIONS,
 ): Schema {
 	return new Schema([
-		new Field('id', new Utf8(), false), // "{filepath}:{startLine}"
+		new Field('id', new Utf8(), false), // "{filepath}:{startLine}-{endLine}:{contentHash}[:dupIndex]"
 		new Field(
 			'vector',
 			new FixedSizeList(dimensions, new Field('item', new Float32(), false)),

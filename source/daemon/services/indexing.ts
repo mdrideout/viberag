@@ -30,6 +30,7 @@ import {
 	saveManifest,
 	manifestExists,
 	createEmptyManifest,
+	getSchemaVersionInfo,
 	updateManifestStats,
 	updateManifestTree,
 } from '../lib/manifest.js';
@@ -208,6 +209,7 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 	private async doIndex(options: IndexOptions = {}): Promise<IndexStats> {
 		const stats = createEmptyIndexStats();
 		const {force = false} = options;
+		let forceReindex = force;
 		const failedFilesThisRun = new Set<string>();
 		const failedBatches: BatchFailureInfo[] = [];
 		this.suppressEvents = false;
@@ -232,6 +234,15 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 			let manifest = (await manifestExists(this.projectRoot))
 				? await loadManifest(this.projectRoot)
 				: createEmptyManifest();
+
+			const schemaInfo = getSchemaVersionInfo(manifest);
+			if (schemaInfo.needsReindex) {
+				forceReindex = true;
+				this.log(
+					'info',
+					`Schema version ${schemaInfo.current} is outdated (current: ${schemaInfo.required}). Forcing reindex.`,
+				);
+			}
 
 			const previousTree = manifest.tree
 				? MerkleTree.fromJSON(manifest.tree as SerializedNode)
@@ -265,7 +276,7 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 			);
 
 			// 3. Compare trees to get diff
-			const diff = force
+			const diff = forceReindex
 				? this.createForceDiff(currentTree)
 				: previousTree.compare(currentTree);
 
@@ -294,7 +305,7 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 			}
 
 			// Short-circuit if no changes
-			if (!diff.hasChanges && !force && !hasFailuresToRetry) {
+			if (!diff.hasChanges && !forceReindex && !hasFailuresToRetry) {
 				if (hasStaleFailures) {
 					manifest.failedFiles = failedFilesToRetry;
 					manifest.failedBatches = [];
@@ -315,7 +326,7 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 			}
 
 			// 4. Handle force reindex - drop and recreate table
-			if (force) {
+			if (forceReindex) {
 				this.log('info', 'Force reindex: resetting chunks table');
 				this.emitIndexProgress('persist', 'Resetting index table', 0, 0, null);
 				await storage.resetChunksTable();
@@ -341,7 +352,7 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 				const filesToDelete = Array.from(
 					new Set([...diff.modified, ...failedFilesToRetry]),
 				);
-				if (filesToDelete.length > 0 && !force) {
+				if (filesToDelete.length > 0 && !forceReindex) {
 					const deletedCount =
 						await storage.deleteChunksByFilepaths(filesToDelete);
 					stats.chunksDeleted += deletedCount;
@@ -487,7 +498,8 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 						const CHUNK_BATCH_SIZE = 20;
 						const isLocalProvider =
 							embeddings instanceof LocalEmbeddingProvider;
-						const BATCH_CONCURRENCY = isLocalProvider ? 1 : 3;
+						const BATCH_CONCURRENCY =
+							isLocalProvider || config.embeddingProvider === 'mistral' ? 1 : 3;
 						const batchLimit = pLimit(BATCH_CONCURRENCY);
 
 						const batchTasks: Array<() => Promise<void>> = [];
@@ -589,14 +601,19 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 
 					// Build CodeChunk objects and write to storage
 					const allCodeChunks: CodeChunk[] = [];
+					const idCounts = new Map<string, number>();
 					for (const {chunk, filepath, fileHash} of allChunksWithContext) {
 						const vector = cachedEmbeddings.get(chunk.contentHash);
 						if (!vector) {
 							failedFilesThisRun.add(filepath);
 							continue;
 						}
+						const idBase = `${filepath}:${chunk.startLine}-${chunk.endLine}:${chunk.contentHash}`;
+						const idCount = idCounts.get(idBase) ?? 0;
+						idCounts.set(idBase, idCount + 1);
+						const id = idCount === 0 ? idBase : `${idBase}:${idCount}`;
 						allCodeChunks.push({
-							id: `${filepath}:${chunk.startLine}`,
+							id,
 							vector,
 							text: chunk.text,
 							contentHash: chunk.contentHash,
@@ -615,7 +632,7 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 						});
 					}
 
-					if (force) {
+					if (forceReindex) {
 						await storage.addChunks(allCodeChunks);
 					} else {
 						await storage.upsertChunks(allCodeChunks);

@@ -112,8 +112,14 @@ export class GeminiEmbeddingProvider implements EmbeddingProvider {
 
 		return processBatchesWithLimit(
 			batches,
-			(batch, onRetrying) =>
-				withRetry(() => this.embedBatch(batch), callbacks, onRetrying),
+			(batch, onRetrying, context) =>
+				withRetry(
+					() => this.embedBatch(batch),
+					callbacks,
+					onRetrying,
+					options?.logger,
+					context,
+				),
 			callbacks,
 			BATCH_SIZE,
 			batchMetadata,
@@ -153,7 +159,7 @@ export class GeminiEmbeddingProvider implements EmbeddingProvider {
 				errorMessage = errorText;
 			}
 
-			if (response.status === 400 || response.status === 403) {
+			if (response.status === 403) {
 				throw new Error(
 					`Gemini API authentication failed (${response.status}). ` +
 						`Verify your API key at https://aistudio.google.com/apikey. Error: ${errorMessage}`,
@@ -203,7 +209,7 @@ export class GeminiEmbeddingProvider implements EmbeddingProvider {
 				errorMessage = errorText;
 			}
 
-			if (response.status === 400 || response.status === 403) {
+			if (response.status === 403) {
 				throw new Error(
 					`Gemini API authentication failed (${response.status}). ` +
 						`Verify your API key at https://aistudio.google.com/apikey. Error: ${errorMessage}`,

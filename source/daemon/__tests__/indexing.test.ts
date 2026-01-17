@@ -11,7 +11,9 @@
 import {describe, it, expect, beforeEach, afterEach} from 'vitest';
 import {IndexingService} from '../services/indexing.js';
 import {SearchEngine} from '../services/search/index.js';
+import {Storage} from '../services/storage/index.js';
 import {loadManifest} from '../lib/manifest.js';
+import {loadConfig} from '../lib/config.js';
 import {LocalEmbeddingProvider} from '../providers/local.js';
 import {chunk, processBatchesWithLimit} from '../providers/api-utils.js';
 import type {
@@ -278,6 +280,24 @@ describe('Indexing E2E', () => {
 			false,
 		);
 		search2.close();
+	}, 60_000);
+
+	it('preserves long single-line content across multiple chunks', async () => {
+		await addFile(ctx.projectRoot, 'long_line.txt', 'a'.repeat(5000));
+
+		const indexer = new IndexingService(ctx.projectRoot);
+		await indexer.index();
+		indexer.close();
+
+		const config = await loadConfig(ctx.projectRoot);
+		const storage = new Storage(ctx.projectRoot, config.embeddingDimensions);
+		await storage.connect();
+		const chunks = await storage.getChunksByFilepath('long_line.txt');
+		storage.close();
+
+		expect(chunks.length).toBeGreaterThan(1);
+		const uniqueIds = new Set(chunks.map(chunk => chunk.id));
+		expect(uniqueIds.size).toBe(chunks.length);
 	}, 60_000);
 });
 

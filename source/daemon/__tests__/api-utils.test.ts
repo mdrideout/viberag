@@ -23,4 +23,41 @@ describe('withRetry', () => {
 		await expect(promise).rejects.toThrow('boom');
 		expect(attempts).toBe(MAX_ATTEMPTS);
 	});
+
+	it('does not retry on context length errors', async () => {
+		let attempts = 0;
+		const promise = withRetry(async () => {
+			attempts += 1;
+			throw new Error("This model's maximum context length is 8192 tokens");
+		});
+
+		await expect(promise).rejects.toThrow('maximum context length');
+		expect(attempts).toBe(1);
+	});
+
+	it('does not retry on Mistral token limit errors', async () => {
+		let attempts = 0;
+		const promise = withRetry(async () => {
+			attempts += 1;
+			throw new Error(
+				'Input id 1 has 57558 tokens, exceeding max 8192 tokens.',
+			);
+		});
+
+		await expect(promise).rejects.toThrow('exceeding max');
+		expect(attempts).toBe(1);
+	});
+
+	it('does not retry on Gemini token limit errors', async () => {
+		let attempts = 0;
+		const promise = withRetry(async () => {
+			attempts += 1;
+			throw new Error(
+				'The input token count (1632254) exceeds the maximum number of tokens allowed (1048576).',
+			);
+		});
+
+		await expect(promise).rejects.toThrow('maximum number of tokens');
+		expect(attempts).toBe(1);
+	});
 });
