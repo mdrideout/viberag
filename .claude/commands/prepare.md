@@ -91,10 +91,6 @@ Examples: use naked functions over unnecessary classes and abstractions.
 - Never obfuscate exceptions, ensure they are visible in the UX and logs, and can be copied / pasted for debugging and reference.
 - Log every session to a gitignored .log file, sorted by date.
 
-## Agent Chat Style
-
-- The chat window width is limited, when consturcting tables and diagrams, assume a maximum width of 180 characters. 
-
 ## Documentation Updates
 
 When making changes to the CLI / wizard / MCP tools - ensure we keep user documentation, experience (cli / wizard), ADR documents, and the @README.md updated with what we've implemented in the code.

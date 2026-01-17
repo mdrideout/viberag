@@ -49,6 +49,15 @@ export interface BuildStats {
 	filesSkipped: number;
 }
 
+/**
+ * Progress updates from Merkle tree construction.
+ */
+export interface BuildProgress {
+	stage: string;
+	current: number;
+	total: number;
+}
+
 // ============================================================================
 // MerkleTree Class
 // ============================================================================
@@ -91,6 +100,7 @@ export class MerkleTree {
 		extensions: string[],
 		_excludePatterns: string[],
 		previousTree?: MerkleTree,
+		onProgress?: (progress: BuildProgress) => void,
 	): Promise<MerkleTree> {
 		const normalizePath = (filePath: string): string =>
 			filePath.replace(/\\/g, '/');
@@ -117,6 +127,7 @@ export class MerkleTree {
 
 		// Find all files - use gitignore patterns upfront to avoid scanning excluded dirs
 		const pattern = '**/*';
+		onProgress?.({stage: 'Scanning filesystem', current: 0, total: 0});
 		const files = await fg(pattern, {
 			cwd: projectRoot,
 			dot: true,
@@ -149,6 +160,11 @@ export class MerkleTree {
 
 		// Build file nodes
 		const fileNodes = new Map<string, MerkleNode>();
+		const totalFiles = validFiles.length;
+		let processedFiles = 0;
+		const progressEvery = 200;
+
+		onProgress?.({stage: 'Hashing files', current: 0, total: totalFiles});
 
 		for (const relativePath of validFiles) {
 			const absolutePath = path.join(projectRoot, relativePath);
@@ -199,6 +215,18 @@ export class MerkleTree {
 				// Skip files we can't read
 				stats.filesSkipped++;
 				continue;
+			} finally {
+				processedFiles += 1;
+				if (
+					processedFiles % progressEvery === 0 ||
+					processedFiles === totalFiles
+				) {
+					onProgress?.({
+						stage: 'Hashing files',
+						current: processedFiles,
+						total: totalFiles,
+					});
+				}
 			}
 		}
 

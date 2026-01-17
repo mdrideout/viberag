@@ -47,12 +47,13 @@ export type TextBufferState = {
 /**
  * App status for the status bar.
  *
- * Note: Indexing state is derived from the indexing Redux slice (synced from daemon).
- * Do NOT use appStatus for indexing - use selectIsIndexing() instead.
+ * Note: Indexing state is derived from daemon status.
+ * Do NOT use appStatus for indexing - use DaemonStatusContext instead.
  */
 export type AppStatus =
 	| {state: 'ready'}
 	| {state: 'searching'}
+	| {state: 'working'; message: string}
 	| {state: 'warning'; message: string};
 
 /**

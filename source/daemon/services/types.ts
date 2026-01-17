@@ -46,6 +46,22 @@ export interface IndexStats {
 // ============================================================================
 
 /**
+ * Indexing phases for structured progress updates.
+ */
+export type IndexingPhase =
+	| 'init'
+	| 'scan'
+	| 'chunk'
+	| 'embed'
+	| 'persist'
+	| 'finalize';
+
+/**
+ * Units for progress reporting.
+ */
+export type IndexingUnit = 'files' | 'chunks' | 'percent';
+
+/**
  * Progress events emitted by IndexingService.
  */
 export interface IndexingEvents {
@@ -53,7 +69,15 @@ export interface IndexingEvents {
 	start: [];
 
 	/** Progress update during indexing */
-	progress: [data: {current: number; total: number; stage: string}];
+	progress: [
+		data: {
+			phase: IndexingPhase;
+			current: number;
+			total: number;
+			unit: IndexingUnit | null;
+			stage: string;
+		},
+	];
 
 	/** Chunk processing progress */
 	'chunk-progress': [data: {chunksProcessed: number}];
@@ -177,13 +201,19 @@ export interface WarmupEvents {
  * ```typescript
  * class MyService extends TypedEmitter<IndexingEvents & SlotEvents> {
  *   doWork() {
- *     this.emit('progress', { current: 5, total: 10, stage: 'processing' });
+ *     this.emit('progress', {
+ *       phase: 'embed',
+ *       current: 5,
+ *       total: 10,
+ *       unit: 'chunks',
+ *       stage: 'Embedding chunks',
+ *     });
  *   }
  * }
  *
  * const service = new MyService();
- * service.on('progress', ({ current, total, stage }) => {
- *   console.log(`${current}/${total}: ${stage}`);
+ * service.on('progress', ({ current, total, stage, unit }) => {
+ *   console.log(`${current}/${total} ${unit ?? ''}: ${stage}`);
  * });
  * ```
  */

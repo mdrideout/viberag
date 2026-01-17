@@ -16,10 +16,11 @@ import path from 'node:path';
 import {loadConfig, configExists, type ViberagConfig} from './lib/config.js';
 import {loadManifest, manifestExists} from './lib/manifest.js';
 import {createServiceLogger, type Logger} from './lib/logger.js';
-import {daemonState, type DaemonState} from './state.js';
+import {daemonState, type IndexingStatus} from './state.js';
 import {SearchEngine} from './services/search/index.js';
 import type {SearchResults} from './services/search/types.js';
 import {IndexingService, type IndexStats} from './services/indexing.js';
+import type {IndexingPhase, IndexingUnit} from './services/types.js';
 import {FileWatcher, type WatcherStatus} from './services/watcher.js';
 import {Storage} from './services/storage/index.js';
 
@@ -91,14 +92,17 @@ export interface DaemonStatus {
 	// Indexing state for polling-based updates
 	indexing: {
 		status: 'idle' | 'initializing' | 'indexing' | 'complete' | 'error';
+		phase: IndexingPhase | null;
 		current: number;
 		total: number;
+		unit: IndexingUnit | null;
 		stage: string;
 		chunksProcessed: number;
 		throttleMessage: string | null;
 		error: string | null;
 		lastCompleted: string | null;
 		lastStats: IndexStats | null;
+		lastProgressAt: string | null;
 		percent: number;
 	};
 
@@ -315,12 +319,15 @@ export class DaemonOwner {
 		indexer.on('start', () => {
 			daemonState.updateNested('indexing', () => ({
 				status: 'initializing' as const,
+				phase: 'init' as const,
 				current: 0,
 				total: 0,
-				stage: '',
+				unit: null,
+				stage: 'Initializing indexer',
 				chunksProcessed: 0,
 				throttleMessage: null,
 				error: null,
+				lastProgressAt: new Date().toISOString(),
 			}));
 			// Reset slots
 			daemonState.update(state => ({
@@ -333,38 +340,43 @@ export class DaemonOwner {
 			}));
 		});
 
-		indexer.on('progress', ({current, total, stage}) => {
-			let status: 'scanning' | 'chunking' | 'embedding' = 'embedding';
-			if (stage.toLowerCase().includes('scan')) {
-				status = 'scanning';
-			} else if (stage.toLowerCase().includes('chunk')) {
-				status = 'chunking';
-			}
+		indexer.on('progress', ({phase, current, total, unit, stage}) => {
+			const status: IndexingStatus =
+				phase === 'init' ? 'initializing' : 'indexing';
 			daemonState.updateNested('indexing', () => ({
 				status,
+				phase,
 				current,
 				total,
+				unit,
 				stage,
+				lastProgressAt: new Date().toISOString(),
 			}));
 		});
 
 		indexer.on('chunk-progress', ({chunksProcessed}) => {
 			daemonState.updateNested('indexing', () => ({
 				chunksProcessed,
+				lastProgressAt: new Date().toISOString(),
 			}));
 		});
 
 		indexer.on('throttle', ({message}) => {
 			daemonState.updateNested('indexing', () => ({
 				throttleMessage: message,
+				lastProgressAt: new Date().toISOString(),
 			}));
 		});
 
 		indexer.on('complete', () => {
 			daemonState.updateNested('indexing', () => ({
 				status: 'complete' as const,
+				phase: null,
+				unit: null,
+				stage: '',
 				lastCompleted: new Date().toISOString(),
 				throttleMessage: null,
+				lastProgressAt: new Date().toISOString(),
 			}));
 			// Reset to idle after a short delay
 			setTimeout(() => {
@@ -372,15 +384,22 @@ export class DaemonOwner {
 				if (state.indexing.status === 'complete') {
 					daemonState.updateNested('indexing', () => ({
 						status: 'idle' as const,
+						phase: null,
+						unit: null,
+						stage: '',
 					}));
 				}
 			}, 1000);
 		});
 
 		indexer.on('error', ({error}) => {
-			daemonState.updateNested('indexing', () => ({
+			daemonState.updateNested('indexing', current => ({
 				status: 'error' as const,
+				phase: current.phase,
+				unit: current.unit,
+				stage: current.stage,
 				error: error.message,
+				lastProgressAt: new Date().toISOString(),
 			}));
 		});
 
@@ -643,17 +662,19 @@ export class DaemonOwner {
 				indexUpToDate: false,
 				lastError: null,
 			},
-			// Map indexing status for backwards compatibility
 			indexing: {
-				status: this.mapIndexingStatus(state.indexing.status),
+				status: state.indexing.status,
+				phase: state.indexing.phase,
 				current: state.indexing.current,
 				total: state.indexing.total,
+				unit: state.indexing.unit,
 				stage: state.indexing.stage,
 				chunksProcessed: state.indexing.chunksProcessed,
 				throttleMessage: state.indexing.throttleMessage,
 				error: state.indexing.error,
 				lastCompleted: state.indexing.lastCompleted,
 				lastStats: state.indexing.lastStats,
+				lastProgressAt: state.indexing.lastProgressAt,
 				percent:
 					state.indexing.total > 0
 						? Math.round((state.indexing.current / state.indexing.total) * 100)
@@ -692,30 +713,6 @@ export class DaemonOwner {
 		}
 
 		return status;
-	}
-
-	/**
-	 * Map internal indexing status to client-facing status.
-	 */
-	private mapIndexingStatus(
-		status: DaemonState['indexing']['status'],
-	): 'idle' | 'initializing' | 'indexing' | 'complete' | 'error' {
-		switch (status) {
-			case 'idle':
-				return 'idle';
-			case 'initializing':
-				return 'initializing';
-			case 'scanning':
-			case 'chunking':
-			case 'embedding':
-				return 'indexing';
-			case 'complete':
-				return 'complete';
-			case 'error':
-				return 'error';
-			default:
-				return 'idle';
-		}
 	}
 
 	/**

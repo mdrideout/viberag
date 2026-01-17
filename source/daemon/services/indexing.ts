@@ -38,7 +38,13 @@ import type {SerializedNode} from '../lib/merkle/node.js';
 import {Storage} from './storage/index.js';
 import type {CodeChunk} from './storage/types.js';
 import {Chunker} from '../lib/chunker/index.js';
-import {TypedEmitter, type IndexingEvents, type SlotEvents} from './types.js';
+import {
+	TypedEmitter,
+	type IndexingEvents,
+	type SlotEvents,
+	type IndexingPhase,
+	type IndexingUnit,
+} from './types.js';
 
 // ============================================================================
 // Types
@@ -147,6 +153,7 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 	private debugLogger: Logger;
 	private readonly externalStorage: boolean;
 	private suppressEvents = false;
+	private lastThrottleMessage: string | null = null;
 
 	constructor(projectRoot: string, options?: IndexingServiceOptions | Logger) {
 		super();
@@ -204,6 +211,7 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 		const failedFilesThisRun = new Set<string>();
 		const failedBatches: BatchFailureInfo[] = [];
 		this.suppressEvents = false;
+		const startTimeMs = Date.now();
 
 		// Emit start event
 		this.emit('start');
@@ -220,6 +228,7 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 
 			// 1. Load previous manifest and Merkle tree
 			this.log('info', 'Loading manifest');
+			this.emitIndexProgress('init', 'Loading manifest', 0, 0, null);
 			let manifest = (await manifestExists(this.projectRoot))
 				? await loadManifest(this.projectRoot)
 				: createEmptyManifest();
@@ -230,13 +239,23 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 
 			// 2. Build current Merkle tree from filesystem
 			this.log('info', 'Building Merkle tree');
-			this.emit('progress', {current: 0, total: 100, stage: 'Scanning files'});
+			this.emitIndexProgress('scan', 'Scanning filesystem', 0, 0, null);
 
 			const currentTree = await MerkleTree.build(
 				this.projectRoot,
 				config.extensions,
 				config.excludePatterns,
 				previousTree,
+				progress => {
+					const unit = progress.total > 0 ? ('files' as const) : null;
+					this.emitIndexProgress(
+						'scan',
+						progress.stage,
+						progress.current,
+						progress.total,
+						unit,
+					);
+				},
 			);
 
 			stats.filesScanned = currentTree.buildStats.filesScanned;
@@ -282,13 +301,14 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 					await saveManifest(this.projectRoot, manifest);
 				}
 				this.log('info', 'No changes detected');
+				const durationMs = Date.now() - startTimeMs;
 				this.emit('complete', {
 					stats: {
 						filesProcessed: stats.filesScanned,
 						chunksAdded: 0,
 						chunksDeleted: 0,
 						chunksUnchanged: 0,
-						durationMs: 0,
+						durationMs,
 					},
 				});
 				return stats;
@@ -297,6 +317,7 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 			// 4. Handle force reindex - drop and recreate table
 			if (force) {
 				this.log('info', 'Force reindex: resetting chunks table');
+				this.emitIndexProgress('persist', 'Resetting index table', 0, 0, null);
 				await storage.resetChunksTable();
 			}
 
@@ -327,7 +348,16 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 				}
 
 				// Phase 1: Collect all chunks
-				this.emit('progress', {current: 0, total: 0, stage: 'Scanning files'});
+				const totalFilesToProcess = filesToProcess.length;
+				let filesChunked = 0;
+				const chunkProgressEvery = 50;
+				this.emitIndexProgress(
+					'chunk',
+					'Chunking files',
+					0,
+					totalFilesToProcess,
+					'files',
+				);
 
 				const {computeStringHash} = await import('../lib/merkle/hash.js');
 
@@ -359,7 +389,20 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 							error as Error,
 						);
 						failedFilesThisRun.add(filepath);
-						continue;
+					} finally {
+						filesChunked += 1;
+						if (
+							filesChunked % chunkProgressEvery === 0 ||
+							filesChunked === totalFilesToProcess
+						) {
+							this.emitIndexProgress(
+								'chunk',
+								'Chunking files',
+								filesChunked,
+								totalFilesToProcess,
+								'files',
+							);
+						}
 					}
 				}
 
@@ -374,15 +417,14 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 					let chunksProcessed = 0;
 
 					// Emit progress helper
-					const emitProgress = () => {
-						if (this.suppressEvents) {
-							return;
-						}
-						this.emit('progress', {
-							current: chunksProcessed,
-							total: totalChunks,
-							stage: 'Indexing files',
-						});
+					const emitEmbedProgress = () => {
+						this.emitIndexProgress(
+							'embed',
+							'Embedding chunks',
+							chunksProcessed,
+							totalChunks,
+							'chunks',
+						);
 						this.emit('chunk-progress', {chunksProcessed});
 					};
 
@@ -394,6 +436,14 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 							if (this.suppressEvents) {
 								return;
 							}
+							if (message && message !== this.lastThrottleMessage) {
+								this.debugLogger.info('Indexer', 'Embedding retry', {
+									message,
+								});
+								this.lastThrottleMessage = message;
+							} else if (!message) {
+								this.lastThrottleMessage = null;
+							}
 							this.emit('throttle', {message});
 						};
 					}
@@ -404,9 +454,16 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 					});
 
 					// Initialize progress display
-					emitProgress();
+					emitEmbedProgress();
 
 					// Check embedding cache
+					this.emitIndexProgress(
+						'embed',
+						'Checking embedding cache',
+						0,
+						0,
+						null,
+					);
 					const contentHashes = allChunksWithContext.map(
 						c => c.chunk.contentHash,
 					);
@@ -423,7 +480,7 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 
 					stats.embeddingsCached += cacheHits.length;
 					chunksProcessed += cacheHits.length;
-					emitProgress();
+					emitEmbedProgress();
 
 					// Process cache misses in batches
 					if (cacheMisses.length > 0) {
@@ -468,7 +525,7 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 										if (delta > 0) {
 											chunksProcessed += delta;
 											lastReportedWithinBatch = processed;
-											emitProgress();
+											emitEmbedProgress();
 										}
 									};
 								}
@@ -521,12 +578,14 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 									await storage.cacheEmbeddings(cacheEntries);
 								}
 
-								emitProgress();
+								emitEmbedProgress();
 							});
 						}
 
 						await Promise.all(batchTasks.map(task => batchLimit(task)));
 					}
+
+					this.emitIndexProgress('persist', 'Writing index', 0, 0, null);
 
 					// Build CodeChunk objects and write to storage
 					const allCodeChunks: CodeChunk[] = [];
@@ -565,6 +624,8 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 				}
 			}
 
+			this.emitIndexProgress('finalize', 'Finalizing manifest', 0, 0, null);
+
 			// 7. Update manifest
 			const chunkCount = await storage.countChunks();
 			manifest = updateManifestTree(manifest, currentTree.toJSON());
@@ -588,7 +649,7 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 					chunksAdded: stats.chunksAdded,
 					chunksDeleted: stats.chunksDeleted,
 					chunksUnchanged: 0,
-					durationMs: 0,
+					durationMs: Date.now() - startTimeMs,
 				},
 			});
 
@@ -638,10 +699,15 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 		}
 
 		if ('onSlotRateLimited' in provider) {
-			provider.onSlotRateLimited = (slot, _batchInfo, retryInfo) => {
+			provider.onSlotRateLimited = (slot, batchInfo, retryInfo) => {
 				if (this.suppressEvents) {
 					return;
 				}
+				this.debugLogger.info('Indexer', 'Slot rate limited', {
+					slot,
+					batchInfo,
+					retryInfo,
+				});
 				this.emit('slot-rate-limited', {slot, retryInfo});
 			};
 		}
@@ -750,11 +816,7 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 
 		// Initialize storage (skip if provided externally)
 		if (!this.storage) {
-			this.emit('progress', {
-				current: 0,
-				total: 0,
-				stage: 'Connecting to database',
-			});
+			this.emitIndexProgress('init', 'Connecting to database', 0, 0, null);
 			this.storage = new Storage(
 				this.projectRoot,
 				this.config.embeddingDimensions,
@@ -763,19 +825,21 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 		}
 
 		// Initialize chunker
-		this.emit('progress', {current: 0, total: 0, stage: 'Loading parsers'});
+		this.emitIndexProgress('init', 'Loading parsers', 0, 0, null);
 		this.chunker = new Chunker();
 		await this.chunker.initialize();
 
 		// Initialize embeddings
 		const isLocal = this.config.embeddingProvider === 'local';
-		this.emit('progress', {
-			current: 0,
-			total: 0,
-			stage: isLocal
+		this.emitIndexProgress(
+			'init',
+			isLocal
 				? `Loading ${providerName} model`
 				: `Connecting to ${providerName}`,
-		});
+			0,
+			0,
+			null,
+		);
 		if (!this.embeddings) {
 			this.embeddings = this.createEmbeddingProvider(this.config);
 		}
@@ -785,18 +849,21 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 			isLocal
 				? (status, progress, _message) => {
 						if (status === 'downloading') {
-							const stage = `Downloading ${providerName} (${progress}%)`;
-							this.emit('progress', {
-								current: progress ?? 0,
-								total: 100,
-								stage,
-							});
+							this.emitIndexProgress(
+								'init',
+								`Downloading ${providerName}`,
+								progress ?? 0,
+								100,
+								'percent',
+							);
 						} else if (status === 'loading') {
-							this.emit('progress', {
-								current: 0,
-								total: 0,
-								stage: `Loading ${providerName} model`,
-							});
+							this.emitIndexProgress(
+								'init',
+								`Loading ${providerName} model`,
+								0,
+								0,
+								null,
+							);
 						}
 					}
 				: undefined,
@@ -824,6 +891,22 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 					`Unknown embedding provider: ${config.embeddingProvider}`,
 				);
 		}
+	}
+
+	/**
+	 * Emit structured progress updates.
+	 */
+	private emitIndexProgress(
+		phase: IndexingPhase,
+		stage: string,
+		current: number,
+		total: number,
+		unit: IndexingUnit | null,
+	): void {
+		if (this.suppressEvents) {
+			return;
+		}
+		this.emit('progress', {phase, current, total, unit, stage});
 	}
 
 	/**

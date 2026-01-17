@@ -100,10 +100,17 @@ export const appSlice = createSlice({
 
 		/**
 		 * Set searching status.
-		 * Note: Indexing status is derived from the indexing slice (synced from daemon).
+		 * Note: Indexing status is derived from daemon status.
 		 */
 		setSearching: state => {
 			state.appStatus = {state: 'searching'};
+		},
+
+		/**
+		 * Set working status with message (spinner).
+		 */
+		setWorking: (state, action: PayloadAction<string>) => {
+			state.appStatus = {state: 'working', message: action.payload};
 		},
 
 		/**

@@ -38,12 +38,7 @@ const indexParamsSchema = z.object({
 	force: z.boolean().optional(),
 });
 
-const ACTIVE_INDEX_STATUSES = new Set([
-	'initializing',
-	'scanning',
-	'chunking',
-	'embedding',
-]);
+const ACTIVE_INDEX_STATUSES = new Set(['initializing', 'indexing']);
 
 const shutdownParamsSchema = z.object({
 	reason: z.string().optional(),

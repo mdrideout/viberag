@@ -269,7 +269,7 @@ export async function processBatchesWithLimit<T>(
 						error instanceof Error ? error.message : String(error);
 					const batchMeta = batchMetadata?.[batchIndex];
 
-					// Log to debug.log with full chunk context
+					// Log with full chunk context (service logger)
 					if (logger) {
 						logger.error('api-utils', 'Batch failed after retries', {
 							batchIndex,

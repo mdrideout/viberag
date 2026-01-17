@@ -8,6 +8,7 @@
 import React, {useState, useEffect} from 'react';
 import {Box, Text} from 'ink';
 import {useDaemonStatus} from '../contexts/DaemonStatusContext.js';
+import type {DaemonStatusResponse} from '../../client/types.js';
 import type {AppStatus, IndexDisplayStats} from '../../common/types.js';
 
 type Props = {
@@ -70,6 +71,8 @@ function formatNonIndexingStatus(status: AppStatus): {
 			return {text: 'Ready', color: 'green', showSpinner: false};
 		case 'searching':
 			return {text: 'Searching', color: 'cyan', showSpinner: true};
+		case 'working':
+			return {text: status.message, color: 'cyan', showSpinner: true};
 		case 'warning':
 			return {text: status.message, color: 'yellow', showSpinner: false};
 	}
@@ -78,7 +81,22 @@ function formatNonIndexingStatus(status: AppStatus): {
 /**
  * Format stats for display.
  */
-function formatStats(stats: IndexDisplayStats | null | undefined): string {
+function formatStats(
+	stats: IndexDisplayStats | null | undefined,
+	daemonStatus: DaemonStatusResponse | null,
+	isIndexingActive: boolean,
+): string {
+	if (daemonStatus) {
+		if (daemonStatus.indexed) {
+			const totalFiles = daemonStatus.totalFiles ?? 0;
+			const totalChunks = daemonStatus.totalChunks ?? 0;
+			return `${totalFiles} files · ${totalChunks} chunks`;
+		}
+		if (isIndexingActive) {
+			return 'Indexing...';
+		}
+		return 'Not indexed';
+	}
 	if (stats === undefined) {
 		return 'Loading...';
 	}
@@ -93,8 +111,10 @@ function formatStats(stats: IndexDisplayStats | null | undefined): string {
  */
 function deriveIndexingDisplay(indexing: {
 	status: string;
+	phase: string | null;
 	current: number;
 	total: number;
+	unit: string | null;
 	stage: string;
 	chunksProcessed: number;
 	throttleMessage: string | null;
@@ -103,27 +123,44 @@ function deriveIndexingDisplay(indexing: {
 	const isActive =
 		indexing.status === 'initializing' || indexing.status === 'indexing';
 	const showProgressBar = isActive && indexing.total > 0;
+	const hasUnit = Boolean(indexing.unit) && indexing.unit !== 'percent';
+	const progressInfo =
+		showProgressBar && hasUnit
+			? `${indexing.current}/${indexing.total} ${indexing.unit}`
+			: undefined;
 	const chunkInfo =
-		indexing.chunksProcessed > 0
+		progressInfo === undefined && indexing.chunksProcessed > 0
 			? `${indexing.chunksProcessed} chunks`
 			: undefined;
 	const color = indexing.throttleMessage !== null ? 'yellow' : 'cyan';
+	const fallbackStage =
+		indexing.phase === 'init'
+			? 'Initializing'
+			: indexing.phase === 'scan'
+				? 'Scanning files'
+				: indexing.phase === 'chunk'
+					? 'Chunking files'
+					: indexing.phase === 'embed'
+						? 'Embedding chunks'
+						: indexing.phase === 'persist'
+							? 'Writing index'
+							: indexing.phase === 'finalize'
+								? 'Finalizing manifest'
+								: '';
 
 	return {
 		isActive,
 		showProgressBar,
 		percent: indexing.percent,
-		stage: indexing.stage,
+		stage: indexing.stage || fallbackStage,
 		chunkInfo,
-		throttleInfo:
-			indexing.throttleMessage !== null ? 'Requests retrying...' : null,
+		progressInfo,
+		throttleInfo: indexing.throttleMessage,
 		color,
 	};
 }
 
 export default function StatusBar({status, stats}: Props) {
-	const statsText = formatStats(stats);
-
 	// Get daemon status from context
 	const daemonStatus = useDaemonStatus();
 
@@ -135,12 +172,14 @@ export default function StatusBar({status, stats}: Props) {
 				showProgressBar: false,
 				percent: 0,
 				stage: '',
+				progressInfo: undefined,
 				chunkInfo: undefined,
 				throttleInfo: null,
 				color: 'cyan',
 			};
 
 	const isIndexingActive = indexingDisplay.isActive;
+	const statsText = formatStats(stats, daemonStatus, isIndexingActive);
 
 	// Get failures from daemon status
 	const failures = daemonStatus?.failures ?? [];
@@ -157,6 +196,7 @@ export default function StatusBar({status, stats}: Props) {
 				showProgressBar: indexingDisplay.showProgressBar,
 				percent: indexingDisplay.percent,
 				stage: indexingDisplay.stage,
+				progressInfo: indexingDisplay.progressInfo,
 				chunkInfo: indexingDisplay.chunkInfo,
 				throttleInfo: indexingDisplay.throttleInfo,
 			}
@@ -167,6 +207,7 @@ export default function StatusBar({status, stats}: Props) {
 				showProgressBar: false,
 				percent: 0,
 				stage: '',
+				progressInfo: undefined as string | undefined,
 				chunkInfo: undefined as string | undefined,
 				throttleInfo: null as string | null,
 			};
@@ -178,6 +219,7 @@ export default function StatusBar({status, stats}: Props) {
 		showProgressBar,
 		percent,
 		stage,
+		progressInfo,
 		chunkInfo,
 		throttleInfo,
 	} = displayValues;
@@ -198,6 +240,7 @@ export default function StatusBar({status, stats}: Props) {
 							<ProgressBar percent={percent} />
 							<Text>] </Text>
 							<Text color={color}>{percent}%</Text>
+							{progressInfo && <Text dimColor> · {progressInfo}</Text>}
 							{chunkInfo && <Text dimColor> · {chunkInfo}</Text>}
 							{throttleInfo && <Text color="yellow"> · {throttleInfo}</Text>}
 						</>
@@ -212,7 +255,7 @@ export default function StatusBar({status, stats}: Props) {
 			{hasFailures && (
 				<Box paddingLeft={2}>
 					<Text color="red">
-						⚠ {failures.length} batch(es) failed - see .viberag/debug.log
+						⚠ {failures.length} batch(es) failed - see .viberag/logs/indexer/
 					</Text>
 				</Box>
 			)}

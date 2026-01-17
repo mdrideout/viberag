@@ -8,6 +8,7 @@
 import type {SearchResults} from '../daemon/services/search/types.js';
 import type {IndexStats} from '../daemon/services/indexing.js';
 import type {WatcherStatus} from '../daemon/services/watcher.js';
+import type {IndexingPhase, IndexingUnit} from '../daemon/services/types.js';
 
 /**
  * Slot state for concurrent embedding tracking.
@@ -101,14 +102,17 @@ export interface DaemonStatusResponse {
 	// Indexing state for polling-based updates
 	indexing: {
 		status: 'idle' | 'initializing' | 'indexing' | 'complete' | 'error';
+		phase: IndexingPhase | null;
 		current: number;
 		total: number;
+		unit: IndexingUnit | null;
 		stage: string;
 		chunksProcessed: number;
 		throttleMessage: string | null;
 		error: string | null;
 		lastCompleted: string | null;
 		lastStats: IndexStats | null;
+		lastProgressAt: string | null;
 		percent: number;
 	};
 

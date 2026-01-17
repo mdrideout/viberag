@@ -3,6 +3,7 @@ import {Box, Text} from 'ink';
 import Gradient from 'ink-gradient';
 import BigText from 'ink-big-text';
 import type {IndexDisplayStats} from '../../common/types.js';
+import {useDaemonStatus} from '../contexts/DaemonStatusContext.js';
 
 type Props = {
 	version: string;
@@ -18,8 +19,18 @@ export default function WelcomeBanner({
 	isInitialized,
 	indexStats,
 }: Props) {
+	const daemonStatus = useDaemonStatus();
+
 	// indexStats is only passed once fully loaded (undefined means still loading)
-	const isIndexed = indexStats != null && indexStats.totalChunks > 0;
+	const indexedFromDaemon =
+		daemonStatus?.indexed === true && (daemonStatus.totalChunks ?? 0) > 0;
+	const isIndexed =
+		daemonStatus !== null
+			? indexedFromDaemon
+			: indexStats != null && indexStats.totalChunks > 0;
+	const isIndexingActive =
+		daemonStatus?.indexing.status === 'initializing' ||
+		daemonStatus?.indexing.status === 'indexing';
 
 	return (
 		<Box flexDirection="column" paddingX={1}>
@@ -53,7 +64,7 @@ export default function WelcomeBanner({
 					<Text color="yellow">Run /init to set up</Text>
 				</Box>
 			)}
-			{isInitialized === true && !isIndexed && (
+			{isInitialized === true && !isIndexed && !isIndexingActive && (
 				<Box marginTop={1}>
 					<Text color="yellow">Run /index to build the code index</Text>
 				</Box>

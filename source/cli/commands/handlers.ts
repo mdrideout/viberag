@@ -53,17 +53,20 @@ export async function loadIndexStats(
  * Initialize a project for Viberag.
  * Creates .viberag/ directory with config.json.
  * With isReinit=true, shuts down daemon and deletes everything first.
+ * Optionally reports progress for UI status updates.
  */
 export async function runInit(
 	projectRoot: string,
 	isReinit: boolean = false,
 	wizardConfig?: InitWizardConfig,
+	onProgress?: (message: string) => void,
 ): Promise<string> {
 	const viberagDir = getViberagDir(projectRoot);
 	const isExisting = await configExists(projectRoot);
 
 	// If reinit, shutdown daemon and delete entire .viberag directory first
 	if (isReinit && isExisting) {
+		onProgress?.('Stopping daemon');
 		const client = new DaemonClient(projectRoot);
 		try {
 			if (await client.isRunning()) {
@@ -77,10 +80,12 @@ export async function runInit(
 		} finally {
 			await client.disconnect();
 		}
+		onProgress?.('Removing .viberag');
 		await fs.rm(viberagDir, {recursive: true, force: true});
 	}
 
 	// Create .viberag directory
+	onProgress?.('Creating .viberag');
 	await fs.mkdir(viberagDir, {recursive: true});
 
 	// Build config from wizard choices
@@ -106,10 +111,12 @@ export async function runInit(
 	};
 
 	// Save config
+	onProgress?.('Writing config');
 	await saveConfig(projectRoot, config);
 
 	// Add .viberag/ to .gitignore if not present
 	const gitignorePath = path.join(projectRoot, '.gitignore');
+	onProgress?.('Updating .gitignore');
 	try {
 		const content = await fs.readFile(gitignorePath, 'utf-8');
 		if (!content.includes('.viberag')) {

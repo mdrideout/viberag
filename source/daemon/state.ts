@@ -13,6 +13,7 @@
  */
 
 import type {IndexStats as IndexingRunStats} from './services/indexing.js';
+import type {IndexingPhase, IndexingUnit} from './services/types.js';
 
 // ============================================================================
 // Type Definitions
@@ -23,9 +24,7 @@ export type WarmupStatus = 'not_started' | 'initializing' | 'ready' | 'failed';
 export type IndexingStatus =
 	| 'idle'
 	| 'initializing'
-	| 'scanning'
-	| 'chunking'
-	| 'embedding'
+	| 'indexing'
 	| 'complete'
 	| 'error';
 
@@ -41,14 +40,17 @@ export interface WarmupState {
 
 export interface IndexingState {
 	status: IndexingStatus;
+	phase: IndexingPhase | null;
 	current: number;
 	total: number;
+	unit: IndexingUnit | null;
 	stage: string;
 	chunksProcessed: number;
 	throttleMessage: string | null;
 	error: string | null;
 	lastCompleted: string | null;
 	lastStats: IndexingRunStats | null;
+	lastProgressAt: string | null;
 }
 
 export interface SlotInfo {
@@ -98,14 +100,17 @@ function createInitialState(): DaemonState {
 		},
 		indexing: {
 			status: 'idle',
+			phase: null,
 			current: 0,
 			total: 0,
+			unit: null,
 			stage: '',
 			chunksProcessed: 0,
 			throttleMessage: null,
 			error: null,
 			lastCompleted: null,
 			lastStats: null,
+			lastProgressAt: null,
 		},
 		slots: Array.from({length: DEFAULT_SLOT_COUNT}, () => ({
 			state: 'idle' as const,

@@ -567,6 +567,18 @@ VibeRAG includes a CLI for easy execution of initialization, indexing, setup, an
 | `/clean`          | Remove VibeRAG from project                               |
 | `/help`           | Show all commands                                         |
 
+## Logs
+
+VibeRAG writes per-service logs to `.viberag/logs/` with hourly rotation:
+
+- `.viberag/logs/daemon/` - daemon lifecycle and IPC errors
+- `.viberag/logs/indexer/` - indexing progress, retries, and batch failures
+- `.viberag/logs/mcp/` - MCP server errors
+- `.viberag/logs/cli/` - CLI errors
+
+If indexing appears slow or retries are happening, check the latest file under
+`.viberag/logs/indexer/`.
+
 ## Embedding Providers
 
 Choose your embedding provider during `/init`:

@@ -211,13 +211,14 @@ function AppContent() {
 			await new Promise(resolve => setTimeout(resolve, 50));
 
 			addOutput('system', 'Initializing Viberag...');
-			dispatch(AppActions.setWarning('Initializing...'));
+			dispatch(AppActions.setWorking('Initializing...'));
 
 			try {
 				const result = await runInit(
 					projectRoot,
 					isInitialized ?? false,
 					config,
+					message => dispatch(AppActions.setWorking(message)),
 				);
 				addOutput('system', result);
 				dispatch(AppActions.setInitialized(true));
