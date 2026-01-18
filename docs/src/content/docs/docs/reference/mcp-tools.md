@@ -19,3 +19,14 @@ description: MCP tools exposed by the VibeRAG server.
 - Use `viberag_status` to check indexing progress, last progress time, and failures.
 - Use `viberag_cancel` to stop long-running or stuck indexing runs, then re-run
   `viberag_index` if you need a clean index.
+
+## Search Output
+
+`codebase_search` returns metadata-only results by default to keep payloads small.
+Set `include_text=true` to include chunk text in each result.
+
+## Parallel Search Output
+
+`codebase_parallel_search` returns metadata-only results by default to keep payloads small.
+Set `include_text=true` to include chunk text in merged results, and
+`include_individual=true` to include per-search result lists.

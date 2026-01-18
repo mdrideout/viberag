@@ -464,6 +464,7 @@ args = ["-y", "viberag-mcp"]
 #### `codebase_search`
 
 The primary search tool. Finds code by meaning, not just keywords.
+By default this returns metadata only (no chunk text). Set `include_text=true` to include text.
 
 **Search Modes:**
 
@@ -480,6 +481,7 @@ The primary search tool. Finds code by meaning, not just keywords.
 - `query` - Natural language search query
 - `mode` - Search mode (default: `hybrid`)
 - `limit` - Max results (default: 10, max: 100)
+- `include_text` - Include chunk text in results (default: false)
 - `bm25_weight` - Balance keyword vs semantic (0-1, default: 0.3)
 - `filters` - Path, type, and metadata filters
 
@@ -501,6 +503,9 @@ The primary search tool. Finds code by meaning, not just keywords.
 
 Run multiple search strategies simultaneously and merge results. Best for comprehensive exploration.
 
+By default this tool returns metadata only (no chunk text). Set `include_text=true` to include text
+in merged results, and `include_individual=true` to include per-search result lists.
+
 **Use Cases:**
 
 - Compare semantic vs keyword results
@@ -518,7 +523,9 @@ Run multiple search strategies simultaneously and merge results. Best for compre
 	],
 	"merge_results": true,
 	"merge_strategy": "rrf",
-	"merged_limit": 20
+	"merged_limit": 20,
+	"include_text": false,
+	"include_individual": false
 }
 ```
 

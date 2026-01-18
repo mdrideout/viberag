@@ -597,6 +597,7 @@ describe('MCP Server', () => {
 					query: 'lorem',
 					mode: 'exact',
 					limit: 20,
+					include_text: true,
 					max_response_size: 1024,
 				},
 			});
@@ -624,6 +625,7 @@ describe('MCP Server', () => {
 					merge_results: true,
 					merge_strategy: 'dedupe',
 					merged_limit: 10,
+					include_individual: true,
 				},
 			});
 			const {data} = parseToolJson<{

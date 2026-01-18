@@ -80,8 +80,13 @@ const STALL_THRESHOLD_SECONDS = 60;
 /**
  * Estimate JSON response size for a set of results.
  */
-function estimateResponseSize(results: SearchResults['results']): number {
-	const textSize = results.reduce((sum, r) => sum + r.text.length, 0);
+function estimateResponseSize(
+	results: SearchResults['results'],
+	includeText: boolean,
+): number {
+	const textSize = includeText
+		? results.reduce((sum, r) => sum + r.text.length, 0)
+		: 0;
 	const overhead = results.length * RESULT_OVERHEAD_BYTES + 500; // Base JSON overhead
 	return textSize + overhead;
 }
@@ -93,11 +98,12 @@ function estimateResponseSize(results: SearchResults['results']): number {
 function capResultsToSize(
 	results: SearchResults['results'],
 	maxSize: number,
+	includeText: boolean,
 ): SearchResults['results'] {
 	if (results.length === 0) return results;
 
 	// Quick check: if current size is within limit, return as-is
-	const currentSize = estimateResponseSize(results);
+	const currentSize = estimateResponseSize(results, includeText);
 	if (currentSize <= maxSize) return results;
 
 	// Binary search for optimal result count
@@ -108,7 +114,7 @@ function capResultsToSize(
 	while (low <= high) {
 		const mid = Math.floor((low + high) / 2);
 		const subset = results.slice(0, mid);
-		const size = estimateResponseSize(subset);
+		const size = estimateResponseSize(subset, includeText);
 
 		if (size <= maxSize) {
 			bestCount = mid;
@@ -122,20 +128,190 @@ function capResultsToSize(
 }
 
 /**
+ * Estimate JSON response size in bytes.
+ */
+function estimateJsonSize(value: unknown): number {
+	return Buffer.byteLength(JSON.stringify(value), 'utf8');
+}
+
+type ParallelIndividualEntry = {
+	searchIndex: number;
+	config: {
+		query: string;
+		mode: string;
+		bm25Weight?: number;
+	};
+	resultCount: number;
+	results?: Array<{
+		id: string;
+		type: string;
+		name: string;
+		filepath: string;
+		startLine: number;
+		endLine: number;
+		score: number;
+	}>;
+	debug?: SearchResults['debug'];
+};
+
+type ParallelMergedResults = {
+	strategy: 'rrf' | 'dedupe';
+	totalUnique: number;
+	resultCount: number;
+	overlap: number;
+	uniquePerSearch: number[];
+	results: Array<{
+		id: string;
+		type: string;
+		name: string;
+		filepath: string;
+		startLine: number;
+		endLine: number;
+		score: number;
+		sources: number[];
+		text?: string;
+	}>;
+};
+
+type ParallelSearchResponse = {
+	searchCount: number;
+	individual: ParallelIndividualEntry[];
+	merged?: ParallelMergedResults;
+	trimmed?: {
+		maxResponseSize: number;
+		originalSize: number;
+		finalSize: number;
+		droppedSections: string[];
+		reducedMergedResults?: {from: number; to: number};
+	};
+};
+
+/**
+ * Trim a parallel search response to fit within size limits.
+ * Drops debug, then individual results, then reduces merged results.
+ */
+function trimParallelSearchResponse(
+	response: ParallelSearchResponse,
+	maxSize: number,
+): ParallelSearchResponse {
+	const originalSize = estimateJsonSize(response);
+	if (originalSize <= maxSize) {
+		return response;
+	}
+
+	const trimmedSections: string[] = [];
+	let reducedMergedResults: {from: number; to: number} | undefined;
+
+	const stripDebug = (): boolean => {
+		let removed = false;
+		for (const entry of response.individual) {
+			if (entry.debug !== undefined) {
+				delete entry.debug;
+				removed = true;
+			}
+		}
+		return removed;
+	};
+
+	const stripResults = (): boolean => {
+		let removed = false;
+		for (const entry of response.individual) {
+			if (entry.results !== undefined) {
+				delete entry.results;
+				removed = true;
+			}
+		}
+		return removed;
+	};
+
+	const sizeAfter = (): number => estimateJsonSize(response);
+	let currentSize = sizeAfter();
+
+	if (currentSize > maxSize && stripDebug()) {
+		trimmedSections.push('individual.debug');
+		currentSize = sizeAfter();
+	}
+
+	if (currentSize > maxSize && stripResults()) {
+		trimmedSections.push('individual.results');
+		currentSize = sizeAfter();
+	}
+
+	if (
+		currentSize > maxSize &&
+		response.merged?.results &&
+		response.merged.results.length > 0
+	) {
+		const originalResults = response.merged.results;
+		const total = originalResults.length;
+		let low = 0;
+		let high = total;
+		let best = 0;
+
+		while (low <= high) {
+			const mid = Math.floor((low + high) / 2);
+			response.merged.results = originalResults.slice(0, mid);
+			if (sizeAfter() <= maxSize) {
+				best = mid;
+				low = mid + 1;
+			} else {
+				high = mid - 1;
+			}
+		}
+
+		response.merged.results = originalResults.slice(0, best);
+		if (best < total) {
+			reducedMergedResults = {from: total, to: best};
+			trimmedSections.push('merged.results');
+		}
+		response.merged.resultCount = response.merged.results.length;
+		currentSize = sizeAfter();
+	}
+
+	if (currentSize > maxSize && response.merged) {
+		response.merged = undefined;
+		trimmedSections.push('merged');
+		currentSize = sizeAfter();
+	}
+
+	if (trimmedSections.length > 0) {
+		const trimmed = {
+			maxResponseSize: maxSize,
+			originalSize,
+			finalSize: currentSize,
+			droppedSections: trimmedSections,
+			reducedMergedResults,
+		};
+		response.trimmed = trimmed;
+
+		if (estimateJsonSize(response) > maxSize) {
+			delete response.trimmed;
+		} else {
+			response.trimmed.finalSize = estimateJsonSize(response);
+		}
+	}
+
+	return response;
+}
+
+/**
  * Format search results for MCP response.
  *
  * @param maxResponseSize - Maximum response size in bytes. Reduces result count to fit.
+ * @param includeText - Include chunk text in each result.
  */
 function formatSearchResults(
 	results: SearchResults,
 	includeDebug: boolean = false,
 	maxResponseSize: number = DEFAULT_MAX_RESPONSE_SIZE,
+	includeText: boolean = true,
 ): string {
 	if (results.results.length === 0) {
 		const response: Record<string, unknown> = {
 			message: `No results found for "${results.query}"`,
 			mode: results.searchType,
 			elapsedMs: results.elapsedMs,
+			textIncluded: includeText,
 			results: [],
 		};
 
@@ -148,7 +324,11 @@ function formatSearchResults(
 	}
 
 	// Cap results to fit within max response size
-	const cappedResults = capResultsToSize(results.results, maxResponseSize);
+	const cappedResults = capResultsToSize(
+		results.results,
+		maxResponseSize,
+		includeText,
+	);
 	const wasReduced = cappedResults.length < results.results.length;
 
 	const response: Record<string, unknown> = {
@@ -156,6 +336,7 @@ function formatSearchResults(
 		mode: results.searchType,
 		elapsedMs: results.elapsedMs,
 		resultCount: cappedResults.length,
+		textIncluded: includeText,
 		results: cappedResults.map(r => ({
 			type: r.type,
 			name: r.name || '(anonymous)',
@@ -167,7 +348,7 @@ function formatSearchResults(
 			ftsScore: r.ftsScore ? Number(r.ftsScore.toFixed(4)) : undefined,
 			signature: r.signature ?? undefined,
 			isExported: r.isExported ?? undefined,
-			text: r.text,
+			...(includeText ? {text: r.text} : {}),
 		})),
 	};
 
@@ -446,6 +627,10 @@ RESULT INTERPRETATION:
 - debug.searchQuality: 'high', 'medium', or 'low' based on vector scores
 - debug.suggestion: Hints when different settings might work better
 
+OUTPUT:
+- By default, results include metadata only to keep responses small.
+- Set include_text=true to include chunk text for each result.
+
 FILTERS (transparent, you control what's excluded):
 Path filters:
 - recommendation: use sparingly - only exclude what you absolutely do not want included.
@@ -532,6 +717,13 @@ Production code: { path_not_contains: ["test", "mock", "fixture"], is_exported: 
 						'Defaults to true for hybrid mode, false for other modes. ' +
 						'Useful for evaluating search quality and tuning parameters.',
 				),
+			include_text: z
+				.boolean()
+				.optional()
+				.default(false)
+				.describe(
+					'Include chunk text in results (default: false, metadata only)',
+				),
 			max_response_size: z
 				.number()
 				.min(1024)
@@ -579,7 +771,12 @@ Production code: { path_not_contains: ["test", "mock", "fixture"], is_exported: 
 				returnDebug,
 			});
 
-			return formatSearchResults(results, returnDebug, args.max_response_size);
+			return formatSearchResults(
+				results,
+				returnDebug,
+				args.max_response_size,
+				args.include_text,
+			);
 		},
 	});
 
@@ -781,6 +978,11 @@ context and understanding when exploring and searching the codebase, docs, etc.
 NOTE: This is for narrower sets of queries. Parallel searches may return a large number of results,
 it is best to keep search filters narrow and specific. For separate broader searches, use codebase_search one at a time.
 
+DEFAULT OUTPUT:
+- Returns metadata-only results by default (no chunk text).
+- Use include_text=true to include chunk text in merged results.
+- Use include_individual=true to include per-search result lists.
+
 USE FOR CODEBASE EXPLORATION:
 - Finds related code that grep/glob/read would miss. 
 - Semantic codebase search will find more relevant files.
@@ -902,6 +1104,27 @@ Metadata filters:
 				.optional()
 				.default(20)
 				.describe('Max results in merged output'),
+			include_text: z
+				.boolean()
+				.optional()
+				.default(false)
+				.describe(
+					'Include chunk text in merged results (default: false, metadata only)',
+				),
+			include_individual: z
+				.boolean()
+				.optional()
+				.default(false)
+				.describe(
+					'Include per-search result lists (default: false, summary only)',
+				),
+			include_debug: z
+				.boolean()
+				.optional()
+				.default(false)
+				.describe(
+					'Include per-search debug info (default: false, use for tuning)',
+				),
 			max_response_size: z
 				.number()
 				.min(1024)
@@ -910,7 +1133,7 @@ Metadata filters:
 				.default(DEFAULT_MAX_RESPONSE_SIZE)
 				.describe(
 					'Maximum response size in bytes (default: 50KB, max: 100KB). ' +
-						'Reduces merged result count to fit; does NOT truncate text.',
+						'Drops debug/individual results and reduces merged results to fit; does NOT truncate text.',
 				),
 		}),
 		execute: async args => {
@@ -953,25 +1176,29 @@ Metadata filters:
 
 			const searchResults = await Promise.all(searchPromises);
 
-			// Build individual results
+			// Build individual results (summary by default)
 			const individual = searchResults.map(sr => ({
 				searchIndex: sr.index,
 				config: sr.config,
 				resultCount: sr.results.results.length,
-				results: sr.results.results.map(r => ({
-					id: r.id,
-					type: r.type,
-					name: r.name || '(anonymous)',
-					filepath: r.filepath,
-					startLine: r.startLine,
-					endLine: r.endLine,
-					score: Number(r.score.toFixed(4)),
-				})),
-				debug: sr.results.debug,
+				...(args.include_individual
+					? {
+							results: sr.results.results.map(r => ({
+								id: r.id,
+								type: r.type,
+								name: r.name || '(anonymous)',
+								filepath: r.filepath,
+								startLine: r.startLine,
+								endLine: r.endLine,
+								score: Number(r.score.toFixed(4)),
+							})),
+						}
+					: {}),
+				...(args.include_debug ? {debug: sr.results.debug} : {}),
 			}));
 
 			// Build merged results if requested
-			let merged: Record<string, unknown> | undefined;
+			let merged: ParallelMergedResults | undefined;
 
 			if (args.merge_results) {
 				// Collect all results with their sources
@@ -1036,7 +1263,7 @@ Metadata filters:
 				}
 
 				// Take top merged_limit results
-				let mergedResults = allResults
+				const mergedResults = allResults
 					.slice(0, args.merged_limit)
 					.map(item => ({
 						id: item.result.id,
@@ -1047,27 +1274,8 @@ Metadata filters:
 						endLine: item.result.endLine,
 						score: Number(item.result.score.toFixed(4)),
 						sources: item.sources,
-						text: item.result.text,
+						...(args.include_text ? {text: item.result.text} : {}),
 					}));
-
-				// Apply size capping to merged results
-				const cappedMerged = capResultsToSize(
-					mergedResults.map(r => ({
-						...r,
-						id: r.id,
-						filename: '',
-						vectorScore: undefined,
-						ftsScore: undefined,
-						signature: undefined,
-						isExported: undefined,
-					})),
-					args.max_response_size,
-				);
-
-				// Reduce to capped length if needed
-				if (cappedMerged.length < mergedResults.length) {
-					mergedResults = mergedResults.slice(0, cappedMerged.length);
-				}
 
 				// Calculate overlap statistics
 				const uniqueToSearch = args.searches.map(
@@ -1087,11 +1295,18 @@ Metadata filters:
 				};
 			}
 
-			return JSON.stringify({
+			const response: ParallelSearchResponse = {
 				searchCount: args.searches.length,
 				individual,
 				merged,
-			});
+			};
+
+			const trimmed = trimParallelSearchResponse(
+				response,
+				args.max_response_size,
+			);
+
+			return JSON.stringify(trimmed);
 		},
 	});
 
