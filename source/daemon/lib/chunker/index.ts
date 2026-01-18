@@ -19,6 +19,13 @@ import {
 // Use createRequire to resolve WASM file paths from tree-sitter-wasms
 const require = createRequire(import.meta.url);
 
+type TokenFacts = {
+	identifiers: string[];
+	identifierParts: string[];
+	calledNames: string[];
+	stringLiterals: string[];
+};
+
 /**
  * Mapping from our language names to tree-sitter-wasms filenames.
  * WASM files are in node_modules/tree-sitter-wasms/out/
@@ -316,7 +323,13 @@ export class Chunker {
 		}
 
 		// Extract chunks based on language with context tracking
-		const chunks = this.extractChunks(tree.rootNode, content, lang, filepath);
+		const chunks = this.extractChunks(
+			tree.rootNode,
+			content,
+			lang,
+			filepath,
+			maxChunkSize,
+		);
 
 		// If no chunks found, fall back to module chunk (with size enforcement + overlap)
 		if (chunks.length === 0) {
@@ -351,12 +364,13 @@ export class Chunker {
 		content: string,
 		lang: SupportedLanguage,
 		filepath: string,
+		maxChunkSize: number,
 	): Chunk[] {
 		const chunks: Chunk[] = [];
 		const lines = content.split('\n');
 
 		// Traverse the tree with context tracking
-		this.traverseNode(root, lang, lines, chunks, filepath, null);
+		this.traverseNode(root, lang, lines, chunks, filepath, null, maxChunkSize);
 
 		return chunks;
 	}
@@ -372,29 +386,37 @@ export class Chunker {
 		chunks: Chunk[],
 		filepath: string,
 		parentClassName: string | null,
+		maxChunkSize: number,
 	): void {
 		const nodeType = node.type;
 
 		// Check for class
 		if (CLASS_NODE_TYPES[lang].includes(nodeType)) {
 			const className = this.extractName(node, lang);
-			const chunk = this.nodeToChunk(
+			const classChunks = this.nodeToChunks(
 				node,
 				lines,
 				'class',
 				lang,
 				filepath,
 				null,
+				maxChunkSize,
 			);
-			if (chunk) {
-				chunks.push(chunk);
-			}
+			chunks.push(...classChunks);
 
 			// Also extract methods from inside the class
 			for (let i = 0; i < node.childCount; i++) {
 				const child = node.child(i);
 				if (child) {
-					this.traverseNode(child, lang, lines, chunks, filepath, className);
+					this.traverseNode(
+						child,
+						lang,
+						lines,
+						chunks,
+						filepath,
+						className,
+						maxChunkSize,
+					);
 				}
 			}
 
@@ -407,34 +429,32 @@ export class Chunker {
 
 		if (parentClassName && methodTypes.includes(nodeType)) {
 			// This is a method inside a class
-			const chunk = this.nodeToChunk(
+			const methodChunks = this.nodeToChunks(
 				node,
 				lines,
 				'method',
 				lang,
 				filepath,
 				parentClassName,
+				maxChunkSize,
 			);
-			if (chunk) {
-				chunks.push(chunk);
-			}
+			chunks.push(...methodChunks);
 
 			return;
 		}
 
 		if (!parentClassName && functionTypes.includes(nodeType)) {
 			// This is a top-level function
-			const chunk = this.nodeToChunk(
+			const functionChunks = this.nodeToChunks(
 				node,
 				lines,
 				'function',
 				lang,
 				filepath,
 				null,
+				maxChunkSize,
 			);
-			if (chunk) {
-				chunks.push(chunk);
-			}
+			chunks.push(...functionChunks);
 
 			return;
 		}
@@ -450,6 +470,7 @@ export class Chunker {
 					chunks,
 					filepath,
 					parentClassName,
+					maxChunkSize,
 				);
 			}
 		}
@@ -496,6 +517,7 @@ export class Chunker {
 		const docstring = this.extractDocstring(node, lang);
 		const isExported = this.extractIsExported(node, lang);
 		const decoratorNames = this.extractDecoratorNames(node, lang);
+		const tokenFacts = this.extractAstTokenFacts(node, lang);
 
 		return {
 			text,
@@ -504,12 +526,170 @@ export class Chunker {
 			name,
 			startLine,
 			endLine,
+			startByte: node.startIndex,
+			endByte: node.endIndex,
 			contentHash: computeStringHash(fullText),
 			signature,
 			docstring,
 			isExported,
 			decoratorNames,
+			identifiers: tokenFacts.identifiers,
+			identifierParts: tokenFacts.identifierParts,
+			calledNames: tokenFacts.calledNames,
+			stringLiterals: tokenFacts.stringLiterals,
 		};
+	}
+
+	private nodeToChunks(
+		node: Parser.SyntaxNode,
+		lines: string[],
+		type: ChunkType,
+		lang: SupportedLanguage,
+		filepath: string,
+		parentClassName: string | null,
+		maxChunkSize: number,
+	): Chunk[] {
+		const base = this.nodeToChunk(
+			node,
+			lines,
+			type,
+			lang,
+			filepath,
+			parentClassName,
+		);
+		if (!base) return [];
+		if (base.text.length <= maxChunkSize) return [base];
+
+		if (type === 'function' || type === 'method') {
+			const split = this.splitNodeByStatementGroups({
+				node,
+				lines,
+				lang,
+				filepath,
+				parentClassName,
+				type,
+				base,
+				maxChunkSize,
+			});
+			if (split.length > 0) {
+				return split;
+			}
+		}
+
+		// Fall back to line-based splitting in enforceSizeLimits().
+		return [base];
+	}
+
+	private splitNodeByStatementGroups(args: {
+		node: Parser.SyntaxNode;
+		lines: string[];
+		lang: SupportedLanguage;
+		filepath: string;
+		parentClassName: string | null;
+		type: 'function' | 'method';
+		base: Chunk;
+		maxChunkSize: number;
+	}): Chunk[] {
+		const body = args.node.childForFieldName('body');
+		if (!body || body.namedChildCount === 0) return [];
+
+		const statements: Parser.SyntaxNode[] = [];
+		for (let i = 0; i < body.namedChildCount; i++) {
+			const child = body.namedChild(i);
+			if (child) statements.push(child);
+		}
+		if (statements.length === 0) return [];
+
+		const chunks: Chunk[] = [];
+		const baseStartLine = args.base.startLine;
+		const baseEndLine = args.base.endLine;
+		const baseStartByte = args.base.startByte;
+		const baseEndByte = args.base.endByte;
+
+		if (baseStartByte == null || baseEndByte == null) return [];
+
+		let groupStartLine = baseStartLine;
+		let groupStartByte = baseStartByte;
+		let groupEndLine = baseStartLine;
+		let groupEndByte = baseStartByte;
+		let groupHasAny = false;
+
+		const flush = (isLast: boolean) => {
+			if (!groupHasAny) return;
+			const endLine = isLast ? baseEndLine : groupEndLine;
+			const endByte = isLast ? baseEndByte : groupEndByte;
+			const text = args.lines.slice(groupStartLine - 1, endLine).join('\n');
+			if (!text.trim()) return;
+
+			const isContinuation = chunks.length > 0;
+			const functionName =
+				isContinuation && args.base.name
+					? args.base.name
+					: args.type === 'method'
+						? null
+						: args.base.name;
+			const contextHeader = this.buildContextHeader(
+				args.filepath,
+				args.parentClassName,
+				functionName,
+				isContinuation,
+			);
+			const fullText = `${contextHeader}\n${text}`;
+			const tokenFacts = this.extractAstTokenFacts(args.node, args.lang, {
+				startIndex: groupStartByte,
+				endIndex: endByte,
+			});
+
+			chunks.push({
+				text,
+				contextHeader,
+				type: args.type,
+				name: args.base.name,
+				startLine: groupStartLine,
+				endLine,
+				startByte: groupStartByte,
+				endByte,
+				contentHash: computeStringHash(fullText),
+				signature: isContinuation ? null : args.base.signature,
+				docstring: isContinuation ? null : args.base.docstring,
+				isExported: args.base.isExported,
+				decoratorNames: isContinuation ? null : args.base.decoratorNames,
+				identifiers: tokenFacts.identifiers,
+				identifierParts: tokenFacts.identifierParts,
+				calledNames: tokenFacts.calledNames,
+				stringLiterals: tokenFacts.stringLiterals,
+			});
+
+			groupHasAny = false;
+		};
+
+		for (const stmt of statements) {
+			const stmtStartLine = stmt.startPosition.row + 1;
+			const stmtEndLine = stmt.endPosition.row + 1;
+
+			const candidateEndLine = stmtEndLine;
+			const candidateText = args.lines
+				.slice(groupStartLine - 1, candidateEndLine)
+				.join('\n');
+
+			if (
+				candidateText.length > args.maxChunkSize &&
+				groupHasAny &&
+				chunks.length < 2000
+			) {
+				flush(false);
+				groupStartLine = stmtStartLine;
+				groupStartByte = stmt.startIndex;
+			}
+
+			groupEndLine = stmtEndLine;
+			groupEndByte = stmt.endIndex;
+			groupHasAny = true;
+		}
+
+		flush(true);
+
+		return chunks;
 	}
 
 	/**
@@ -1235,6 +1415,256 @@ export class Chunker {
 		return parts.join(', ');
 	}
 
+	private uniqueStable(values: string[]): string[] {
+		if (values.length <= 1) return values;
+		const out: string[] = [];
+		const seen = new Set<string>();
+		for (const value of values) {
+			if (!seen.has(value)) {
+				seen.add(value);
+				out.push(value);
+			}
+		}
+		return out;
+	}
+
+	private splitIdentifierParts(identifier: string): string[] {
+		const raw = identifier.trim();
+		if (!raw) return [];
+
+		const parts: string[] = [];
+		const tokens = raw.split(/[^A-Za-z0-9]+/g).filter(Boolean);
+		for (const token of tokens) {
+			// Split camelCase / PascalCase / SCREAMING_SNAKE / digits.
+			const matches = token.match(/[A-Z]+(?![a-z])|[A-Z]?[a-z]+|[0-9]+/g);
+			if (matches) {
+				for (const match of matches) {
+					const lowered = match.toLowerCase();
+					if (lowered) parts.push(lowered);
+				}
+			} else {
+				const lowered = token.toLowerCase();
+				if (lowered) parts.push(lowered);
+			}
+		}
+		return parts;
+	}
+
+	private stripStringLiteral(text: string): string | null {
+		const raw = text.trim();
+		if (!raw) return null;
+
+		// C# verbatim/interpolated strings: @"..." / $@"..." / @$"..." / $"..."
+		const csharpPrefixMatch = raw.match(/^(\$@|@\$\s*|\$|@)"/);
+		if (csharpPrefixMatch) {
+			const start = csharpPrefixMatch[0].replace(/\s+/g, '').length - 1; // keep the opening quote
+			const inner = raw.slice(start);
+			if (inner.startsWith('"') && inner.endsWith('"') && inner.length >= 2) {
+				return inner.slice(1, -1);
+			}
+		}
+
+		// Rust raw strings: r"..." / r#"..."# / r##"..."##
+		const rustRaw = raw.match(/^r(#+)?"([\s\S]*)"(\1)$/);
+		if (rustRaw) {
+			return rustRaw[2] ?? '';
+		}
+
+		// Python triple-quoted strings.
+		if (
+			(raw.startsWith("'''") && raw.endsWith("'''") && raw.length >= 6) ||
+			(raw.startsWith('"""') && raw.endsWith('"""') && raw.length >= 6)
+		) {
+			return raw.slice(3, -3);
+		}
+
+		// Common quoting.
+		const first = raw[0];
+		const last = raw[raw.length - 1];
+		if (
+			(first === '"' && last === '"') ||
+			(first === "'" && last === "'") ||
+			(first === '`' && last === '`')
+		) {
+			return raw.slice(1, -1);
+		}
+
+		return raw;
+	}
+
+	private isIdentifierLike(text: string): boolean {
+		return /^[A-Za-z_][A-Za-z0-9_]*$/.test(text);
+	}
+
+	private isIdentifierNodeType(nodeType: string): boolean {
+		if (nodeType === 'identifier' || nodeType === 'name') return true;
+		if (nodeType.endsWith('identifier')) return true;
+		return false;
+	}
+
+	private isStringLiteralNodeType(nodeType: string): boolean {
+		if (nodeType === 'string') return true;
+		if (nodeType === 'string_literal') return true;
+		if (nodeType === 'template_string') return true;
+		if (nodeType === 'interpreted_string_literal') return true;
+		if (nodeType === 'raw_string_literal') return true;
+		if (nodeType === 'character_literal' || nodeType === 'char_literal')
+			return true;
+
+		if (nodeType.includes('string')) {
+			if (nodeType.includes('content')) return false;
+			if (nodeType.includes('interpolation')) return false;
+			if (nodeType.includes('escape')) return false;
+			return true;
+		}
+
+		return false;
+	}
+
+	private isCallExpressionNodeType(nodeType: string): boolean {
+		if (nodeType === 'call' || nodeType === 'call_expression') return true;
+		if (nodeType === 'new_expression') return true;
+		if (nodeType.endsWith('invocation') || nodeType.includes('invocation'))
+			return true;
+		if (nodeType === 'macro_invocation') return true;
+		if (nodeType === 'invocation_expression') return true;
+		if (nodeType.endsWith('_call_expression')) return true;
+		if (nodeType.endsWith('_call')) return true;
+		return nodeType.includes('call') && nodeType.includes('expression');
+	}
+
+	private extractCalleeText(node: Parser.SyntaxNode): string | null {
+		const direct =
+			node.childForFieldName('function') ??
+			node.childForFieldName('name') ??
+			node.childForFieldName('method') ??
+			node.childForFieldName('callee') ??
+			node.childForFieldName('target') ??
+			node.childForFieldName('macro');
+		if (direct) return direct.text.trim();
+
+		// Best-effort: some grammars put the callee as the first named child.
+		if (node.namedChildCount > 0) {
+			const first = node.namedChild(0);
+			if (first) return first.text.trim();
+		}
+		return null;
+	}
+
+	private normalizeCalledName(text: string): string[] {
+		const raw = text.trim();
+		if (!raw) return [];
+
+		const out: string[] = [];
+
+		if (raw.length <= 128) out.push(raw);
+
+		// Also include the last identifier-like segment for member/qualified calls.
+		const lastId = raw.match(/([A-Za-z_][A-Za-z0-9_]*)\s*$/);
+		if (lastId?.[1]) out.push(lastId[1]);
+
+		return this.uniqueStable(out);
+	}
+
+	private extractAstTokenFacts(
+		node: Parser.SyntaxNode,
+		lang: SupportedLanguage,
+		range?: {startIndex: number; endIndex: number},
+	): TokenFacts {
+		const identifiers: string[] = [];
+		const calledNames: string[] = [];
+		const stringLiterals: string[] = [];
+
+		const overlaps = (n: Parser.SyntaxNode): boolean => {
+			if (!range) return true;
+			// tree-sitter indices are byte offsets with endIndex exclusive.
+			return n.endIndex > range.startIndex && n.startIndex < range.endIndex;
+		};
+
+		const within = (n: Parser.SyntaxNode): boolean => {
+			if (!range) return true;
+			return n.startIndex >= range.startIndex && n.endIndex <= range.endIndex;
+		};
+
+		const walk = (n: Parser.SyntaxNode) => {
+			if (!overlaps(n)) return;
+
+			if (this.isIdentifierNodeType(n.type) && within(n)) {
+				const text = n.text.trim();
+				if (text && this.isIdentifierLike(text)) {
+					identifiers.push(text);
+				}
+			}
+
+			if (this.isStringLiteralNodeType(n.type) && within(n)) {
+				const stripped = this.stripStringLiteral(n.text);
+				if (stripped) {
+					// Avoid massive captures (e.g., huge template strings).
+					stringLiterals.push(stripped.slice(0, 512));
+				}
+			}
+
+			if (this.isCallExpressionNodeType(n.type) && overlaps(n)) {
+				const callee = this.extractCalleeText(n);
+				if (callee) {
+					for (const normalized of this.normalizeCalledName(callee)) {
+						if (normalized) calledNames.push(normalized);
+					}
+				}
+			}
+
+			for (let i = 0; i < n.namedChildCount; i++) {
+				const child = n.namedChild(i);
+				if (child) walk(child);
+			}
+		};
+
+		// Some grammars (e.g., python) label calls/identifiers differently, but the
+		// traversal is language-agnostic; lang is reserved for future tuning.
+		void lang;
+		walk(node);
+
+		const uniqueIdentifiers = this.uniqueStable(identifiers);
+		const identifierParts = this.uniqueStable(
+			uniqueIdentifiers.flatMap(id => this.splitIdentifierParts(id)),
+		);
+
+		return {
+			identifiers: uniqueIdentifiers,
+			identifierParts,
+			calledNames: this.uniqueStable(calledNames),
+			stringLiterals: this.uniqueStable(stringLiterals),
+		};
+	}
+
+	private extractFallbackTokenFacts(text: string): TokenFacts {
+		const identifiers: string[] = [];
+		const stringLiterals: string[] = [];
+
+		for (const match of text.matchAll(/[A-Za-z_][A-Za-z0-9_]*/g)) {
+			if (!match[0]) continue;
+			identifiers.push(match[0]);
+		}
+
+		for (const match of text.matchAll(/(['"])(?:(?=(\\?))\2.)*?\1/g)) {
+			if (!match[0]) continue;
+			const stripped = this.stripStringLiteral(match[0]);
+			if (stripped) stringLiterals.push(stripped.slice(0, 512));
+		}
+
+		const uniqueIdentifiers = this.uniqueStable(identifiers);
+		const identifierParts = this.uniqueStable(
+			uniqueIdentifiers.flatMap(id => this.splitIdentifierParts(id)),
+		);
+
+		return {
+			identifiers: uniqueIdentifiers,
+			identifierParts,
+			calledNames: [],
+			stringLiterals: this.uniqueStable(stringLiterals),
+		};
+	}
+
 	/**
 	 * Extract the name of a function/class/method from its node.
 	 */
@@ -1309,6 +1739,7 @@ export class Chunker {
 		const lines = content.split('\n');
 		const contextHeader = this.buildContextHeader(filepath, null, null, false);
 		const fullText = `${contextHeader}\n${content}`;
+		const tokenFacts = this.extractFallbackTokenFacts(content);
 		return {
 			text: content,
 			contextHeader,
@@ -1316,12 +1747,18 @@ export class Chunker {
 			name: '',
 			startLine: 1,
 			endLine: lines.length,
+			startByte: 0,
+			endByte: Buffer.byteLength(content, 'utf8'),
 			contentHash: computeStringHash(fullText),
 			// Module chunks don't have these metadata fields
 			signature: null,
 			docstring: null,
 			isExported: true, // Entire module is implicitly "exported"
 			decoratorNames: null,
+			identifiers: tokenFacts.identifiers,
+			identifierParts: tokenFacts.identifierParts,
+			calledNames: tokenFacts.calledNames,
+			stringLiterals: tokenFacts.stringLiterals,
 		};
 	}
 
@@ -1439,10 +1876,34 @@ export class Chunker {
 						false,
 					);
 					const fullText = `${contextHeader}\n${mergedText}`;
+					const mergedIdentifiers = this.uniqueStable([
+						...prevChunk.identifiers,
+						...lastChunk.identifiers,
+					]);
+					const mergedIdentifierParts = this.uniqueStable([
+						...prevChunk.identifierParts,
+						...lastChunk.identifierParts,
+					]);
+					const mergedCalledNames = this.uniqueStable([
+						...prevChunk.calledNames,
+						...lastChunk.calledNames,
+					]);
+					const mergedStringLiterals = this.uniqueStable([
+						...prevChunk.stringLiterals,
+						...lastChunk.stringLiterals,
+					]);
 					chunks[chunks.length - 2] = {
 						...prevChunk,
 						text: mergedText,
 						endLine: lastChunk.endLine,
+						endByte:
+							prevChunk.endByte != null && lastChunk.endByte != null
+								? lastChunk.endByte
+								: null,
+						identifiers: mergedIdentifiers,
+						identifierParts: mergedIdentifierParts,
+						calledNames: mergedCalledNames,
+						stringLiterals: mergedStringLiterals,
 						contentHash: computeStringHash(fullText),
 					};
 					chunks.pop();
@@ -1471,6 +1932,7 @@ export class Chunker {
 		);
 
 		const fullText = `${contextHeader}\n${text}`;
+		const tokenFacts = this.extractFallbackTokenFacts(text);
 
 		return {
 			text,
@@ -1479,11 +1941,17 @@ export class Chunker {
 			name: '',
 			startLine,
 			endLine,
+			startByte: null,
+			endByte: null,
 			contentHash: computeStringHash(fullText),
 			signature: null,
 			docstring: null,
 			isExported: true,
 			decoratorNames: null,
+			identifiers: tokenFacts.identifiers,
+			identifierParts: tokenFacts.identifierParts,
+			calledNames: tokenFacts.calledNames,
+			stringLiterals: tokenFacts.stringLiterals,
 		};
 	}
 
@@ -1666,7 +2134,8 @@ export class Chunker {
 				? this.extractClassFromContext(original.contextHeader)
 				: null;
 		const functionName =
-			original.type === 'function' || original.type === 'method'
+			original.type === 'function' ||
+			(original.type === 'method' && isContinuation)
 				? original.name
 				: null;
 
@@ -1678,6 +2147,7 @@ export class Chunker {
 		);
 
 		const fullText = `${contextHeader}\n${text}`;
+		const tokenFacts = this.extractFallbackTokenFacts(text);
 
 		return {
 			text,
@@ -1686,6 +2156,8 @@ export class Chunker {
 			name: original.name,
 			startLine,
 			endLine,
+			startByte: null,
+			endByte: null,
 			contentHash: computeStringHash(fullText),
 			// Inherit metadata from original chunk
 			// Only first part gets the signature; continuations get null
@@ -1693,6 +2165,10 @@ export class Chunker {
 			docstring: isContinuation ? null : original.docstring,
 			isExported: original.isExported,
 			decoratorNames: isContinuation ? null : original.decoratorNames,
+			identifiers: tokenFacts.identifiers,
+			identifierParts: tokenFacts.identifierParts,
+			calledNames: tokenFacts.calledNames,
+			stringLiterals: tokenFacts.stringLiterals,
 		};
 	}
 
@@ -1728,10 +2204,35 @@ export class Chunker {
 				// Merge chunks
 				const mergedText = current.text + '\n' + next.text;
 				const fullText = `${current.contextHeader}\n${mergedText}`;
+				const mergedIdentifiers = this.uniqueStable([
+					...current.identifiers,
+					...next.identifiers,
+				]);
+				const mergedIdentifierParts = this.uniqueStable([
+					...current.identifierParts,
+					...next.identifierParts,
+				]);
+				const mergedCalledNames = this.uniqueStable([
+					...current.calledNames,
+					...next.calledNames,
+				]);
+				const mergedStringLiterals = this.uniqueStable([
+					...current.stringLiterals,
+					...next.stringLiterals,
+				]);
+
 				current = {
 					...current,
 					text: mergedText,
 					endLine: next.endLine,
+					endByte:
+						current.endByte != null && next.endByte != null
+							? next.endByte
+							: null,
+					identifiers: mergedIdentifiers,
+					identifierParts: mergedIdentifierParts,
+					calledNames: mergedCalledNames,
+					stringLiterals: mergedStringLiterals,
 					contentHash: computeStringHash(fullText),
 				};
 			} else {

@@ -60,6 +60,11 @@ Revision handling for working tree indexing:
 - `revision` is fixed to `'working'` to avoid mixed-revision rows during incremental updates.
 - Actual content changes are tracked via `file_hash`.
 
+Deterministic extraction details:
+
+- For parseable languages, `start_byte/end_byte` are sourced from tree-sitter byte offsets.
+- Token facts for `symbols` and `chunks` (`identifiers`, `identifier_parts`, `called_names`, `string_literals`) are extracted from the tree-sitter AST (with a safe fallback for unsupported/markdown content).
+
 ### 4) Retrieval: Intent Router + Multi-Channel Recall + Explainable Rerank
 
 Search uses intent routing (`auto` → concrete intent) and parallel candidate generation:
@@ -74,6 +79,12 @@ Candidates are merged and reranked with:
 - No hard heuristic filtering (filters must be explicit and transparent)
 
 Per-hit explainability includes contributing channels and applied priors.
+
+Operational robustness:
+
+- Embeddings are initialized lazily. Lexical-only intents (`exact_text`, `usage`) do not require embeddings.
+- If embeddings are unavailable for vector-requiring intents, search degrades to FTS-only and returns an explicit `warnings[]` payload.
+- `exact_text` queries `string_literals` and `code_text` to reduce false negatives for small definitions that do not emit chunk rows.
 
 ### 5) MCP Tool Surface: Minimal and Agent-Centric
 
@@ -107,7 +118,7 @@ To keep retrieval quality measurable (not “vibes”), ship a v2 eval harness t
 
 - Breaking changes: v1 schemas and MCP tool names are not preserved.
 - More complex storage schema: multiple tables and surfaces must be maintained.
-- Some extractions are best-effort (e.g., some token facts are currently regex-derived) and can be upgraded over time.
+- Some extractions are best-effort (notably `refs`), and can be upgraded over time without changing the agent-facing tool surface.
 
 ## Implementation References
 
@@ -118,6 +129,7 @@ To keep retrieval quality measurable (not “vibes”), ship a v2 eval harness t
 - V2 refs + usages: `source/daemon/services/v2/extract/extract.ts`
 - V2 eval harness: `source/daemon/services/v2/eval/eval.ts`
 - MCP tools: `source/mcp/server.ts`
+- Chunker (tree-sitter): `source/daemon/lib/chunker/index.ts`
 
 ## References
 

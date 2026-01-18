@@ -36,7 +36,8 @@
 	},
 	"scripts": {
 		"preinstall": "node scripts/check-node-version.js",
-		"build": "tsc",
+		"clean": "node scripts/clean-dist.js",
+		"build": "node scripts/clean-dist.js && tsc",
 		"dev": "tsc --watch",
 		"test": "prettier --check . && eslint . && vitest run",
 		"test:fast": "vitest run --project=fast",
@@ -46,6 +47,7 @@
 		"lint:fix": "eslint . --fix",
 		"format": "prettier --write .",
 		"prepare": "husky",
+		"prepack": "npm run build",
 		"prepublishOnly": "pinst --disable",
 		"postpublish": "pinst --enable"
 	},
@@ -60,6 +62,10 @@
 	},
 	"files": [
 		"dist",
+		"!dist/rag",
+		"!dist/rag/**",
+		"!dist/store",
+		"!dist/store/**",
 		"!dist/**/__tests__",
 		"scripts"
 	],

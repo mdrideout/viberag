@@ -7,7 +7,11 @@
 
 import * as lancedb from '@lancedb/lancedb';
 import type {Table} from '@lancedb/lancedb';
-import {loadConfig, type EmbeddingProviderType} from '../../../lib/config.js';
+import {
+	loadConfig,
+	type EmbeddingProviderType,
+	type ViberagConfig,
+} from '../../../lib/config.js';
 import type {Logger} from '../../../lib/logger.js';
 import {isAbortError, throwIfAborted} from '../../../lib/abort.js';
 import {GeminiEmbeddingProvider} from '../../../providers/gemini.js';
@@ -27,6 +31,7 @@ import type {
 	V2FindUsagesOptions,
 	V2FindUsagesResponse,
 	V2UsageRef,
+	V2SearchWarning,
 } from './types.js';
 
 const DEFAULT_K = 20;
@@ -35,6 +40,7 @@ const RRF_K = 60;
 export type SearchEngineV2Options = {
 	logger?: Logger;
 	storage?: StorageV2;
+	embeddings?: EmbeddingProvider;
 };
 
 type Candidate = {
@@ -55,32 +61,53 @@ type Candidate = {
 
 export class SearchEngineV2 {
 	private readonly projectRoot: string;
+	private config: ViberagConfig | null = null;
 	private storage: StorageV2 | null = null;
 	private embeddings: EmbeddingProvider | null = null;
+	private embeddingsInitPromise: Promise<void> | null = null;
 	private logger: Logger | null = null;
 	private initialized = false;
 	private initPromise: Promise<void> | null = null;
 	private readonly externalStorage: boolean;
+	private readonly externalEmbeddings: boolean;
 
 	constructor(projectRoot: string, options?: SearchEngineV2Options | Logger) {
 		this.projectRoot = projectRoot;
 
-		if (options && typeof options === 'object' && 'logger' in options) {
-			this.logger = options.logger ?? null;
-			if (options.storage) {
-				this.storage = options.storage;
+		if (
+			options &&
+			typeof options === 'object' &&
+			('logger' in options || 'storage' in options || 'embeddings' in options)
+		) {
+			const typed = options as SearchEngineV2Options;
+			this.logger = typed.logger ?? null;
+			if (typed.storage) {
+				this.storage = typed.storage;
 				this.externalStorage = true;
 			} else {
 				this.externalStorage = false;
 			}
+			if (typed.embeddings) {
+				this.embeddings = typed.embeddings;
+				this.externalEmbeddings = true;
+			} else {
+				this.externalEmbeddings = false;
+			}
 		} else {
 			this.logger = (options as Logger | undefined) ?? null;
 			this.externalStorage = false;
+			this.externalEmbeddings = false;
 		}
 	}
 
 	async warmup(signal?: AbortSignal): Promise<void> {
 		await this.ensureInitialized(signal);
+		try {
+			await this.ensureEmbeddingsInitialized(signal);
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			this.log('warn', `Embeddings warmup failed: ${message}`);
+		}
 	}
 
 	async search(
@@ -96,7 +123,17 @@ export class SearchEngineV2 {
 		await this.ensureInitialized();
 		const filterClause = buildScopeFilter(scope);
 
-		const queryVector = await this.embeddings!.embedSingle(query);
+		const warnings: V2SearchWarning[] = [];
+		const needsVector =
+			intent_used === 'definition' ||
+			intent_used === 'concept' ||
+			intent_used === 'similar_code';
+		const {vector: queryVector, warning} = needsVector
+			? await this.tryEmbedQuery(query)
+			: {vector: null, warning: null};
+		if (warning) {
+			warnings.push(warning);
+		}
 
 		const groups = {
 			definitions: [] as V2HitBase[],
@@ -158,6 +195,7 @@ export class SearchEngineV2 {
 			}
 			case 'similar_code': {
 				const blocks = await this.retrieveSimilarCode(
+					query,
 					queryVector,
 					k,
 					filterClause,
@@ -212,6 +250,7 @@ export class SearchEngineV2 {
 		return {
 			intent_used,
 			filters_applied: scope,
+			...(warnings.length > 0 ? {warnings} : {}),
 			groups,
 			suggested_next_actions,
 		};
@@ -270,7 +309,8 @@ export class SearchEngineV2 {
 				return {found: false, table: 'symbols', id: args.id};
 			}
 			const file_path = String(symbol['file_path'] ?? '');
-			const [neighbors, chunks] = await Promise.all([
+			const [file, neighbors, chunks] = await Promise.all([
+				this.getFileByPath(file_path),
 				this.getSymbolsInFile(file_path, limit),
 				this.getChunksForSymbol(args.id, limit),
 			]);
@@ -278,6 +318,7 @@ export class SearchEngineV2 {
 				found: true,
 				table: 'symbols',
 				symbol,
+				file,
 				neighbors,
 				chunks,
 			};
@@ -312,12 +353,13 @@ export class SearchEngineV2 {
 			if (rows.length === 0) {
 				return {found: false, table: 'chunks', id: args.id};
 			}
-			const chunk = rows[0] as Record<string, unknown>;
+			const chunk = normalizeJsonRecord(rows[0] as Record<string, unknown>);
 			const owner = chunk['owner_symbol_id']
 				? String(chunk['owner_symbol_id'])
 				: null;
 			const file_path = String(chunk['file_path'] ?? '');
-			const [neighbors, ownerSymbol, siblingChunks] = await Promise.all([
+			const [file, neighbors, ownerSymbol, siblingChunks] = await Promise.all([
+				this.getFileByPath(file_path),
 				this.getSymbolsInFile(file_path, limit),
 				owner ? this.getSymbol(owner) : Promise.resolve(null),
 				owner ? this.getChunksForSymbol(owner, limit) : Promise.resolve([]),
@@ -327,6 +369,7 @@ export class SearchEngineV2 {
 				table: 'chunks',
 				chunk,
 				owner_symbol: ownerSymbol,
+				file,
 				neighbors,
 				sibling_chunks: siblingChunks,
 			};
@@ -492,9 +535,35 @@ export class SearchEngineV2 {
 		return normalizeJsonRecord(rows[0] as Record<string, unknown>);
 	}
 
+	private async getFileByPath(
+		file_path: string,
+	): Promise<Record<string, unknown> | null> {
+		if (!file_path) return null;
+		const table = await this.getFilesTable();
+		const rows = await table
+			.query()
+			.where(`file_path = '${escapeForEquality(file_path)}'`)
+			.select([
+				'file_id',
+				'repo_id',
+				'revision',
+				'file_path',
+				'extension',
+				'file_hash',
+				'imports',
+				'exports',
+				'top_level_doc',
+				'file_summary_text',
+			])
+			.limit(1)
+			.toArray();
+		if (rows.length === 0) return null;
+		return normalizeJsonRecord(rows[0] as Record<string, unknown>);
+	}
+
 	async getSymbolsInFile(file_path: string, limit: number): Promise<unknown[]> {
 		const table = await this.getSymbolsTable();
-		return table
+		const rows = await table
 			.query()
 			.where(`file_path = '${escapeForEquality(file_path)}'`)
 			.select([
@@ -511,6 +580,11 @@ export class SearchEngineV2 {
 			])
 			.limit(limit)
 			.toArray();
+		return rows
+			.map(r => normalizeJsonRecord(r as Record<string, unknown>))
+			.sort(
+				(a, b) => Number(a['start_line'] ?? 0) - Number(b['start_line'] ?? 0),
+			);
 	}
 
 	async getChunksForSymbol(
@@ -518,7 +592,7 @@ export class SearchEngineV2 {
 		limit: number,
 	): Promise<unknown[]> {
 		const table = await this.getChunksTable();
-		return table
+		const rows = await table
 			.query()
 			.where(`owner_symbol_id = '${escapeForEquality(symbol_id)}'`)
 			.select([
@@ -534,11 +608,16 @@ export class SearchEngineV2 {
 			])
 			.limit(limit)
 			.toArray();
+		return rows
+			.map(r => normalizeJsonRecord(r as Record<string, unknown>))
+			.sort(
+				(a, b) => Number(a['start_line'] ?? 0) - Number(b['start_line'] ?? 0),
+			);
 	}
 
 	private async retrieveDefinitions(
 		query: string,
-		queryVector: number[],
+		queryVector: number[] | null,
 		k: number,
 		filterClause: string | undefined,
 		explain: boolean,
@@ -609,13 +688,15 @@ export class SearchEngineV2 {
 				filterClause,
 				'symbols.identifiers',
 			),
-			this.vectorCandidatesSymbols(
-				table,
-				queryVector,
-				oversample,
-				filterClause,
-				'symbols.vec_summary',
-			),
+			queryVector
+				? this.vectorCandidatesSymbols(
+						table,
+						queryVector,
+						oversample,
+						filterClause,
+						'symbols.vec_summary',
+					)
+				: Promise.resolve([]),
 		]);
 
 		const candidates = mergeCandidates([
@@ -630,6 +711,8 @@ export class SearchEngineV2 {
 			applyExportBoost: true,
 			applyTestDemotion: true,
 			applyDiversity: true,
+			query,
+			applyLexicalOverlap: true,
 		});
 
 		return reranked.slice(0, k).map(c => toHit(c, explain));
@@ -637,7 +720,7 @@ export class SearchEngineV2 {
 
 	private async retrieveFiles(
 		query: string,
-		queryVector: number[],
+		queryVector: number[] | null,
 		k: number,
 		filterClause: string | undefined,
 		explain: boolean,
@@ -662,13 +745,15 @@ export class SearchEngineV2 {
 				filterClause,
 				'files.fts',
 			),
-			this.vectorCandidatesFiles(
-				table,
-				queryVector,
-				oversample,
-				filterClause,
-				'files.vec_file',
-			),
+			queryVector
+				? this.vectorCandidatesFiles(
+						table,
+						queryVector,
+						oversample,
+						filterClause,
+						'files.vec_file',
+					)
+				: Promise.resolve([]),
 		]);
 
 		const candidates = mergeCandidates([ftsHits, vecHits]);
@@ -685,7 +770,7 @@ export class SearchEngineV2 {
 
 	private async retrieveBlocks(
 		query: string,
-		queryVector: number[],
+		queryVector: number[] | null,
 		k: number,
 		filterClause: string | undefined,
 		explain: boolean,
@@ -726,13 +811,15 @@ export class SearchEngineV2 {
 				filterClause,
 				'chunks.search_text',
 			),
-			this.vectorCandidatesChunks(
-				table,
-				queryVector,
-				oversample,
-				filterClause,
-				'chunks.vec_code',
-			),
+			queryVector
+				? this.vectorCandidatesChunks(
+						table,
+						queryVector,
+						oversample,
+						filterClause,
+						'chunks.vec_code',
+					)
+				: Promise.resolve([]),
 		]);
 
 		const candidates = mergeCandidates([identHits, searchHits, vecHits]);
@@ -753,8 +840,35 @@ export class SearchEngineV2 {
 		filterClause: string | undefined,
 		explain: boolean,
 	): Promise<V2HitBase[]> {
-		const table = await this.getChunksTable();
-		await ensureFtsIndex(table, 'code_text', {
+		const [chunksTable, symbolsTable] = await Promise.all([
+			this.getChunksTable(),
+			this.getSymbolsTable(),
+		]);
+		await ensureFtsIndex(chunksTable, 'string_literals', {
+			baseTokenizer: 'simple',
+			lowercase: true,
+			stem: false,
+			removeStopWords: false,
+			maxTokenLength: 256,
+			withPosition: true,
+		});
+		await ensureFtsIndex(symbolsTable, 'string_literals', {
+			baseTokenizer: 'simple',
+			lowercase: true,
+			stem: false,
+			removeStopWords: false,
+			maxTokenLength: 256,
+			withPosition: true,
+		});
+		await ensureFtsIndex(chunksTable, 'code_text', {
+			baseTokenizer: 'simple',
+			lowercase: true,
+			stem: false,
+			removeStopWords: false,
+			maxTokenLength: 256,
+			withPosition: true,
+		});
+		await ensureFtsIndex(symbolsTable, 'code_text', {
 			baseTokenizer: 'simple',
 			lowercase: true,
 			stem: false,
@@ -764,16 +878,49 @@ export class SearchEngineV2 {
 		});
 
 		const oversample = Math.min(200, Math.max(k * 8, 40));
-		const ftsHits = await this.ftsCandidatesChunks(
-			table,
-			query,
-			'code_text',
-			oversample,
-			filterClause,
-			'chunks.code_text',
-		);
+		const [chunkStringHits, symbolStringHits, chunkHits, symbolHits] =
+			await Promise.all([
+				this.ftsCandidatesChunks(
+					chunksTable,
+					query,
+					'string_literals',
+					oversample,
+					filterClause,
+					'chunks.string_literals',
+				),
+				this.ftsCandidatesSymbols(
+					symbolsTable,
+					query,
+					'string_literals',
+					oversample,
+					filterClause,
+					'symbols.string_literals',
+				),
+				this.ftsCandidatesChunks(
+					chunksTable,
+					query,
+					'code_text',
+					oversample,
+					filterClause,
+					'chunks.code_text',
+				),
+				this.ftsCandidatesSymbols(
+					symbolsTable,
+					query,
+					'code_text',
+					oversample,
+					filterClause,
+					'symbols.code_text',
+				),
+			]);
 
-		const reranked = rerankCandidates(ftsHits, {
+		const candidates = mergeCandidates([
+			chunkStringHits,
+			symbolStringHits,
+			chunkHits,
+			symbolHits,
+		]);
+		const reranked = rerankCandidates(candidates, {
 			intent: 'exact_text',
 			explain,
 			applyExportBoost: false,
@@ -785,36 +932,90 @@ export class SearchEngineV2 {
 	}
 
 	private async retrieveSimilarCode(
-		queryVector: number[],
+		query: string,
+		queryVector: number[] | null,
 		k: number,
 		filterClause: string | undefined,
 		explain: boolean,
 	): Promise<V2HitBase[]> {
 		const oversample = Math.min(200, Math.max(k * 6, 30));
-		const [chunkHits, symbolHits] = await Promise.all([
-			this.vectorCandidatesChunks(
-				await this.getChunksTable(),
-				queryVector,
-				oversample,
-				filterClause,
-				'chunks.vec_code',
-			),
-			this.vectorCandidatesSymbols(
-				await this.getSymbolsTable(),
-				queryVector,
-				oversample,
-				filterClause,
-				'symbols.vec_summary',
-			),
-		]);
 
-		const candidates = mergeCandidates([chunkHits, symbolHits]);
+		let candidates: Candidate[] = [];
+
+		if (queryVector) {
+			const [chunkHits, symbolHits] = await Promise.all([
+				this.vectorCandidatesChunks(
+					await this.getChunksTable(),
+					queryVector,
+					oversample,
+					filterClause,
+					'chunks.vec_code',
+				),
+				this.vectorCandidatesSymbols(
+					await this.getSymbolsTable(),
+					queryVector,
+					oversample,
+					filterClause,
+					'symbols.vec_summary',
+				),
+			]);
+			candidates = mergeCandidates([chunkHits, symbolHits]);
+		} else {
+			// Vector unavailable: fall back to lexical recall over search_text.
+			const fallbackQuery = buildFtsQueryFromCode(query);
+			if (!fallbackQuery) return [];
+
+			const [chunksTable, symbolsTable] = await Promise.all([
+				this.getChunksTable(),
+				this.getSymbolsTable(),
+			]);
+			await ensureFtsIndex(chunksTable, 'search_text', {
+				baseTokenizer: 'simple',
+				lowercase: true,
+				stem: false,
+				removeStopWords: false,
+				maxTokenLength: 256,
+				withPosition: false,
+			});
+			await ensureFtsIndex(symbolsTable, 'search_text', {
+				baseTokenizer: 'simple',
+				lowercase: true,
+				stem: false,
+				removeStopWords: false,
+				maxTokenLength: 256,
+				withPosition: false,
+			});
+
+			const [chunkHits, symbolHits] = await Promise.all([
+				this.ftsCandidatesChunks(
+					chunksTable,
+					fallbackQuery,
+					'search_text',
+					oversample,
+					filterClause,
+					'chunks.search_text',
+				),
+				this.ftsCandidatesSymbols(
+					symbolsTable,
+					fallbackQuery,
+					'search_text',
+					oversample,
+					filterClause,
+					'symbols.search_text',
+				),
+			]);
+
+			candidates = mergeCandidates([chunkHits, symbolHits]);
+		}
+
 		const reranked = rerankCandidates(candidates, {
 			intent: 'similar_code',
 			explain,
 			applyExportBoost: false,
 			applyTestDemotion: true,
 			applyDiversity: true,
+			query,
+			applyLexicalOverlap: true,
 		});
 		return reranked.slice(0, k).map(c => toHit(c, explain));
 	}
@@ -1097,7 +1298,8 @@ export class SearchEngineV2 {
 	private async doInitialize(signal?: AbortSignal): Promise<void> {
 		try {
 			throwIfAborted(signal, 'Warmup cancelled');
-			const config = await loadConfig(this.projectRoot);
+			this.config = await loadConfig(this.projectRoot);
+			const config = this.config;
 
 			if (!this.storage) {
 				this.storage = new StorageV2(
@@ -1107,9 +1309,6 @@ export class SearchEngineV2 {
 				await this.storage.connect();
 			}
 
-			this.embeddings = this.createEmbeddingProvider(config);
-			await this.embeddings.initialize();
-
 			this.initialized = true;
 			this.log('info', 'SearchEngineV2 initialized');
 		} catch (error) {
@@ -1118,8 +1317,6 @@ export class SearchEngineV2 {
 					this.storage?.close();
 				}
 				this.storage = null;
-				this.embeddings?.close();
-				this.embeddings = null;
 				this.initialized = false;
 			}
 			this.initPromise = null;
@@ -1146,6 +1343,60 @@ export class SearchEngineV2 {
 				throw new Error(
 					`Unknown embedding provider: ${config.embeddingProvider}`,
 				);
+		}
+	}
+
+	private async ensureEmbeddingsInitialized(
+		signal?: AbortSignal,
+	): Promise<void> {
+		if (this.embeddings) return;
+		if (this.embeddingsInitPromise) {
+			return this.embeddingsInitPromise;
+		}
+
+		this.embeddingsInitPromise = (async () => {
+			throwIfAborted(signal, 'Warmup cancelled');
+			if (!this.config) {
+				this.config = await loadConfig(this.projectRoot);
+			}
+			const provider = this.createEmbeddingProvider(this.config);
+			await provider.initialize();
+			this.embeddings = provider;
+		})().catch(error => {
+			this.embeddingsInitPromise = null;
+			throw error;
+		});
+
+		return this.embeddingsInitPromise;
+	}
+
+	private async tryEmbedQuery(query: string): Promise<{
+		vector: number[] | null;
+		warning: V2SearchWarning | null;
+	}> {
+		try {
+			await this.ensureEmbeddingsInitialized();
+			if (!this.embeddings) {
+				return {
+					vector: null,
+					warning: {
+						code: 'embeddings_unavailable',
+						message:
+							'Embeddings provider is unavailable; vector channels were skipped.',
+					},
+				};
+			}
+			const vector = await this.embeddings.embedSingle(query);
+			return {vector, warning: null};
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			return {
+				vector: null,
+				warning: {
+					code: 'embeddings_error',
+					message: `Failed to embed query; vector channels were skipped: ${message}`,
+				},
+			};
 		}
 	}
 
@@ -1195,8 +1446,12 @@ export class SearchEngineV2 {
 			this.storage?.close();
 		}
 		this.storage = null;
-		this.embeddings?.close();
+		if (!this.externalEmbeddings) {
+			this.embeddings?.close();
+		}
 		this.embeddings = null;
+		this.embeddingsInitPromise = null;
+		this.config = null;
 		this.initialized = false;
 		this.initPromise = null;
 	}
@@ -1311,31 +1566,95 @@ function normalizeUsageToken(raw: string): string | null {
 	return last;
 }
 
+function buildFtsQueryFromCode(query: string): string | null {
+	const rawTokens = query.match(/[A-Za-z_$][A-Za-z0-9_$]*/g) ?? [];
+	const filtered = rawTokens
+		.map(t => t.trim())
+		.filter(Boolean)
+		.filter(t => t.length >= 2);
+	const parts = uniqueStable(filtered.flatMap(splitIdentifierParts)).filter(
+		p => p.length >= 2 && !QUERY_STOP_WORDS.has(p),
+	);
+	if (parts.length === 0) return null;
+	return parts.slice(0, 32).join(' ');
+}
+
 async function ensureFtsIndex(
 	table: Table,
 	column: string,
 	options: Partial<lancedb.FtsOptions>,
 ): Promise<void> {
-	const indices = await table.listIndices();
-	const hasIndex = indices.some(
-		idx => idx.indexType === 'FTS' && idx.columns.includes(column),
-	);
-	if (hasIndex) return;
-	await table.createIndex(column, {
-		config: lancedb.Index.fts({
-			withPosition: options.withPosition,
-			baseTokenizer: options.baseTokenizer,
-			language: options.language,
-			maxTokenLength: options.maxTokenLength,
-			lowercase: options.lowercase,
-			stem: options.stem,
-			removeStopWords: options.removeStopWords,
-			asciiFolding: options.asciiFolding,
-			ngramMinLength: options.ngramMinLength,
-			ngramMaxLength: options.ngramMaxLength,
-			prefixOnly: options.prefixOnly,
-		}),
+	const state = getFtsIndexState(table);
+	if (state.ensured.has(column)) return;
+
+	const inflight = state.inFlight.get(column);
+	if (inflight) return inflight;
+
+	const promise = (async () => {
+		// Refresh from LanceDB the first time we see a table.
+		if (!state.loaded) {
+			try {
+				const indices = await table.listIndices();
+				for (const idx of indices as Array<{
+					indexType: string;
+					columns: string[];
+				}>) {
+					if (idx.indexType !== 'FTS') continue;
+					for (const col of idx.columns) {
+						state.ensured.add(col);
+					}
+				}
+			} catch {
+				// Ignore - we'll attempt index creation on demand.
+			} finally {
+				state.loaded = true;
+			}
+		}
+
+		if (state.ensured.has(column)) return;
+
+		await table.createIndex(column, {
+			config: lancedb.Index.fts({
+				withPosition: options.withPosition,
+				baseTokenizer: options.baseTokenizer,
+				language: options.language,
+				maxTokenLength: options.maxTokenLength,
+				lowercase: options.lowercase,
+				stem: options.stem,
+				removeStopWords: options.removeStopWords,
+				asciiFolding: options.asciiFolding,
+				ngramMinLength: options.ngramMinLength,
+				ngramMaxLength: options.ngramMaxLength,
+				prefixOnly: options.prefixOnly,
+			}),
+		});
+		state.ensured.add(column);
+	})().finally(() => {
+		state.inFlight.delete(column);
 	});
+
+	state.inFlight.set(column, promise);
+	return promise;
+}
+
+type FtsIndexState = {
+	loaded: boolean;
+	ensured: Set<string>;
+	inFlight: Map<string, Promise<void>>;
+};
+
+const FTS_INDEX_STATE = new WeakMap<Table, FtsIndexState>();
+
+function getFtsIndexState(table: Table): FtsIndexState {
+	const existing = FTS_INDEX_STATE.get(table);
+	if (existing) return existing;
+	const state: FtsIndexState = {
+		loaded: false,
+		ensured: new Set<string>(),
+		inFlight: new Map<string, Promise<void>>(),
+	};
+	FTS_INDEX_STATE.set(table, state);
+	return state;
 }
 
 function mergeCandidates(lists: Candidate[][]): Candidate[] {
@@ -1362,6 +1681,8 @@ function rerankCandidates(
 		applyExportBoost: boolean;
 		applyTestDemotion: boolean;
 		applyDiversity: boolean;
+		query?: string;
+		applyLexicalOverlap?: boolean;
 	},
 ): Array<
 	Candidate & {
@@ -1369,13 +1690,19 @@ function rerankCandidates(
 		priors: Array<{name: string; value: number; note: string}>;
 	}
 > {
-	const fileCounts = new Map<string, number>();
+	const demoteVectorOnlyIfNoOverlap =
+		options.intent === 'definition' || options.intent === 'similar_code';
+	const queryParts =
+		options.applyLexicalOverlap && options.query
+			? extractQueryParts(options.query)
+			: [];
+	const queryPartSet = new Set(queryParts);
 
 	const withScores = candidates.map(c => {
 		// RRF across channels (source-specific rank)
 		let rrf = 0;
 		for (const ch of c.channels) {
-			const weight = ch.channel === 'vector' ? 1.0 : 0.9;
+			const weight = channelRrfWeight(options.intent, ch);
 			rrf += weight * (1 / (RRF_K + ch.rank + 1));
 		}
 
@@ -1428,16 +1755,32 @@ function rerankCandidates(
 			}
 		}
 
-		if (options.applyDiversity) {
-			const count = fileCounts.get(c.file_path) ?? 0;
-			fileCounts.set(c.file_path, count + 1);
-			if (count > 0) {
-				const penalty = 1 / (1 + count * 0.25);
-				score *= penalty;
+		if (queryPartSet.size > 0) {
+			const overlap = lexicalOverlapCount(queryPartSet, c);
+			const hasVector = c.channels.some(ch => ch.channel === 'vector');
+			const hasFts = c.channels.some(ch => ch.channel === 'fts');
+
+			if (hasVector && overlap > 0) {
+				const boost = 1 + Math.min(0.25, overlap * 0.05);
+				score *= boost;
 				priors.push({
-					name: 'diversity_penalty',
-					value: penalty,
-					note: 'Soft-diversify by file',
+					name: 'lexical_overlap_boost',
+					value: boost,
+					note: `Boost vector hits with ${overlap} overlapping tokens`,
+				});
+			}
+
+			if (
+				hasVector &&
+				!hasFts &&
+				overlap === 0 &&
+				demoteVectorOnlyIfNoOverlap
+			) {
+				score *= 0.9;
+				priors.push({
+					name: 'vector_no_overlap_demotion',
+					value: 0.9,
+					note: 'Soft-demote vector-only hits with zero lexical overlap',
 				});
 			}
 		}
@@ -1445,7 +1788,164 @@ function rerankCandidates(
 		return {...c, score, priors};
 	});
 
-	return withScores.sort((a, b) => b.score - a.score);
+	if (!options.applyDiversity) {
+		return withScores.sort((a, b) => b.score - a.score);
+	}
+
+	const byScore = [...withScores].sort((a, b) => b.score - a.score);
+	const fileCounts = new Map<string, number>();
+	for (const c of byScore) {
+		const count = fileCounts.get(c.file_path) ?? 0;
+		fileCounts.set(c.file_path, count + 1);
+		if (count > 0) {
+			const penalty = 1 / (1 + count * 0.25);
+			c.score *= penalty;
+			c.priors.push({
+				name: 'diversity_penalty',
+				value: penalty,
+				note: 'Soft-diversify by file',
+			});
+		}
+	}
+	return byScore.sort((a, b) => b.score - a.score);
+}
+
+function channelRrfWeight(
+	intent: Exclude<V2SearchIntent, 'auto'>,
+	channel: V2ExplainChannel,
+): number {
+	const base = channel.channel === 'vector' ? 1.0 : 0.9;
+	const s = channel.source;
+
+	switch (intent) {
+		case 'definition': {
+			if (s === 'symbols.name') return 1.35;
+			if (s === 'symbols.qualname') return 1.25;
+			if (s === 'symbols.identifiers') return 1.05;
+			if (s === 'symbols.vec_summary') return 1.0;
+			if (s === 'symbols.search_text') return 0.95;
+			return base;
+		}
+		case 'concept': {
+			if (s === 'files.vec_file') return 1.15;
+			if (s === 'files.fts') return 1.0;
+			if (s === 'symbols.vec_summary') return 1.1;
+			if (s === 'symbols.search_text') return 1.0;
+			if (s === 'symbols.identifiers') return 0.95;
+			if (s === 'chunks.vec_code') return 1.1;
+			if (s === 'chunks.search_text') return 1.0;
+			if (s === 'chunks.identifiers') return 0.95;
+			return base;
+		}
+		case 'exact_text': {
+			if (s === 'chunks.code_text' || s === 'symbols.code_text') return 1.2;
+			return base;
+		}
+		case 'similar_code': {
+			if (s === 'chunks.vec_code') return 1.25;
+			if (s === 'symbols.vec_summary') return 1.05;
+			if (s === 'chunks.search_text' || s === 'symbols.search_text') return 0.9;
+			return base;
+		}
+		case 'usage': {
+			if (s === 'refs.token_text') return 1.0;
+			return base;
+		}
+		default: {
+			return base;
+		}
+	}
+}
+
+const QUERY_STOP_WORDS = new Set([
+	'the',
+	'a',
+	'an',
+	'and',
+	'or',
+	'to',
+	'of',
+	'in',
+	'on',
+	'for',
+	'with',
+	'without',
+	'is',
+	'are',
+	'was',
+	'were',
+	'be',
+	'been',
+	'being',
+	'does',
+	'do',
+	'did',
+	'how',
+	'what',
+	'where',
+	'when',
+	'why',
+	'which',
+	'who',
+	'whom',
+	'this',
+	'that',
+	'these',
+	'those',
+	'it',
+	'they',
+	'them',
+	'we',
+	'you',
+	'i',
+]);
+
+function extractQueryParts(query: string): string[] {
+	const tokens = query.match(/[A-Za-z_$][A-Za-z0-9_$]*/g) ?? [];
+	const parts = tokens.flatMap(splitIdentifierParts);
+	const filtered = parts.filter(p => p.length >= 2 && !QUERY_STOP_WORDS.has(p));
+	return uniqueStable(filtered).slice(0, 32);
+}
+
+function lexicalOverlapCount(
+	queryParts: Set<string>,
+	candidate: Candidate,
+): number {
+	const surface = `${candidate.title}\n${candidate.snippet}\n${candidate.file_path}`;
+	const tokens = surface.match(/[A-Za-z_$][A-Za-z0-9_$]*/g) ?? [];
+	const candidateParts = new Set(
+		uniqueStable(tokens.flatMap(splitIdentifierParts)).filter(
+			p => p.length >= 2,
+		),
+	);
+
+	let overlap = 0;
+	for (const part of queryParts) {
+		if (candidateParts.has(part)) overlap += 1;
+	}
+	return overlap;
+}
+
+function splitIdentifierParts(identifier: string): string[] {
+	const normalized = identifier.replace(/[-_]+/g, ' ');
+	const spaced = normalized
+		.replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+		.replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2');
+	return spaced
+		.split(/\s+/g)
+		.map(p => p.trim().toLowerCase())
+		.filter(Boolean);
+}
+
+function uniqueStable(items: string[]): string[] {
+	const seen = new Set<string>();
+	const out: string[] = [];
+	for (const item of items) {
+		if (seen.has(item)) continue;
+		seen.add(item);
+		out.push(item);
+	}
+	return out;
 }
 
 function toHit(

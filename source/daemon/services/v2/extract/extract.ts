@@ -213,7 +213,7 @@ export async function extractV2FromFile(
 		const identityPart =
 			normalizedSignature && normalizedSignature.length > 0
 				? normalizedSignature
-				: `${symbol_name}|${chunk.startLine}`;
+				: `${symbol_name}|${chunk.startByte ?? chunk.startLine}`;
 
 		const symbol_id = computeStringHash(
 			`${options.repoId}|${filePath}|${symbol_kind}|${qualname}|${identityPart}`,
@@ -230,10 +230,10 @@ export async function extractV2FromFile(
 					.filter(Boolean)
 			: [];
 
-		const {identifiers, identifier_parts, called_names} = extractTokenFacts(
-			chunk.text,
-		);
-		const string_literals = extractStringLiterals(chunk.text);
+		const identifiers = chunk.identifiers;
+		const identifier_parts = chunk.identifierParts;
+		const called_names = chunk.calledNames;
+		const string_literals = chunk.stringLiterals;
 
 		const identifiers_text = identifiers.join(' ');
 
@@ -261,8 +261,8 @@ export async function extractV2FromFile(
 			language_hint,
 			start_line: chunk.startLine,
 			end_line: chunk.endLine,
-			start_byte: null,
-			end_byte: null,
+			start_byte: chunk.startByte,
+			end_byte: chunk.endByte,
 
 			symbol_kind,
 			symbol_name,
@@ -283,7 +283,7 @@ export async function extractV2FromFile(
 			called_names,
 			string_literals,
 
-			content_hash: computeStringHash(`${chunk.contextHeader}\n${chunk.text}`),
+			content_hash: chunk.contentHash,
 			file_hash,
 
 			embed_input,
@@ -328,10 +328,10 @@ export async function extractV2FromFile(
 			continue;
 		}
 
-		const {identifiers, identifier_parts, called_names} = extractTokenFacts(
-			chunk.text,
-		);
-		const string_literals = extractStringLiterals(chunk.text);
+		const identifiers = chunk.identifiers;
+		const identifier_parts = chunk.identifierParts;
+		const called_names = chunk.calledNames;
+		const string_literals = chunk.stringLiterals;
 		const identifiers_text = identifiers.join(' ');
 
 		const search_text = buildChunkSearchText({
@@ -341,12 +341,13 @@ export async function extractV2FromFile(
 		});
 
 		const embed_input = `${chunk.contextHeader}\n${chunk.text}`;
-		const embed_hash = computeStringHash(embed_input);
+		const content_hash = chunk.contentHash;
+		const embed_hash = content_hash;
 
-		const content_hash = computeStringHash(embed_input);
-
+		const startKey = chunk.startByte ?? chunk.startLine;
+		const endKey = chunk.endByte ?? chunk.endLine;
 		const chunk_id = computeStringHash(
-			`${owner_symbol_id ?? ''}|${filePath}|${chunk.startLine}|${chunk.endLine}|${content_hash}`,
+			`${owner_symbol_id ?? ''}|${filePath}|${startKey}|${endKey}|${content_hash}`,
 		);
 
 		extractedChunks.push({
@@ -357,8 +358,8 @@ export async function extractV2FromFile(
 			extension,
 			start_line: chunk.startLine,
 			end_line: chunk.endLine,
-			start_byte: null,
-			end_byte: null,
+			start_byte: chunk.startByte,
+			end_byte: chunk.endByte,
 
 			owner_symbol_id,
 			chunk_kind,
@@ -555,25 +556,6 @@ function buildSymbolLookupKeyFromChunk(chunk: Chunk): string {
 	return `${chunk.type}|${chunk.name ?? ''}`;
 }
 
-function extractTokenFacts(codeText: string): {
-	identifiers: string[];
-	identifier_parts: string[];
-	called_names: string[];
-} {
-	const identifiers = extractIdentifiers(codeText);
-	const identifier_parts = uniqueStable(
-		identifiers.flatMap(splitIdentifierParts),
-	);
-	const called_names = extractCalledNames(codeText);
-	return {identifiers, identifier_parts, called_names};
-}
-
-function extractIdentifiers(text: string): string[] {
-	const pattern = /[A-Za-z_$][A-Za-z0-9_$]*/g;
-	const matches = text.match(pattern) ?? [];
-	return uniqueStable(matches);
-}
-
 const NON_CALL_NAMES = new Set([
 	'if',
 	'for',
@@ -593,47 +575,6 @@ const NON_CALL_NAMES = new Set([
 	'break',
 	'continue',
 ]);
-
-function extractCalledNames(text: string): string[] {
-	const pattern =
-		/\b([A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)*)\s*\(/g;
-	const results: string[] = [];
-	let match: RegExpExecArray | null;
-	while ((match = pattern.exec(text)) !== null) {
-		const full = match[1] ?? '';
-		if (!full) continue;
-		const last = full.includes('.') ? full.split('.').pop()! : full;
-		if (NON_CALL_NAMES.has(last)) continue;
-		results.push(last);
-	}
-	return uniqueStable(results);
-}
-
-function extractStringLiterals(text: string): string[] {
-	const matches: string[] = [];
-	const pattern =
-		/("([^"\\\n]|\\.)*")|('([^'\\\n]|\\.)*')|(`([^`\\\n]|\\.)*`)/g;
-	let match: RegExpExecArray | null;
-	while ((match = pattern.exec(text)) !== null) {
-		const raw = match[0] ?? '';
-		if (raw.length < 2) continue;
-		const inner = raw.slice(1, -1);
-		if (inner.trim().length === 0) continue;
-		matches.push(inner);
-	}
-	return uniqueStable(matches);
-}
-
-function splitIdentifierParts(identifier: string): string[] {
-	const normalized = identifier.replace(/[-_]+/g, ' ');
-	const spaced = normalized
-		.replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-		.replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2');
-	return spaced
-		.split(/\s+/g)
-		.map(p => p.trim().toLowerCase())
-		.filter(Boolean);
-}
 
 function uniqueStable(items: string[]): string[] {
 	const seen = new Set<string>();
@@ -721,16 +662,18 @@ function extractRefsFromContent(args: {
 	content: string;
 }): V2ExtractedRef[] {
 	const lineStarts = buildLineStarts(args.content);
-	const matches: RefMatch[] = [
+	const rawMatches: RefMatch[] = [
 		...extractImportRefMatches(args.content, args.extension),
 		...extractCallRefMatches(args.content),
 		...extractStringLiteralRefMatches(args.content),
 		...extractIdentifierRefMatches(args.content),
 	];
 
-	matches.sort(
+	rawMatches.sort(
 		(a, b) => a.startIndex - b.startIndex || a.endIndex - b.endIndex,
 	);
+
+	const matches = dedupeRefMatches(rawMatches);
 
 	const refs: V2ExtractedRef[] = [];
 	for (const m of matches) {
@@ -766,6 +709,50 @@ function extractRefsFromContent(args: {
 	}
 
 	return refs;
+}
+
+function dedupeRefMatches(matches: RefMatch[]): RefMatch[] {
+	const byKey = new Map<
+		string,
+		{
+			match: RefMatch;
+			order: number;
+		}
+	>();
+
+	for (let i = 0; i < matches.length; i++) {
+		const m = matches[i]!;
+		const key = `${m.startIndex}|${m.endIndex}|${m.token_text}`;
+		const existing = byKey.get(key);
+		if (!existing) {
+			byKey.set(key, {match: m, order: i});
+			continue;
+		}
+		if (
+			refKindPriority(m.ref_kind) > refKindPriority(existing.match.ref_kind)
+		) {
+			byKey.set(key, {match: m, order: existing.order});
+		}
+	}
+
+	return [...byKey.values()]
+		.sort((a, b) => a.order - b.order)
+		.map(v => v.match);
+}
+
+function refKindPriority(kind: RefMatch['ref_kind']): number {
+	switch (kind) {
+		case 'import':
+			return 4;
+		case 'call':
+			return 3;
+		case 'identifier':
+			return 2;
+		case 'string_literal':
+			return 1;
+		default:
+			return 0;
+	}
 }
 
 function buildLineStarts(text: string): number[] {
@@ -893,6 +880,7 @@ function extractCallRefMatches(text: string): RefMatch[] {
 		if (!full) continue;
 		const last = full.includes('.') ? full.split('.').pop()! : full;
 		if (NON_CALL_NAMES.has(last)) continue;
+		if (isLikelyDefinitionCallMatch(text, match.index)) continue;
 		const localIdx = full.lastIndexOf(last);
 		const startIndex = match.index + localIdx;
 		matches.push({
@@ -905,6 +893,41 @@ function extractCallRefMatches(text: string): RefMatch[] {
 		});
 	}
 	return matches;
+}
+
+function isLikelyDefinitionCallMatch(
+	text: string,
+	calleeStartIndex: number,
+): boolean {
+	const lineStart =
+		text.lastIndexOf('\n', Math.max(0, calleeStartIndex - 1)) + 1;
+	const prefix = text.slice(lineStart, calleeStartIndex);
+
+	// JS/TS function declarations: export default async function foo(
+	if (
+		/^\s*(export\s+)?(default\s+)?(declare\s+)?(async\s+)?function\*?\s*$/.test(
+			prefix,
+		)
+	) {
+		return true;
+	}
+
+	// Python defs: async def foo(
+	if (/^\s*(async\s+)?def\s*$/.test(prefix)) {
+		return true;
+	}
+
+	// Rust fns: pub async fn foo(
+	if (/^\s*(pub\s+)?(async\s+)?fn\s*$/.test(prefix)) {
+		return true;
+	}
+
+	// Go funcs: func foo( or func (r *Receiver) Foo(
+	if (/^\s*func(?:\s*\([^)]*\))?\s*$/.test(prefix)) {
+		return true;
+	}
+
+	return false;
 }
 
 function extractStringLiteralRefMatches(text: string): RefMatch[] {

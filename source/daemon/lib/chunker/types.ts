@@ -23,6 +23,10 @@ export interface Chunk {
 	startLine: number;
 	/** End line number (1-indexed) */
 	endLine: number;
+	/** Start byte offset in file (tree-sitter startIndex when available) */
+	startByte: number | null;
+	/** End byte offset in file (tree-sitter endIndex when available) */
+	endByte: number | null;
 	/** SHA256 hash of contextHeader + text */
 	contentHash: string;
 	// New in schema v2: deterministic AST-derived metadata
@@ -34,6 +38,11 @@ export interface Chunk {
 	isExported: boolean;
 	/** Comma-separated decorator/annotation names (null if none) */
 	decoratorNames: string | null;
+	// Deterministic token facts (AST-derived when available)
+	identifiers: string[];
+	identifierParts: string[];
+	calledNames: string[];
+	stringLiterals: string[];
 }
 
 /**

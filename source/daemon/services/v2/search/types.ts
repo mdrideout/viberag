@@ -14,6 +14,11 @@ export type V2SearchIntent =
 	| 'exact_text'
 	| 'similar_code';
 
+export type V2SearchWarning = {
+	code: string;
+	message: string;
+};
+
 export type V2SearchScope = {
 	path_prefix?: string[];
 	path_contains?: string[];
@@ -60,6 +65,7 @@ export type V2NextAction = {
 export type V2SearchResponse = {
 	intent_used: Exclude<V2SearchIntent, 'auto'>;
 	filters_applied: V2SearchScope;
+	warnings?: V2SearchWarning[];
 	groups: V2SearchGroups;
 	suggested_next_actions: V2NextAction[];
 };
