@@ -112,6 +112,7 @@ class FlakyBatchEmbeddingProvider implements EmbeddingProvider {
 			metadataBatches,
 			options?.logger,
 			options?.chunkOffset ?? 0,
+			options?.signal,
 		);
 	}
 

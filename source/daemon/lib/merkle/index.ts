@@ -28,6 +28,7 @@ import {
 } from './hash.js';
 import {compareTrees, type TreeDiff} from './diff.js';
 import {loadGitignore, getGlobIgnorePatterns} from '../gitignore.js';
+import {throwIfAborted} from '../abort.js';
 
 // ============================================================================
 // Types
@@ -101,7 +102,9 @@ export class MerkleTree {
 		_excludePatterns: string[],
 		previousTree?: MerkleTree,
 		onProgress?: (progress: BuildProgress) => void,
+		signal?: AbortSignal,
 	): Promise<MerkleTree> {
+		throwIfAborted(signal, 'Scan cancelled');
 		const normalizePath = (filePath: string): string =>
 			filePath.replace(/\\/g, '/');
 
@@ -136,6 +139,7 @@ export class MerkleTree {
 			// Apply gitignore patterns upfront so fast-glob skips excluded directories
 			ignore: globIgnorePatterns,
 		});
+		throwIfAborted(signal, 'Scan cancelled');
 
 		const normalizedFiles = files.map(normalizePath);
 		stats.filesScanned = normalizedFiles.length;
@@ -167,6 +171,7 @@ export class MerkleTree {
 		onProgress?.({stage: 'Hashing files', current: 0, total: totalFiles});
 
 		for (const relativePath of validFiles) {
+			throwIfAborted(signal, 'Scan cancelled');
 			const absolutePath = path.join(projectRoot, relativePath);
 
 			try {

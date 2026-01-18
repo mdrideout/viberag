@@ -16,6 +16,7 @@ import path from 'node:path';
 import {loadConfig, configExists, type ViberagConfig} from './lib/config.js';
 import {loadManifest, manifestExists} from './lib/manifest.js';
 import {createServiceLogger, type Logger} from './lib/logger.js';
+import {isAbortError, throwIfAborted} from './lib/abort.js';
 import {daemonState, type IndexingStatus} from './state.js';
 import {SearchEngine} from './services/search/index.js';
 import type {SearchResults} from './services/search/types.js';
@@ -27,6 +28,8 @@ import {Storage} from './services/storage/index.js';
 // ============================================================================
 // Types
 // ============================================================================
+
+const AUTO_INDEX_CANCEL_PAUSE_MS = 30_000;
 
 /**
  * Search options passed from client.
@@ -49,6 +52,25 @@ export interface DaemonSearchOptions {
  */
 export interface DaemonIndexOptions {
 	force?: boolean;
+}
+
+/**
+ * Cancel options passed from client.
+ */
+export interface DaemonCancelOptions {
+	target?: 'indexing' | 'warmup' | 'all';
+	reason?: string;
+}
+
+/**
+ * Cancel response for clients.
+ */
+export interface DaemonCancelResponse {
+	cancelled: boolean;
+	targets: Array<'indexing' | 'warmup'>;
+	skipped: Array<'indexing' | 'warmup'>;
+	reason: string | null;
+	message: string;
 }
 
 /**
@@ -87,11 +109,21 @@ export interface DaemonStatus {
 	embeddingModel?: string;
 	warmupStatus: string;
 	warmupElapsedMs?: number;
+	warmupCancelRequestedAt?: string | null;
+	warmupCancelledAt?: string | null;
+	warmupCancelReason?: string | null;
 	watcherStatus: WatcherStatus;
 
 	// Indexing state for polling-based updates
 	indexing: {
-		status: 'idle' | 'initializing' | 'indexing' | 'complete' | 'error';
+		status:
+			| 'idle'
+			| 'initializing'
+			| 'indexing'
+			| 'cancelling'
+			| 'cancelled'
+			| 'complete'
+			| 'error';
 		phase: IndexingPhase | null;
 		current: number;
 		total: number;
@@ -100,9 +132,16 @@ export interface DaemonStatus {
 		chunksProcessed: number;
 		throttleMessage: string | null;
 		error: string | null;
+		startedAt: string | null;
 		lastCompleted: string | null;
 		lastStats: IndexStats | null;
 		lastProgressAt: string | null;
+		cancelRequestedAt: string | null;
+		cancelledAt: string | null;
+		lastCancelled: string | null;
+		cancelReason: string | null;
+		secondsSinceProgress: number | null;
+		elapsedMs: number | null;
 		percent: number;
 	};
 
@@ -135,6 +174,8 @@ export class DaemonOwner {
 	private searchEngine: SearchEngine | null = null;
 	private warmupPromise: Promise<SearchEngine> | null = null;
 	private warmupStartTime: number | null = null;
+	private warmupAbortController: AbortController | null = null;
+	private indexingAbortController: AbortController | null = null;
 
 	constructor(projectRoot: string) {
 		this.projectRoot = projectRoot;
@@ -317,6 +358,7 @@ export class DaemonOwner {
 	 */
 	private wireIndexingEvents(indexer: IndexingService): void {
 		indexer.on('start', () => {
+			const startedAt = new Date().toISOString();
 			daemonState.updateNested('indexing', () => ({
 				status: 'initializing' as const,
 				phase: 'init' as const,
@@ -327,7 +369,11 @@ export class DaemonOwner {
 				chunksProcessed: 0,
 				throttleMessage: null,
 				error: null,
-				lastProgressAt: new Date().toISOString(),
+				startedAt,
+				lastProgressAt: startedAt,
+				cancelRequestedAt: null,
+				cancelledAt: null,
+				cancelReason: null,
 			}));
 			// Reset slots
 			daemonState.update(state => ({
@@ -377,6 +423,10 @@ export class DaemonOwner {
 				lastCompleted: new Date().toISOString(),
 				throttleMessage: null,
 				lastProgressAt: new Date().toISOString(),
+				startedAt: null,
+				cancelRequestedAt: null,
+				cancelledAt: null,
+				cancelReason: null,
 			}));
 			// Reset to idle after a short delay
 			setTimeout(() => {
@@ -400,7 +450,36 @@ export class DaemonOwner {
 				stage: current.stage,
 				error: error.message,
 				lastProgressAt: new Date().toISOString(),
+				startedAt: null,
 			}));
+		});
+
+		indexer.on('cancelled', ({reason}) => {
+			const cancelledAt = new Date().toISOString();
+			daemonState.updateNested('indexing', current => ({
+				status: 'cancelled' as const,
+				phase: null,
+				unit: null,
+				stage: 'Cancelled',
+				error: null,
+				throttleMessage: null,
+				lastProgressAt: cancelledAt,
+				startedAt: null,
+				cancelledAt,
+				lastCancelled: cancelledAt,
+				cancelReason: reason ?? current.cancelReason,
+			}));
+			setTimeout(() => {
+				const state = daemonState.getSnapshot();
+				if (state.indexing.status === 'cancelled') {
+					daemonState.updateNested('indexing', () => ({
+						status: 'idle' as const,
+						phase: null,
+						unit: null,
+						stage: '',
+					}));
+				}
+			}, 1000);
 		});
 
 		// Slot events
@@ -470,7 +549,10 @@ export class DaemonOwner {
 			return; // Already started or ready
 		}
 
-		this.warmupPromise = this.doWarmup().catch(error => {
+		this.warmupAbortController = new AbortController();
+		const signal = this.warmupAbortController.signal;
+
+		this.warmupPromise = this.doWarmup(signal).catch(error => {
 			// Error captured in state, re-throw for chain
 			throw error;
 		});
@@ -479,10 +561,11 @@ export class DaemonOwner {
 	/**
 	 * Perform warmup - initialize SearchEngine with embedding provider.
 	 */
-	private async doWarmup(): Promise<SearchEngine> {
+	private async doWarmup(signal?: AbortSignal): Promise<SearchEngine> {
 		this.warmupStartTime = Date.now();
 
 		try {
+			throwIfAborted(signal, 'Warmup cancelled');
 			if (!this.config) {
 				throw new Error('Config not loaded');
 			}
@@ -493,6 +576,9 @@ export class DaemonOwner {
 				provider: this.config!.embeddingProvider,
 				error: null,
 				startedAt: new Date().toISOString(),
+				cancelRequestedAt: null,
+				cancelledAt: null,
+				cancelReason: null,
 			}));
 
 			this.log('info', `Warming up ${this.config.embeddingProvider} provider`);
@@ -507,7 +593,7 @@ export class DaemonOwner {
 			const isLocal = this.config.embeddingProvider.startsWith('local');
 			const timeout = isLocal ? 180000 : 30000;
 
-			const initPromise = engine.warmup();
+			const initPromise = engine.warmup(signal);
 			const timeoutPromise = new Promise<never>((_, reject) => {
 				setTimeout(() => {
 					reject(
@@ -520,9 +606,11 @@ export class DaemonOwner {
 			});
 
 			await Promise.race([initPromise, timeoutPromise]);
+			throwIfAborted(signal, 'Warmup cancelled');
 
 			const elapsed = Date.now() - this.warmupStartTime;
 			this.searchEngine = engine;
+			this.warmupAbortController = null;
 
 			daemonState.updateNested('warmup', () => ({
 				status: 'ready' as const,
@@ -535,6 +623,20 @@ export class DaemonOwner {
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
 
+			if (isAbortError(error) || signal?.aborted) {
+				const cancelledAt = new Date().toISOString();
+				daemonState.updateNested('warmup', () => ({
+					status: 'cancelled' as const,
+					error: message,
+					cancelledAt,
+					cancelReason: message,
+				}));
+				this.log('info', `Warmup cancelled: ${message}`);
+				this.warmupPromise = null;
+				this.warmupAbortController = null;
+				throw error;
+			}
+
 			daemonState.updateNested('warmup', () => ({
 				status: 'failed' as const,
 				error: message,
@@ -544,6 +646,7 @@ export class DaemonOwner {
 
 			// Clear promise to allow retry
 			this.warmupPromise = null;
+			this.warmupAbortController = null;
 
 			throw error;
 		}
@@ -560,7 +663,10 @@ export class DaemonOwner {
 			return this.warmupPromise;
 		}
 		// Start warmup and wait
-		this.warmupPromise = this.doWarmup();
+		this.startWarmup();
+		if (!this.warmupPromise) {
+			throw new Error('Warmup failed to start');
+		}
 		return this.warmupPromise;
 	}
 
@@ -586,10 +692,19 @@ export class DaemonOwner {
 		// Notify watcher that indexing is starting
 		this.watcher?.setIndexingState(true);
 
+		if (
+			!this.indexingAbortController ||
+			this.indexingAbortController.signal.aborted
+		) {
+			this.indexingAbortController = new AbortController();
+		}
+		const signal = this.indexingAbortController.signal;
+
 		// Create IndexingService with shared storage
 		const indexer = new IndexingService(this.projectRoot, {
 			logger: this.logger ?? undefined,
 			storage: this.storage ?? undefined,
+			signal,
 		});
 
 		// Wire events to state
@@ -625,7 +740,82 @@ export class DaemonOwner {
 		} finally {
 			indexer.close();
 			this.watcher?.setIndexingState(false);
+			this.indexingAbortController = null;
 		}
+	}
+
+	/**
+	 * Cancel any in-progress daemon activity (indexing or warmup).
+	 */
+	async cancelActivity(
+		options: DaemonCancelOptions = {},
+	): Promise<DaemonCancelResponse> {
+		const target = options.target ?? 'all';
+		const reason = options.reason?.trim();
+		const cancelReason =
+			reason && reason.length > 0 ? reason : 'cancel requested';
+		const nowIso = new Date().toISOString();
+		const targets: Array<'indexing' | 'warmup'> = [];
+		const skipped: Array<'indexing' | 'warmup'> = [];
+
+		if (target === 'all' || target === 'indexing') {
+			const canCancelIndexing =
+				this.indexingAbortController &&
+				!this.indexingAbortController.signal.aborted;
+
+			if (canCancelIndexing) {
+				daemonState.updateNested('indexing', current => ({
+					status: 'cancelling' as const,
+					cancelRequestedAt: nowIso,
+					cancelReason: cancelReason,
+					stage: current.stage || 'Cancelling',
+					lastProgressAt: nowIso,
+				}));
+				this.indexingAbortController!.abort(cancelReason);
+				this.watcher?.pauseAutoIndexing(
+					AUTO_INDEX_CANCEL_PAUSE_MS,
+					cancelReason,
+				);
+				targets.push('indexing');
+			} else {
+				skipped.push('indexing');
+			}
+		}
+
+		if (target === 'all' || target === 'warmup') {
+			const canCancelWarmup =
+				this.warmupAbortController &&
+				!this.warmupAbortController.signal.aborted;
+
+			if (canCancelWarmup) {
+				daemonState.updateNested('warmup', () => ({
+					status: 'cancelling' as const,
+					cancelRequestedAt: nowIso,
+					cancelReason: cancelReason,
+				}));
+				this.warmupAbortController!.abort(cancelReason);
+				targets.push('warmup');
+			} else {
+				skipped.push('warmup');
+			}
+		}
+
+		const cancelled = targets.length > 0;
+		const message = cancelled
+			? `Cancel requested for ${targets.join(' and ')}.`
+			: 'No active operations to cancel.';
+
+		if (cancelled) {
+			this.log('info', message);
+		}
+
+		return {
+			cancelled,
+			targets,
+			skipped,
+			reason: reason ?? null,
+			message,
+		};
 	}
 
 	/**
@@ -638,21 +828,45 @@ export class DaemonOwner {
 
 		// Calculate warmup elapsed time
 		let warmupElapsedMs: number | undefined;
+		const now = Date.now();
 		if (this.warmupStartTime) {
 			if (state.warmup.status === 'ready' || state.warmup.status === 'failed') {
 				warmupElapsedMs = state.warmup.readyAt
 					? new Date(state.warmup.readyAt).getTime() - this.warmupStartTime
-					: Date.now() - this.warmupStartTime;
-			} else if (state.warmup.status === 'initializing') {
-				warmupElapsedMs = Date.now() - this.warmupStartTime;
+					: now - this.warmupStartTime;
+			} else if (
+				state.warmup.status === 'cancelled' &&
+				state.warmup.cancelledAt
+			) {
+				warmupElapsedMs =
+					new Date(state.warmup.cancelledAt).getTime() - this.warmupStartTime;
+			} else if (
+				state.warmup.status === 'initializing' ||
+				state.warmup.status === 'cancelling'
+			) {
+				warmupElapsedMs = now - this.warmupStartTime;
 			}
 		}
+
+		const lastProgressAtMs = state.indexing.lastProgressAt
+			? new Date(state.indexing.lastProgressAt).getTime()
+			: null;
+		const secondsSinceProgress =
+			lastProgressAtMs !== null
+				? Math.max(0, Math.round((now - lastProgressAtMs) / 1000))
+				: null;
+		const elapsedMs = state.indexing.startedAt
+			? Math.max(0, now - new Date(state.indexing.startedAt).getTime())
+			: null;
 
 		const status: DaemonStatus = {
 			initialized: await configExists(this.projectRoot),
 			indexed: await manifestExists(this.projectRoot),
 			warmupStatus: state.warmup.status,
 			warmupElapsedMs,
+			warmupCancelRequestedAt: state.warmup.cancelRequestedAt,
+			warmupCancelledAt: state.warmup.cancelledAt,
+			warmupCancelReason: state.warmup.cancelReason,
 			watcherStatus: watcherStatus ?? {
 				watching: false,
 				filesWatched: 0,
@@ -661,6 +875,8 @@ export class DaemonOwner {
 				lastIndexUpdate: null,
 				indexUpToDate: false,
 				lastError: null,
+				autoIndexPausedUntil: null,
+				autoIndexPauseReason: null,
 			},
 			indexing: {
 				status: state.indexing.status,
@@ -672,9 +888,16 @@ export class DaemonOwner {
 				chunksProcessed: state.indexing.chunksProcessed,
 				throttleMessage: state.indexing.throttleMessage,
 				error: state.indexing.error,
+				startedAt: state.indexing.startedAt,
 				lastCompleted: state.indexing.lastCompleted,
 				lastStats: state.indexing.lastStats,
 				lastProgressAt: state.indexing.lastProgressAt,
+				cancelRequestedAt: state.indexing.cancelRequestedAt,
+				cancelledAt: state.indexing.cancelledAt,
+				lastCancelled: state.indexing.lastCancelled,
+				cancelReason: state.indexing.cancelReason,
+				secondsSinceProgress,
+				elapsedMs,
 				percent:
 					state.indexing.total > 0
 						? Math.round((state.indexing.current / state.indexing.total) * 100)
@@ -728,6 +951,8 @@ export class DaemonOwner {
 				lastIndexUpdate: null,
 				indexUpToDate: false,
 				lastError: null,
+				autoIndexPausedUntil: null,
+				autoIndexPauseReason: null,
 			}
 		);
 	}

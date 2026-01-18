@@ -30,7 +30,8 @@ export default function WelcomeBanner({
 			: indexStats != null && indexStats.totalChunks > 0;
 	const isIndexingActive =
 		daemonStatus?.indexing.status === 'initializing' ||
-		daemonStatus?.indexing.status === 'indexing';
+		daemonStatus?.indexing.status === 'indexing' ||
+		daemonStatus?.indexing.status === 'cancelling';
 
 	return (
 		<Box flexDirection="column" paddingX={1}>

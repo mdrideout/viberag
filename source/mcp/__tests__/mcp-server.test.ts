@@ -464,6 +464,7 @@ describe('MCP Server', () => {
 			expect(toolNames).toContain('codebase_parallel_search');
 			expect(toolNames).toContain('viberag_index');
 			expect(toolNames).toContain('viberag_status');
+			expect(toolNames).toContain('viberag_cancel');
 			expect(toolNames).toContain('viberag_watch_status');
 		});
 

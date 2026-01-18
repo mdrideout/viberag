@@ -73,6 +73,7 @@ export type DaemonMethod =
 	| 'search'
 	| 'index'
 	| 'indexAsync'
+	| 'cancel'
 	| 'status'
 	| 'watchStatus'
 	| 'shutdown'

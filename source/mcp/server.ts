@@ -24,6 +24,7 @@ import type {
 import type {IndexStats} from '../daemon/services/indexing.js';
 import {DaemonClient} from '../client/index.js';
 import {createServiceLogger, type Logger} from '../daemon/lib/logger.js';
+import type {DaemonStatusResponse} from '../client/types.js';
 
 const require = createRequire(import.meta.url);
 const pkg = require('../../package.json') as {
@@ -70,6 +71,11 @@ const MAX_RESPONSE_SIZE = 100 * 1024;
  * Overhead per result in JSON (metadata fields, formatting).
  */
 const RESULT_OVERHEAD_BYTES = 200;
+
+/**
+ * Threshold (seconds) for considering indexing stalled.
+ */
+const STALL_THRESHOLD_SECONDS = 60;
 
 /**
  * Estimate JSON response size for a set of results.
@@ -237,6 +243,57 @@ function formatIndexStats(stats: IndexStats): string {
 		embeddingsComputed: stats.embeddingsComputed,
 		embeddingsCached: stats.embeddingsCached,
 	});
+}
+
+/**
+ * Format daemon status for MCP responses.
+ */
+function formatDaemonStatusSummary(
+	status: DaemonStatusResponse,
+): Record<string, unknown> {
+	const indexing = status.indexing;
+	const stalled =
+		indexing.secondsSinceProgress !== null &&
+		(indexing.status === 'initializing' ||
+			indexing.status === 'indexing' ||
+			indexing.status === 'cancelling') &&
+		indexing.secondsSinceProgress > STALL_THRESHOLD_SECONDS;
+
+	return {
+		warmup: {
+			status: status.warmupStatus,
+			elapsedMs: status.warmupElapsedMs,
+			cancelRequestedAt: status.warmupCancelRequestedAt,
+			cancelledAt: status.warmupCancelledAt,
+			cancelReason: status.warmupCancelReason,
+		},
+		indexing: {
+			status: indexing.status,
+			phase: indexing.phase,
+			stage: indexing.stage,
+			progress: {
+				current: indexing.current,
+				total: indexing.total,
+				unit: indexing.unit,
+				percent: indexing.percent,
+				chunksProcessed: indexing.chunksProcessed,
+			},
+			throttleMessage: indexing.throttleMessage,
+			error: indexing.error,
+			startedAt: indexing.startedAt,
+			elapsedMs: indexing.elapsedMs,
+			lastProgressAt: indexing.lastProgressAt,
+			secondsSinceProgress: indexing.secondsSinceProgress,
+			stalled,
+			cancelRequestedAt: indexing.cancelRequestedAt,
+			cancelledAt: indexing.cancelledAt,
+			lastCancelled: indexing.lastCancelled,
+			cancelReason: indexing.cancelReason,
+		},
+		slots: status.slots,
+		failures: status.failures,
+		watcher: status.watcherStatus,
+	};
 }
 
 /**
@@ -553,11 +610,48 @@ Production code: { path_not_contains: ["test", "mock", "fixture"], is_exported: 
 		},
 	});
 
+	// Tool: viberag_cancel
+	server.addTool({
+		name: 'viberag_cancel',
+		description:
+			'Cancel the current daemon activity (indexing or warmup) without shutting down the daemon. ' +
+			'Use this to recover from stuck or long-running operations. ' +
+			'After cancelling, re-run viberag_index or /index if needed.',
+		parameters: z.object({
+			target: z
+				.enum(['indexing', 'warmup', 'all'])
+				.optional()
+				.default('all')
+				.describe('Which activity to cancel (default: all)'),
+			reason: z
+				.string()
+				.optional()
+				.describe('Optional reason for cancellation (logged for debugging)'),
+		}),
+		execute: async args => {
+			if (!(await client.isRunning())) {
+				return JSON.stringify({
+					cancelled: false,
+					targets: [],
+					skipped: ['indexing', 'warmup'],
+					reason: null,
+					message: 'Daemon is not running. Nothing to cancel.',
+				});
+			}
+			const response = await client.cancel({
+				target: args.target,
+				reason: args.reason,
+			});
+			return JSON.stringify(response);
+		},
+	});
+
 	// Tool: viberag_status
 	server.addTool({
 		name: 'viberag_status',
 		description:
-			'Get index status including file count, chunk count, embedding provider, schema version, and last update time. ' +
+			'Get index and daemon status including file count, chunk count, embedding provider, schema version, ' +
+			'and indexing progress (phase, stage, last progress time, throttling). ' +
 			'If schema version is outdated, run viberag_index with force=true to reindex. ' +
 			'TIP: Check status before delegating exploration to sub-agents to ensure the index is current. ' +
 			'This tool also works when the project is not initialized, providing guidance on how to set up.',
@@ -565,7 +659,7 @@ Production code: { path_not_contains: ["test", "mock", "fixture"], is_exported: 
 		execute: async () => {
 			// Check if project is initialized (don't throw, return helpful status)
 			if (!(await configExists(projectRoot))) {
-				return JSON.stringify({
+				const response: Record<string, unknown> = {
 					status: 'not_initialized',
 					message: 'VibeRAG is not initialized in this project.',
 					projectRoot,
@@ -576,14 +670,36 @@ Production code: { path_not_contains: ["test", "mock", "fixture"], is_exported: 
 							'Choose from: Gemini (free tier), OpenAI, Mistral, or Local (no API key)',
 						note: 'After initialization, run viberag_index to create the search index',
 					},
-				});
+				};
+				if (await client.isRunning()) {
+					try {
+						const daemonStatus = await client.status();
+						response['daemon'] = formatDaemonStatusSummary(daemonStatus);
+					} catch {
+						response['daemon'] = {status: 'unavailable'};
+					}
+				} else {
+					response['daemon'] = {status: 'not_running'};
+				}
+				return JSON.stringify(response);
 			}
 
 			if (!(await manifestExists(projectRoot))) {
-				return JSON.stringify({
+				const response: Record<string, unknown> = {
 					status: 'not_indexed',
 					message: 'No index found. Run viberag_index to create one.',
-				});
+				};
+				if (await client.isRunning()) {
+					try {
+						const daemonStatus = await client.status();
+						response['daemon'] = formatDaemonStatusSummary(daemonStatus);
+					} catch {
+						response['daemon'] = {status: 'unavailable'};
+					}
+				} else {
+					response['daemon'] = {status: 'not_running'};
+				}
+				return JSON.stringify(response);
 			}
 
 			const manifest = await loadManifest(projectRoot);
@@ -617,6 +733,7 @@ Production code: { path_not_contains: ["test", "mock", "fixture"], is_exported: 
 					status: daemonStatus.warmupStatus,
 					elapsedMs: daemonStatus.warmupElapsedMs,
 				};
+				response['daemon'] = formatDaemonStatusSummary(daemonStatus);
 			} catch (error) {
 				// Log unexpected errors (expected: daemon not running)
 				const message = error instanceof Error ? error.message : String(error);
@@ -632,6 +749,7 @@ Production code: { path_not_contains: ["test", "mock", "fixture"], is_exported: 
 					);
 				}
 				response['warmup'] = {status: 'unknown'};
+				response['daemon'] = {status: 'unavailable'};
 			}
 
 			return JSON.stringify(response);

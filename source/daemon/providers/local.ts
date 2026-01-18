@@ -20,6 +20,7 @@ import type {
 	ModelProgressCallback,
 	EmbedOptions,
 } from './types.js';
+import {throwIfAborted} from '../lib/abort.js';
 
 const MODEL_NAME = 'onnx-community/Qwen3-Embedding-0.6B-ONNX';
 const DIMENSIONS = 1024;
@@ -117,7 +118,7 @@ export class LocalEmbeddingProvider implements EmbeddingProvider {
 
 	async embed(
 		texts: string[],
-		_options?: EmbedOptions,
+		options?: EmbedOptions,
 	): Promise<Array<number[] | null>> {
 		if (!this.initialized) {
 			await this.initialize();
@@ -127,6 +128,8 @@ export class LocalEmbeddingProvider implements EmbeddingProvider {
 			return [];
 		}
 
+		throwIfAborted(options?.signal, 'Embedding cancelled');
+
 		// Process texts sequentially in batches
 		// ONNX Runtime already parallelizes computation across CPU cores internally,
 		// so concurrent batch processing provides no benefit and just adds overhead.
@@ -134,8 +137,9 @@ export class LocalEmbeddingProvider implements EmbeddingProvider {
 		let processedCount = 0;
 
 		for (let i = 0; i < texts.length; i += BATCH_SIZE) {
+			throwIfAborted(options?.signal, 'Embedding cancelled');
 			const batch = texts.slice(i, i + BATCH_SIZE);
-			const batchResults = await this.embedBatch(batch);
+			const batchResults = await this.embedBatch(batch, options?.signal);
 			results.push(...batchResults);
 
 			// Report progress after each batch
@@ -146,10 +150,14 @@ export class LocalEmbeddingProvider implements EmbeddingProvider {
 		return results;
 	}
 
-	private async embedBatch(texts: string[]): Promise<number[][]> {
+	private async embedBatch(
+		texts: string[],
+		signal?: AbortSignal,
+	): Promise<number[][]> {
 		const results: number[][] = [];
 
 		for (const text of texts) {
+			throwIfAborted(signal, 'Embedding cancelled');
 			const output = await cachedExtractor(text, {
 				pooling: 'mean',
 				normalize: true,

@@ -17,6 +17,7 @@ import {MistralEmbeddingProvider} from '../../providers/mistral.js';
 import {OpenAIEmbeddingProvider} from '../../providers/openai.js';
 import type {EmbeddingProvider} from '../../providers/types.js';
 import type {Logger} from '../../lib/logger.js';
+import {isAbortError, throwIfAborted} from '../../lib/abort.js';
 import {Storage} from '../storage/index.js';
 import {buildDefinitionFilter, buildFilterClause} from './filters.js';
 import {ftsSearch} from './fts.js';
@@ -452,15 +453,15 @@ export class SearchEngine {
 	 * Call this to eagerly load embedding models before search calls.
 	 * For local models, this may take 30+ seconds on first run.
 	 */
-	async warmup(): Promise<void> {
-		await this.ensureInitialized();
+	async warmup(signal?: AbortSignal): Promise<void> {
+		await this.ensureInitialized(signal);
 	}
 
 	/**
 	 * Initialize the search engine.
 	 * Uses idempotent promise pattern to prevent race conditions.
 	 */
-	private async ensureInitialized(): Promise<void> {
+	private async ensureInitialized(signal?: AbortSignal): Promise<void> {
 		// Fast path: already initialized
 		if (this.initialized) return;
 
@@ -468,16 +469,18 @@ export class SearchEngine {
 		if (this.initPromise) return this.initPromise;
 
 		// Start initialization and store promise
-		this.initPromise = this.doInitialize();
+		this.initPromise = this.doInitialize(signal);
 		return this.initPromise;
 	}
 
 	/**
 	 * Perform actual initialization.
 	 */
-	private async doInitialize(): Promise<void> {
+	private async doInitialize(signal?: AbortSignal): Promise<void> {
 		try {
+			throwIfAborted(signal, 'Warmup cancelled');
 			const config = await loadConfig(this.projectRoot);
+			throwIfAborted(signal, 'Warmup cancelled');
 
 			// Initialize storage (skip if provided externally)
 			if (!this.storage) {
@@ -487,14 +490,25 @@ export class SearchEngine {
 				);
 				await this.storage.connect();
 			}
+			throwIfAborted(signal, 'Warmup cancelled');
 
 			// Initialize embeddings with config (includes apiKey for cloud providers)
 			this.embeddings = this.createEmbeddingProvider(config);
 			await this.embeddings.initialize();
+			throwIfAborted(signal, 'Warmup cancelled');
 
 			this.initialized = true;
 			this.log('info', 'SearchEngine initialized');
 		} catch (error) {
+			if (isAbortError(error)) {
+				if (!this.externalStorage) {
+					this.storage?.close();
+				}
+				this.storage = null;
+				this.embeddings?.close();
+				this.embeddings = null;
+				this.initialized = false;
+			}
 			// Reset promise on failure to allow retry
 			this.initPromise = null;
 			throw error;

@@ -18,6 +18,7 @@ import type {
 	ModelProgressCallback,
 	EmbedOptions,
 } from './types.js';
+import {throwIfAborted} from '../lib/abort.js';
 
 const DEFAULT_DIMENSIONS = 1024;
 
@@ -36,6 +37,7 @@ export class MockEmbeddingProvider implements EmbeddingProvider {
 	}
 
 	async embed(texts: string[], _options?: EmbedOptions): Promise<number[][]> {
+		throwIfAborted(_options?.signal, 'Embedding cancelled');
 		return texts.map(t => this.hashToVector(t));
 	}
 

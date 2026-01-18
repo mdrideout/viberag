@@ -25,6 +25,7 @@ import {MistralEmbeddingProvider} from '../providers/mistral.js';
 import {OpenAIEmbeddingProvider} from '../providers/openai.js';
 import type {EmbeddingProvider, ChunkMetadata} from '../providers/types.js';
 import {createServiceLogger, type Logger} from '../lib/logger.js';
+import {getAbortReason, isAbortError, throwIfAborted} from '../lib/abort.js';
 import {
 	loadManifest,
 	saveManifest,
@@ -138,6 +139,8 @@ export interface IndexingServiceOptions {
 	storage?: Storage;
 	/** Optional embedding provider override (used for testing or custom embeddings) */
 	embeddings?: EmbeddingProvider;
+	/** Optional abort signal for cancellation */
+	signal?: AbortSignal;
 }
 
 /**
@@ -155,6 +158,7 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 	private readonly externalStorage: boolean;
 	private suppressEvents = false;
 	private lastThrottleMessage: string | null = null;
+	private abortSignal: AbortSignal | undefined;
 
 	constructor(projectRoot: string, options?: IndexingServiceOptions | Logger) {
 		super();
@@ -165,7 +169,10 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 		if (
 			options &&
 			typeof options === 'object' &&
-			('logger' in options || 'storage' in options || 'embeddings' in options)
+			('logger' in options ||
+				'storage' in options ||
+				'embeddings' in options ||
+				'signal' in options)
 		) {
 			this.logger = options.logger ?? null;
 			if (options.storage) {
@@ -176,6 +183,9 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 			}
 			if (options.embeddings) {
 				this.embeddings = options.embeddings;
+			}
+			if (options.signal) {
+				this.abortSignal = options.signal;
 			}
 		} else {
 			// Old signature: second param is Logger directly
@@ -218,10 +228,12 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 		// Emit start event
 		this.emit('start');
 		this.emit('slots-reset');
+		throwIfAborted(this.abortSignal, 'Indexing cancelled');
 
 		try {
 			// Initialize components
 			await this.initialize();
+			throwIfAborted(this.abortSignal, 'Indexing cancelled');
 
 			const config = this.config!;
 			const storage = this.storage!;
@@ -234,6 +246,7 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 			let manifest = (await manifestExists(this.projectRoot))
 				? await loadManifest(this.projectRoot)
 				: createEmptyManifest();
+			throwIfAborted(this.abortSignal, 'Indexing cancelled');
 
 			const schemaInfo = getSchemaVersionInfo(manifest);
 			if (schemaInfo.needsReindex) {
@@ -267,7 +280,9 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 						unit,
 					);
 				},
+				this.abortSignal ?? undefined,
 			);
+			throwIfAborted(this.abortSignal, 'Indexing cancelled');
 
 			stats.filesScanned = currentTree.buildStats.filesScanned;
 			this.log(
@@ -327,6 +342,7 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 
 			// 4. Handle force reindex - drop and recreate table
 			if (forceReindex) {
+				throwIfAborted(this.abortSignal, 'Indexing cancelled');
 				this.log('info', 'Force reindex: resetting chunks table');
 				this.emitIndexProgress('persist', 'Resetting index table', 0, 0, null);
 				await storage.resetChunksTable();
@@ -334,6 +350,7 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 
 			// 5. Delete chunks for deleted files
 			if (diff.deleted.length > 0) {
+				throwIfAborted(this.abortSignal, 'Indexing cancelled');
 				this.log('info', `Deleting chunks for ${diff.deleted.length} files`);
 				stats.chunksDeleted = await storage.deleteChunksByFilepaths(
 					diff.deleted,
@@ -346,6 +363,7 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 			);
 
 			if (filesToProcess.length > 0) {
+				throwIfAborted(this.abortSignal, 'Indexing cancelled');
 				this.log('info', `Processing ${filesToProcess.length} files`);
 
 				// Delete existing chunks for modified + previously failed files
@@ -353,6 +371,7 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 					new Set([...diff.modified, ...failedFilesToRetry]),
 				);
 				if (filesToDelete.length > 0 && !forceReindex) {
+					throwIfAborted(this.abortSignal, 'Indexing cancelled');
 					const deletedCount =
 						await storage.deleteChunksByFilepaths(filesToDelete);
 					stats.chunksDeleted += deletedCount;
@@ -380,9 +399,11 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 				const allChunksWithContext: ChunkWithContext[] = [];
 
 				for (const filepath of filesToProcess) {
+					throwIfAborted(this.abortSignal, 'Indexing cancelled');
 					const absolutePath = path.join(this.projectRoot, filepath);
 					try {
 						const content = await fs.readFile(absolutePath, 'utf-8');
+						throwIfAborted(this.abortSignal, 'Indexing cancelled');
 						const fileHash = computeStringHash(content);
 						const chunks = await chunker.chunkFile(
 							filepath,
@@ -425,6 +446,7 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 
 				// Phase 2: Embed chunks
 				if (totalChunks > 0) {
+					throwIfAborted(this.abortSignal, 'Indexing cancelled');
 					let chunksProcessed = 0;
 
 					// Emit progress helper
@@ -480,6 +502,7 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 					);
 					const cachedEmbeddings =
 						await storage.getCachedEmbeddings(contentHashes);
+					throwIfAborted(this.abortSignal, 'Indexing cancelled');
 
 					// Find cache hits and misses
 					const cacheHits = allChunksWithContext.filter(c =>
@@ -504,6 +527,7 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 
 						const batchTasks: Array<() => Promise<void>> = [];
 						for (let i = 0; i < cacheMisses.length; i += CHUNK_BATCH_SIZE) {
+							throwIfAborted(this.abortSignal, 'Indexing cancelled');
 							const batchChunks = cacheMisses.slice(i, i + CHUNK_BATCH_SIZE);
 							const batchStartProgress = chunksProcessed;
 
@@ -546,6 +570,7 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 									chunkMetadata,
 									logger: this.debugLogger,
 									chunkOffset: batchStartProgress,
+									signal: this.abortSignal ?? undefined,
 								});
 								const successfulEmbeddings = newEmbeddings.filter(
 									(vector): vector is number[] => vector !== null,
@@ -598,6 +623,7 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 					}
 
 					this.emitIndexProgress('persist', 'Writing index', 0, 0, null);
+					throwIfAborted(this.abortSignal, 'Indexing cancelled');
 
 					// Build CodeChunk objects and write to storage
 					const allCodeChunks: CodeChunk[] = [];
@@ -642,6 +668,7 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 			}
 
 			this.emitIndexProgress('finalize', 'Finalizing manifest', 0, 0, null);
+			throwIfAborted(this.abortSignal, 'Indexing cancelled');
 
 			// 7. Update manifest
 			const chunkCount = await storage.countChunks();
@@ -672,6 +699,13 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 
 			return stats;
 		} catch (error) {
+			if (isAbortError(error) || this.abortSignal?.aborted) {
+				this.suppressEvents = true;
+				const reason = getAbortReason(this.abortSignal ?? undefined);
+				this.log('info', `Indexing cancelled: ${reason}`);
+				this.emit('cancelled', {reason});
+				throw error;
+			}
 			this.suppressEvents = true;
 			this.log('error', 'Indexing failed', error as Error);
 			this.emit('error', {
@@ -825,6 +859,7 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 	 * Initialize all components.
 	 */
 	private async initialize(): Promise<void> {
+		throwIfAborted(this.abortSignal, 'Indexing cancelled');
 		// Load config
 		this.config = await loadConfig(this.projectRoot);
 		const providerName = this.getProviderDisplayName(
@@ -840,11 +875,13 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 			);
 			await this.storage.connect();
 		}
+		throwIfAborted(this.abortSignal, 'Indexing cancelled');
 
 		// Initialize chunker
 		this.emitIndexProgress('init', 'Loading parsers', 0, 0, null);
 		this.chunker = new Chunker();
 		await this.chunker.initialize();
+		throwIfAborted(this.abortSignal, 'Indexing cancelled');
 
 		// Initialize embeddings
 		const isLocal = this.config.embeddingProvider === 'local';
@@ -885,6 +922,7 @@ export class IndexingService extends TypedEmitter<IndexingServiceEvents> {
 					}
 				: undefined,
 		);
+		throwIfAborted(this.abortSignal, 'Indexing cancelled');
 
 		this.log('info', 'Indexer initialized');
 	}

@@ -26,6 +26,7 @@ import type {
 	SearchResults,
 	IndexStats,
 	WatcherStatus,
+	CancelResponse,
 } from './types.js';
 
 // ============================================================================
@@ -205,6 +206,20 @@ export class DaemonClient {
 	async shutdown(reason?: string): Promise<void> {
 		await this.ensureConnected();
 		await this.connection!.request('shutdown', {reason});
+	}
+
+	/**
+	 * Cancel the current daemon activity (indexing or warmup).
+	 */
+	async cancel(options?: {
+		target?: 'indexing' | 'warmup' | 'all';
+		reason?: string;
+	}): Promise<CancelResponse> {
+		await this.ensureConnected();
+		return this.connection!.request(
+			'cancel',
+			options as Record<string, unknown> | undefined,
+		) as Promise<CancelResponse>;
 	}
 
 	/**

@@ -19,12 +19,20 @@ import type {IndexingPhase, IndexingUnit} from './services/types.js';
 // Type Definitions
 // ============================================================================
 
-export type WarmupStatus = 'not_started' | 'initializing' | 'ready' | 'failed';
+export type WarmupStatus =
+	| 'not_started'
+	| 'initializing'
+	| 'cancelling'
+	| 'cancelled'
+	| 'ready'
+	| 'failed';
 
 export type IndexingStatus =
 	| 'idle'
 	| 'initializing'
 	| 'indexing'
+	| 'cancelling'
+	| 'cancelled'
 	| 'complete'
 	| 'error';
 
@@ -36,6 +44,9 @@ export interface WarmupState {
 	error: string | null;
 	startedAt: string | null;
 	readyAt: string | null;
+	cancelRequestedAt: string | null;
+	cancelledAt: string | null;
+	cancelReason: string | null;
 }
 
 export interface IndexingState {
@@ -48,9 +59,14 @@ export interface IndexingState {
 	chunksProcessed: number;
 	throttleMessage: string | null;
 	error: string | null;
+	startedAt: string | null;
 	lastCompleted: string | null;
 	lastStats: IndexingRunStats | null;
 	lastProgressAt: string | null;
+	cancelRequestedAt: string | null;
+	cancelledAt: string | null;
+	lastCancelled: string | null;
+	cancelReason: string | null;
 }
 
 export interface SlotInfo {
@@ -73,6 +89,8 @@ export interface WatcherState {
 	pendingChanges: number;
 	lastIndexUpdate: string | null;
 	indexUpToDate: boolean;
+	autoIndexPausedUntil: string | null;
+	autoIndexPauseReason: string | null;
 }
 
 export interface DaemonState {
@@ -97,6 +115,9 @@ function createInitialState(): DaemonState {
 			error: null,
 			startedAt: null,
 			readyAt: null,
+			cancelRequestedAt: null,
+			cancelledAt: null,
+			cancelReason: null,
 		},
 		indexing: {
 			status: 'idle',
@@ -108,9 +129,14 @@ function createInitialState(): DaemonState {
 			chunksProcessed: 0,
 			throttleMessage: null,
 			error: null,
+			startedAt: null,
 			lastCompleted: null,
 			lastStats: null,
 			lastProgressAt: null,
+			cancelRequestedAt: null,
+			cancelledAt: null,
+			lastCancelled: null,
+			cancelReason: null,
 		},
 		slots: Array.from({length: DEFAULT_SLOT_COUNT}, () => ({
 			state: 'idle' as const,
@@ -124,6 +150,8 @@ function createInitialState(): DaemonState {
 			pendingChanges: 0,
 			lastIndexUpdate: null,
 			indexUpToDate: true,
+			autoIndexPausedUntil: null,
+			autoIndexPauseReason: null,
 		},
 	};
 }

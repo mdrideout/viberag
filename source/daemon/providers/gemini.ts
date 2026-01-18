@@ -114,21 +114,26 @@ export class GeminiEmbeddingProvider implements EmbeddingProvider {
 			batches,
 			(batch, onRetrying, context) =>
 				withRetry(
-					() => this.embedBatch(batch),
+					() => this.embedBatch(batch, options?.signal),
 					callbacks,
 					onRetrying,
 					options?.logger,
 					context,
+					options?.signal,
 				),
 			callbacks,
 			BATCH_SIZE,
 			batchMetadata,
 			options?.logger,
 			options?.chunkOffset ?? 0,
+			options?.signal,
 		);
 	}
 
-	private async embedBatch(texts: string[]): Promise<number[][]> {
+	private async embedBatch(
+		texts: string[],
+		signal?: AbortSignal,
+	): Promise<number[][]> {
 		const url = `${GEMINI_API_BASE}/${MODEL}:batchEmbedContents`;
 
 		const response = await fetch(url, {
@@ -137,6 +142,7 @@ export class GeminiEmbeddingProvider implements EmbeddingProvider {
 				'Content-Type': 'application/json',
 				'x-goog-api-key': this.apiKey,
 			},
+			signal,
 			body: JSON.stringify({
 				requests: texts.map(text => ({
 					model: `models/${MODEL}`,

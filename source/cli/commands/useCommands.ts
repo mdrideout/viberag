@@ -11,6 +11,7 @@ import {
 	runSearch,
 	getStatus,
 	loadIndexStats,
+	cancelActivity,
 } from './handlers.js';
 import {setupVSCodeTerminal} from '../../common/commands/terminalSetup.js';
 import type {SearchResultsData} from '../../common/types.js';
@@ -54,6 +55,7 @@ export function useCommands({
   /reindex        - Force full reindex
   /search <query> - Search the codebase
   /status         - Show index status
+  /cancel [target] - Cancel indexing or warmup (targets: indexing, warmup)
   /mcp-setup      - Configure MCP server for AI coding tools
   /clean          - Remove Viberag from project (delete .viberag/)
   /quit           - Exit
@@ -109,7 +111,12 @@ Manual MCP Setup:
 					dispatch(AppActions.setIndexStats(newStats));
 				})
 				.catch(err => {
-					addOutput('system', `Index failed: ${err.message}`);
+					const message = err instanceof Error ? err.message : String(err);
+					if (message.toLowerCase().includes('cancel')) {
+						addOutput('system', 'Index cancelled.');
+					} else {
+						addOutput('system', `Index failed: ${message}`);
+					}
 				});
 		},
 		[projectRoot, addOutput, dispatch],
@@ -153,6 +160,15 @@ Manual MCP Setup:
 			.catch(err => addOutput('system', `Status failed: ${err.message}`));
 	}, [projectRoot, addOutput]);
 
+	const handleCancel = useCallback(
+		(target?: string) => {
+			cancelActivity(projectRoot, target)
+				.then(message => addOutput('system', message))
+				.catch(err => addOutput('system', `Cancel failed: ${err.message}`));
+		},
+		[projectRoot, addOutput],
+	);
+
 	const handleMcpSetup = useCallback(() => {
 		startMcpSetupWizard(false); // showPrompt = false for direct /mcp-setup command
 	}, [startMcpSetupWizard]);
@@ -190,6 +206,11 @@ Manual MCP Setup:
 				} else {
 					handleUnknown('/search (missing query)');
 				}
+				return;
+			}
+			if (command.startsWith('/cancel')) {
+				const target = trimmed.slice('/cancel'.length).trim();
+				handleCancel(target || undefined);
 				return;
 			}
 
@@ -241,6 +262,7 @@ Manual MCP Setup:
 			handleIndex,
 			handleSearch,
 			handleStatus,
+			handleCancel,
 			handleMcpSetup,
 			handleClean,
 			handleUnknown,

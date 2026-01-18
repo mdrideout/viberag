@@ -52,7 +52,7 @@ When using a coding agent like [Claude Code](https://claude.ai/code), add `use v
 - **Flexible embeddings** - Local model (offline, free) or cloud providers (Gemini, Mistral, OpenAI)
 - **MCP server** - Works with Claude Code, Cursor, VS Code Copilot, and more
 - **Automatic incremental indexing** - Watches for file changes (respects `.gitignore`) and reindexes only what has changed in real time
-- **Resilient indexing** - Retries embedding errors and reports failed batches in `/status`
+- **Resilient indexing** - Retries embedding errors, reports failed batches in `/status`, and supports `/cancel`
 - **Multi-language support** - TypeScript, JavaScript, Python, Go, Rust, and more
 - **Blazing fast** - The data storage and search functionality is local on your machine, meaning the full power of your machine can churn through massive amounts of data and execute complex search queries in milliseconds.
 
@@ -452,13 +452,14 @@ args = ["-y", "viberag-mcp"]
 
 ## Exposed MCP Tools
 
-| Tool                       | Description                                          |
-| -------------------------- | ---------------------------------------------------- |
-| `codebase_search`          | Semantic, keyword, or hybrid search for code         |
-| `codebase_parallel_search` | Run multiple search strategies in parallel           |
-| `viberag_index`            | Index the codebase (incremental by default)          |
-| `viberag_status`           | Get index status, file count, and embedding provider |
-| `viberag_watch_status`     | Get file watcher status for auto-indexing            |
+| Tool                       | Description                                        |
+| -------------------------- | -------------------------------------------------- |
+| `codebase_search`          | Semantic, keyword, or hybrid search for code       |
+| `codebase_parallel_search` | Run multiple search strategies in parallel         |
+| `viberag_index`            | Index the codebase (incremental by default)        |
+| `viberag_cancel`           | Cancel indexing or warmup without stopping daemon  |
+| `viberag_status`           | Get index status, progress, and embedding provider |
+| `viberag_watch_status`     | Get file watcher status for auto-indexing          |
 
 #### `codebase_search`
 
@@ -529,9 +530,18 @@ Manually trigger indexing. Normally not needed as file watching handles updates 
 
 - `force` - Full reindex ignoring cache (default: `false`)
 
+#### `viberag_cancel`
+
+Cancel the current daemon activity (indexing or warmup) without shutting down the daemon.
+
+**Parameters:**
+
+- `target` - `indexing`, `warmup`, or `all` (default: `all`)
+- `reason` - Optional cancellation reason (for logs)
+
 #### `viberag_status`
 
-Check index health and configuration.
+Check index health, daemon state, and configuration.
 
 **Returns:**
 
@@ -540,6 +550,7 @@ Check index health and configuration.
 - Schema version
 - Last update timestamp
 - Warmup status (ready, initializing, etc.)
+- Indexing progress and last progress timestamp
 
 #### `viberag_watch_status`
 
@@ -562,7 +573,8 @@ VibeRAG includes a CLI for easy execution of initialization, indexing, setup, an
 | `/index`          | Index the codebase (incremental)                          |
 | `/reindex`        | Force full reindex                                        |
 | `/search <query>` | Semantic search                                           |
-| `/status`         | Show index status                                         |
+| `/status`         | Show daemon and index status                              |
+| `/cancel`         | Cancel indexing or warmup                                 |
 | `/mcp-setup`      | Configure MCP server for AI tools                         |
 | `/clean`          | Remove VibeRAG from project                               |
 | `/help`           | Show all commands                                         |
@@ -741,3 +753,4 @@ Embedding batches retry up to 10 attempts. If failures persist:
 
 - Run `/status` to see failed batch counts.
 - Re-run `/index` to retry failed files once connectivity is stable.
+- Use `/cancel` to stop a stuck indexing run, then `/reindex` if needed.

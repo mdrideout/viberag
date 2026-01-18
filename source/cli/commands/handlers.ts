@@ -14,7 +14,12 @@ import {
 	type ViberagConfig,
 } from '../../daemon/lib/config.js';
 import {getViberagDir} from '../../daemon/lib/constants.js';
-import type {IndexStats, SearchResults} from '../../client/types.js';
+import type {
+	DaemonStatusResponse,
+	IndexStats,
+	SearchResults,
+	SlotState,
+} from '../../client/types.js';
 import {DaemonClient} from '../../client/index.js';
 import type {InitWizardConfig} from '../../common/types.js';
 
@@ -148,9 +153,14 @@ export async function runIndex(
 		await client.connect();
 		const initialStatus = await client.status();
 		const previousCompletion = initialStatus.indexing.lastCompleted;
+		const previousCancellation = initialStatus.indexing.lastCancelled;
 
 		await client.indexAsync({force});
-		return await waitForIndexCompletion(client, previousCompletion);
+		return await waitForIndexCompletion(
+			client,
+			previousCompletion,
+			previousCancellation,
+		);
 	} finally {
 		await client.disconnect();
 	}
@@ -162,6 +172,7 @@ export async function runIndex(
 async function waitForIndexCompletion(
 	client: DaemonClient,
 	previousLastCompleted: string | null,
+	previousLastCancelled: string | null,
 ): Promise<IndexStats | null> {
 	const pollIntervalMs = 500;
 	const statsGraceMs = 5000;
@@ -172,6 +183,13 @@ async function waitForIndexCompletion(
 
 		if (status.indexing.status === 'error') {
 			throw new Error(status.indexing.error ?? 'Index failed');
+		}
+		if (
+			status.indexing.status === 'cancelled' ||
+			(status.indexing.lastCancelled &&
+				status.indexing.lastCancelled !== previousLastCancelled)
+		) {
+			throw new Error('Indexing cancelled');
 		}
 
 		const lastCompleted = status.indexing.lastCompleted;
@@ -298,6 +316,37 @@ export function formatSearchResults(results: SearchResults): string {
  * Get index status.
  */
 export async function getStatus(projectRoot: string): Promise<string> {
+	const client = new DaemonClient({
+		projectRoot,
+		autoStart: false,
+	});
+
+	let daemonStatus: DaemonStatusResponse | null = null;
+	let daemonError: string | null = null;
+
+	try {
+		if (await client.isRunning()) {
+			await client.connect();
+			daemonStatus = await client.status();
+		}
+	} catch (error) {
+		daemonError = error instanceof Error ? error.message : String(error);
+	} finally {
+		await client.disconnect();
+	}
+
+	if (daemonStatus) {
+		return formatDaemonStatus(daemonStatus);
+	}
+
+	const manifestStatus = await formatManifestStatus(projectRoot);
+	if (daemonError) {
+		return `${manifestStatus}\nDaemon status unavailable: ${daemonError}`;
+	}
+	return manifestStatus;
+}
+
+async function formatManifestStatus(projectRoot: string): Promise<string> {
 	if (!(await manifestExists(projectRoot))) {
 		return 'No index found. Run /index to create one.';
 	}
@@ -319,6 +368,179 @@ export async function getStatus(projectRoot: string): Promise<string> {
 	}
 
 	return lines.join('\n');
+}
+
+function formatDaemonStatus(status: DaemonStatusResponse): string {
+	const lines: string[] = ['Daemon status:'];
+
+	lines.push(`  Initialized: ${status.initialized ? 'yes' : 'no'}`);
+	if (status.indexed) {
+		lines.push(
+			`  Index: ${status.totalFiles ?? 0} files · ${status.totalChunks ?? 0} chunks`,
+		);
+		if (status.updatedAt) {
+			lines.push(`  Updated: ${status.updatedAt}`);
+		}
+	} else {
+		lines.push('  Index: not indexed');
+	}
+
+	const warmupElapsed =
+		status.warmupElapsedMs !== undefined
+			? formatDurationSeconds(Math.round(status.warmupElapsedMs / 1000))
+			: null;
+	const warmupParts = [status.warmupStatus];
+	if (warmupElapsed) {
+		warmupParts.push(warmupElapsed);
+	}
+	if (status.warmupCancelReason) {
+		warmupParts.push(`cancel: ${status.warmupCancelReason}`);
+	}
+	lines.push(`  Warmup: ${warmupParts.join(' · ')}`);
+
+	const indexing = status.indexing;
+	const indexingParts: string[] = [indexing.status];
+	if (indexing.phase) {
+		indexingParts.push(indexing.phase);
+	}
+	if (indexing.stage) {
+		indexingParts.push(indexing.stage);
+	}
+	if (indexing.total > 0 && indexing.unit) {
+		indexingParts.push(
+			`${indexing.current}/${indexing.total} ${indexing.unit}`,
+		);
+	}
+	if (indexing.percent > 0) {
+		indexingParts.push(`${indexing.percent}%`);
+	}
+	if (
+		indexing.secondsSinceProgress !== null &&
+		(indexing.status === 'initializing' ||
+			indexing.status === 'indexing' ||
+			indexing.status === 'cancelling')
+	) {
+		indexingParts.push(
+			`last progress ${formatDurationSeconds(indexing.secondsSinceProgress)} ago`,
+		);
+	}
+	if (indexing.throttleMessage) {
+		indexingParts.push(`throttle: ${indexing.throttleMessage}`);
+	}
+	if (indexing.cancelReason && indexing.status !== 'idle') {
+		indexingParts.push(`cancel: ${indexing.cancelReason}`);
+	}
+	lines.push(`  Indexing: ${indexingParts.join(' · ')}`);
+
+	const slotSummary = summarizeSlots(status.slots);
+	if (slotSummary) {
+		lines.push(`  Slots: ${slotSummary}`);
+	}
+
+	if (status.failures.length > 0) {
+		lines.push(
+			`  Failures: ${status.failures.length} batch(es) - see .viberag/logs/indexer/`,
+		);
+	}
+
+	const watcher = status.watcherStatus;
+	const watcherParts = [
+		watcher.watching ? 'watching' : 'stopped',
+		`${watcher.filesWatched} files`,
+		`${watcher.pendingChanges} pending`,
+	];
+	if (watcher.autoIndexPausedUntil) {
+		const remainingMs =
+			new Date(watcher.autoIndexPausedUntil).getTime() - Date.now();
+		const remainingSeconds = Math.max(0, Math.round(remainingMs / 1000));
+		let pauseLabel = 'auto-index paused';
+		if (remainingSeconds > 0) {
+			pauseLabel += ` ${formatDurationSeconds(remainingSeconds)}`;
+		}
+		if (watcher.autoIndexPauseReason) {
+			pauseLabel += ` (${watcher.autoIndexPauseReason})`;
+		}
+		watcherParts.push(pauseLabel);
+	}
+	lines.push(`  Watcher: ${watcherParts.join(' · ')}`);
+
+	return lines.join('\n');
+}
+
+function formatDurationSeconds(seconds: number): string {
+	if (seconds < 60) {
+		return `${seconds}s`;
+	}
+	if (seconds < 3600) {
+		return `${Math.round(seconds / 60)}m`;
+	}
+	return `${Math.round(seconds / 3600)}h`;
+}
+
+function summarizeSlots(slots: SlotState[]): string | null {
+	const counts = slots.reduce(
+		(acc, slot) => {
+			acc[slot.state] += 1;
+			return acc;
+		},
+		{idle: 0, processing: 0, 'rate-limited': 0},
+	);
+
+	if (counts.processing === 0 && counts['rate-limited'] === 0) {
+		return null;
+	}
+
+	const parts: string[] = [];
+	if (counts.processing > 0) {
+		parts.push(`${counts.processing} processing`);
+	}
+	if (counts['rate-limited'] > 0) {
+		parts.push(`${counts['rate-limited']} rate-limited`);
+	}
+	return parts.join(', ');
+}
+
+/**
+ * Cancel indexing or warmup.
+ */
+export async function cancelActivity(
+	projectRoot: string,
+	target?: string,
+): Promise<string> {
+	const client = new DaemonClient({
+		projectRoot,
+		autoStart: false,
+	});
+
+	try {
+		if (!(await client.isRunning())) {
+			return 'Daemon is not running. Nothing to cancel.';
+		}
+
+		await client.connect();
+		const normalizedTarget = normalizeCancelTarget(target);
+		const response = await client.cancel({
+			target: normalizedTarget,
+			reason: 'cli',
+		});
+		return response.message;
+	} finally {
+		await client.disconnect();
+	}
+}
+
+function normalizeCancelTarget(target?: string): 'indexing' | 'warmup' | 'all' {
+	const value = (target ?? '').trim().toLowerCase();
+	if (value === 'index' || value === 'indexing') {
+		return 'indexing';
+	}
+	if (value === 'warmup' || value === 'init' || value === 'initialize') {
+		return 'warmup';
+	}
+	if (value === 'all' || value === '') {
+		return 'all';
+	}
+	return 'all';
 }
 
 /**
@@ -368,6 +590,7 @@ This registers VibeRAG as an MCP server. After adding:
    - codebase_parallel_search  Run multiple searches in parallel
    - viberag_index             Index or reindex the codebase
    - viberag_status            Get index statistics
+   - viberag_cancel            Cancel indexing or warmup
 
 Note: The project must be initialized first (run /init in the CLI).
 The MCP server uses the current working directory as the project root.`;

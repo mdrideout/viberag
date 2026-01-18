@@ -19,8 +19,9 @@ describe('withRetry', () => {
 			throw new Error('boom');
 		});
 
+		const expectation = expect(promise).rejects.toThrow('boom');
 		await vi.runAllTimersAsync();
-		await expect(promise).rejects.toThrow('boom');
+		await expectation;
 		expect(attempts).toBe(MAX_ATTEMPTS);
 	});
 
@@ -59,5 +60,21 @@ describe('withRetry', () => {
 
 		await expect(promise).rejects.toThrow('maximum number of tokens');
 		expect(attempts).toBe(1);
+	});
+
+	it('aborts immediately when signal is already aborted', async () => {
+		const controller = new AbortController();
+		controller.abort('test reason');
+
+		const promise = withRetry(
+			async () => 'ok',
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			controller.signal,
+		);
+
+		await expect(promise).rejects.toThrow('test reason');
 	});
 });

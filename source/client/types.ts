@@ -97,11 +97,21 @@ export interface DaemonStatusResponse {
 	embeddingModel?: string;
 	warmupStatus: string;
 	warmupElapsedMs?: number;
+	warmupCancelRequestedAt?: string | null;
+	warmupCancelledAt?: string | null;
+	warmupCancelReason?: string | null;
 	watcherStatus: WatcherStatus;
 
 	// Indexing state for polling-based updates
 	indexing: {
-		status: 'idle' | 'initializing' | 'indexing' | 'complete' | 'error';
+		status:
+			| 'idle'
+			| 'initializing'
+			| 'indexing'
+			| 'cancelling'
+			| 'cancelled'
+			| 'complete'
+			| 'error';
 		phase: IndexingPhase | null;
 		current: number;
 		total: number;
@@ -110,9 +120,16 @@ export interface DaemonStatusResponse {
 		chunksProcessed: number;
 		throttleMessage: string | null;
 		error: string | null;
+		startedAt: string | null;
 		lastCompleted: string | null;
 		lastStats: IndexStats | null;
 		lastProgressAt: string | null;
+		cancelRequestedAt: string | null;
+		cancelledAt: string | null;
+		lastCancelled: string | null;
+		cancelReason: string | null;
+		secondsSinceProgress: number | null;
+		elapsedMs: number | null;
 		percent: number;
 	};
 
@@ -130,6 +147,17 @@ export interface PingResponse {
 	pong: boolean;
 	timestamp: number;
 	protocolVersion: number;
+}
+
+/**
+ * Cancel response for daemon activity cancellation.
+ */
+export interface CancelResponse {
+	cancelled: boolean;
+	targets: Array<'indexing' | 'warmup'>;
+	skipped: Array<'indexing' | 'warmup'>;
+	reason: string | null;
+	message: string;
 }
 
 // Re-export for convenience

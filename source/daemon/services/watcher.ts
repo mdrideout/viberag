@@ -16,6 +16,7 @@ import {
 	clearGitignoreCache,
 	loadGitignore,
 } from '../lib/gitignore.js';
+import {isAbortError} from '../lib/abort.js';
 import {createServiceLogger, type Logger} from '../lib/logger.js';
 import {TypedEmitter, type WatcherEvents} from './types.js';
 
@@ -42,6 +43,10 @@ export interface WatcherStatus {
 	indexUpToDate: boolean;
 	/** Last error message if any */
 	lastError: string | null;
+	/** When auto-indexing resumes (ISO string) */
+	autoIndexPausedUntil: string | null;
+	/** Reason for auto-index pause */
+	autoIndexPauseReason: string | null;
 }
 
 /**
@@ -63,6 +68,9 @@ export class FileWatcher extends TypedEmitter<WatcherEvents> {
 	private logger: Logger | null = null;
 	private gitignore: Ignore | null = null;
 	private gitignoreReloadPromise: Promise<void> | null = null;
+	private autoIndexPausedUntil: number | null = null;
+	private autoIndexPauseReason: string | null = null;
+	private autoIndexResumeTimeout: ReturnType<typeof setTimeout> | null = null;
 
 	// Internal status tracking
 	private filesWatched = 0;
@@ -102,6 +110,14 @@ export class FileWatcher extends TypedEmitter<WatcherEvents> {
 
 		// When indexing completes, check if changes accumulated during indexing
 		if (wasIndexing && !isIndexing && this.pendingChanges.size > 0) {
+			if (this.isAutoIndexingPaused()) {
+				this.log(
+					'debug',
+					'Auto-indexing paused, deferring accumulated changes',
+				);
+				this.scheduleAutoIndexResume();
+				return;
+			}
 			this.log(
 				'debug',
 				`Changes accumulated during indexing (${this.pendingChanges.size}), scheduling batch`,
@@ -115,6 +131,82 @@ export class FileWatcher extends TypedEmitter<WatcherEvents> {
 				}, watchConfig.batchWindowMs);
 			}
 		}
+	}
+
+	/**
+	 * Pause auto-indexing for a short cooldown window.
+	 */
+	pauseAutoIndexing(durationMs: number, reason?: string): void {
+		const now = Date.now();
+		const nextUntil = now + Math.max(0, durationMs);
+		const pausedUntil = this.autoIndexPausedUntil
+			? Math.max(this.autoIndexPausedUntil, nextUntil)
+			: nextUntil;
+		this.autoIndexPausedUntil = pausedUntil;
+		this.autoIndexPauseReason = reason ?? 'paused';
+
+		if (this.debounceTimeout) {
+			clearTimeout(this.debounceTimeout);
+			this.debounceTimeout = null;
+		}
+		if (this.batchTimeout) {
+			clearTimeout(this.batchTimeout);
+			this.batchTimeout = null;
+		}
+		if (this.autoIndexResumeTimeout) {
+			clearTimeout(this.autoIndexResumeTimeout);
+			this.autoIndexResumeTimeout = null;
+		}
+
+		this.scheduleAutoIndexResume();
+		const remainingSeconds = Math.max(
+			0,
+			Math.round((pausedUntil - now) / 1000),
+		);
+		this.log(
+			'info',
+			`Auto-indexing paused for ${remainingSeconds}s (${this.autoIndexPauseReason})`,
+		);
+	}
+
+	private isAutoIndexingPaused(): boolean {
+		if (!this.autoIndexPausedUntil) {
+			return false;
+		}
+		if (Date.now() >= this.autoIndexPausedUntil) {
+			this.clearAutoIndexPause();
+			return false;
+		}
+		return true;
+	}
+
+	private clearAutoIndexPause(): void {
+		if (this.autoIndexResumeTimeout) {
+			clearTimeout(this.autoIndexResumeTimeout);
+			this.autoIndexResumeTimeout = null;
+		}
+		this.autoIndexPausedUntil = null;
+		this.autoIndexPauseReason = null;
+	}
+
+	private scheduleAutoIndexResume(): void {
+		if (!this.autoIndexPausedUntil) {
+			return;
+		}
+		const delay = Math.max(0, this.autoIndexPausedUntil - Date.now());
+		if (this.autoIndexResumeTimeout) {
+			clearTimeout(this.autoIndexResumeTimeout);
+		}
+		this.autoIndexResumeTimeout = setTimeout(() => {
+			this.autoIndexResumeTimeout = null;
+			if (this.isAutoIndexingPaused()) {
+				this.scheduleAutoIndexResume();
+				return;
+			}
+			if (!this.isIndexing && this.pendingChanges.size > 0) {
+				void this.processBatch();
+			}
+		}, delay);
 	}
 
 	/**
@@ -270,6 +362,12 @@ export class FileWatcher extends TypedEmitter<WatcherEvents> {
 	 * Get current watcher status.
 	 */
 	getStatus(): WatcherStatus {
+		const paused = this.isAutoIndexingPaused();
+		const pausedUntil =
+			paused && this.autoIndexPausedUntil
+				? new Date(this.autoIndexPausedUntil).toISOString()
+				: null;
+
 		return {
 			watching: this.watcher !== null,
 			filesWatched: this.filesWatched,
@@ -278,6 +376,8 @@ export class FileWatcher extends TypedEmitter<WatcherEvents> {
 			lastIndexUpdate: this.lastIndexUpdate,
 			indexUpToDate: this.indexUpToDate && this.pendingChanges.size === 0,
 			lastError: this.lastError,
+			autoIndexPausedUntil: pausedUntil,
+			autoIndexPauseReason: paused ? this.autoIndexPauseReason : null,
 		};
 	}
 
@@ -382,6 +482,12 @@ export class FileWatcher extends TypedEmitter<WatcherEvents> {
 			pendingPaths: Array.from(this.pendingChanges),
 		});
 
+		if (this.isAutoIndexingPaused()) {
+			this.log('debug', 'Auto-indexing paused, deferring changes');
+			this.scheduleAutoIndexResume();
+			return;
+		}
+
 		// Debounce: reset the debounce timer on each change
 		if (this.debounceTimeout) {
 			clearTimeout(this.debounceTimeout);
@@ -391,6 +497,12 @@ export class FileWatcher extends TypedEmitter<WatcherEvents> {
 
 		this.debounceTimeout = setTimeout(() => {
 			this.debounceTimeout = null;
+
+			if (this.isAutoIndexingPaused()) {
+				this.log('debug', 'Auto-indexing paused, deferring batch window');
+				this.scheduleAutoIndexResume();
+				return;
+			}
 
 			// Start batch window if not already started
 			if (!this.batchTimeout) {
@@ -407,6 +519,12 @@ export class FileWatcher extends TypedEmitter<WatcherEvents> {
 	 * Process the batch of pending changes.
 	 */
 	private async processBatch(): Promise<void> {
+		if (this.isAutoIndexingPaused()) {
+			this.log('debug', 'Auto-indexing paused, deferring batch');
+			this.scheduleAutoIndexResume();
+			return;
+		}
+
 		if (this.pendingChanges.size === 0) {
 			return;
 		}
@@ -447,6 +565,18 @@ export class FileWatcher extends TypedEmitter<WatcherEvents> {
 				`Index updated: ${result.chunksAdded} added, ${result.chunksDeleted} deleted`,
 			);
 		} catch (error) {
+			if (isAbortError(error)) {
+				this.log('info', 'Index update cancelled, deferring pending changes');
+				this.lastError = null;
+				this.indexUpToDate = false;
+				filesToProcess.forEach(f => this.pendingChanges.add(f));
+				this.emit('watcher-debouncing', {
+					pendingPaths: Array.from(this.pendingChanges),
+				});
+				this.scheduleAutoIndexResume();
+				return;
+			}
+
 			const message = error instanceof Error ? error.message : String(error);
 			this.lastError = message;
 			this.emit('watcher-error', {error: message});

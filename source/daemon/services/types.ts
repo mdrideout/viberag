@@ -90,6 +90,9 @@ export interface IndexingEvents {
 
 	/** Indexing failed */
 	error: [data: {error: Error}];
+
+	/** Indexing cancelled */
+	cancelled: [data: {reason: string | null}];
 }
 
 // ============================================================================

@@ -42,6 +42,8 @@ export interface EmbedOptions {
 	logger?: Logger;
 	/** Offset for cumulative chunk numbering in progress display */
 	chunkOffset?: number;
+	/** Abort signal for cooperative cancellation */
+	signal?: AbortSignal;
 }
 
 /**

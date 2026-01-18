@@ -13,6 +13,7 @@ import {z} from 'zod';
 import {PROTOCOL_VERSION} from './protocol.js';
 import type {Handler, HandlerRegistry} from './server.js';
 import {daemonState} from './state.js';
+import {isAbortError} from './lib/abort.js';
 
 // ============================================================================
 // Parameter Schemas
@@ -38,9 +39,18 @@ const indexParamsSchema = z.object({
 	force: z.boolean().optional(),
 });
 
-const ACTIVE_INDEX_STATUSES = new Set(['initializing', 'indexing']);
+const ACTIVE_INDEX_STATUSES = new Set([
+	'initializing',
+	'indexing',
+	'cancelling',
+]);
 
 const shutdownParamsSchema = z.object({
+	reason: z.string().optional(),
+});
+
+const cancelParamsSchema = z.object({
+	target: z.enum(['indexing', 'warmup', 'all']).optional(),
 	reason: z.string().optional(),
 });
 
@@ -88,6 +98,9 @@ const indexAsyncHandler: Handler = async (params, ctx) => {
 
 	await ctx.owner.ensureInitialized();
 	void ctx.owner.index({force: validated.force}).catch(error => {
+		if (isAbortError(error)) {
+			return;
+		}
 		console.error('[daemon] Async index failed:', error);
 		const logger = ctx.owner.getLogger();
 		if (logger) {
@@ -112,6 +125,15 @@ const statusHandler: Handler = async (_params, ctx) => {
 const watchStatusHandler: Handler = async (_params, ctx) => {
 	await ctx.owner.ensureInitialized();
 	return ctx.owner.getWatcherStatus();
+};
+
+/**
+ * Cancel handler.
+ * Cancels the current daemon activity without shutting down.
+ */
+const cancelHandler: Handler = async (params, ctx) => {
+	const validated = cancelParamsSchema.parse(params ?? {});
+	return ctx.owner.cancelActivity(validated);
 };
 
 /**
@@ -176,6 +198,7 @@ export function createHandlers(): HandlerRegistry {
 		search: searchHandler,
 		index: indexHandler,
 		indexAsync: indexAsyncHandler,
+		cancel: cancelHandler,
 		status: statusHandler,
 		watchStatus: watchStatusHandler,
 		shutdown: shutdownHandler,

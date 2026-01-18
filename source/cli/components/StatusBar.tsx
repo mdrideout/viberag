@@ -119,10 +119,14 @@ function deriveIndexingDisplay(indexing: {
 	chunksProcessed: number;
 	throttleMessage: string | null;
 	percent: number;
+	secondsSinceProgress?: number | null;
 }) {
 	const isActive =
-		indexing.status === 'initializing' || indexing.status === 'indexing';
-	const showProgressBar = isActive && indexing.total > 0;
+		indexing.status === 'initializing' ||
+		indexing.status === 'indexing' ||
+		indexing.status === 'cancelling';
+	const showProgressBar =
+		isActive && indexing.total > 0 && indexing.status !== 'cancelling';
 	const hasUnit = Boolean(indexing.unit) && indexing.unit !== 'percent';
 	const progressInfo =
 		showProgressBar && hasUnit
@@ -132,21 +136,33 @@ function deriveIndexingDisplay(indexing: {
 		progressInfo === undefined && indexing.chunksProcessed > 0
 			? `${indexing.chunksProcessed} chunks`
 			: undefined;
-	const color = indexing.throttleMessage !== null ? 'yellow' : 'cyan';
+	const stallSeconds = indexing.secondsSinceProgress ?? null;
+	const stalled =
+		isActive && stallSeconds !== null && stallSeconds > 60
+			? stallSeconds
+			: null;
+	const color =
+		indexing.status === 'cancelling' || stalled !== null
+			? 'yellow'
+			: indexing.throttleMessage !== null
+				? 'yellow'
+				: 'cyan';
 	const fallbackStage =
-		indexing.phase === 'init'
-			? 'Initializing'
-			: indexing.phase === 'scan'
-				? 'Scanning files'
-				: indexing.phase === 'chunk'
-					? 'Chunking files'
-					: indexing.phase === 'embed'
-						? 'Embedding chunks'
-						: indexing.phase === 'persist'
-							? 'Writing index'
-							: indexing.phase === 'finalize'
-								? 'Finalizing manifest'
-								: '';
+		indexing.status === 'cancelling'
+			? 'Cancelling'
+			: indexing.phase === 'init'
+				? 'Initializing'
+				: indexing.phase === 'scan'
+					? 'Scanning files'
+					: indexing.phase === 'chunk'
+						? 'Chunking files'
+						: indexing.phase === 'embed'
+							? 'Embedding chunks'
+							: indexing.phase === 'persist'
+								? 'Writing index'
+								: indexing.phase === 'finalize'
+									? 'Finalizing manifest'
+									: '';
 
 	return {
 		isActive,
@@ -156,6 +172,7 @@ function deriveIndexingDisplay(indexing: {
 		chunkInfo,
 		progressInfo,
 		throttleInfo: indexing.throttleMessage,
+		stallInfo: stalled ? `No progress ${stalled}s` : null,
 		color,
 	};
 }
@@ -175,6 +192,7 @@ export default function StatusBar({status, stats}: Props) {
 				progressInfo: undefined,
 				chunkInfo: undefined,
 				throttleInfo: null,
+				stallInfo: null,
 				color: 'cyan',
 			};
 
@@ -199,6 +217,7 @@ export default function StatusBar({status, stats}: Props) {
 				progressInfo: indexingDisplay.progressInfo,
 				chunkInfo: indexingDisplay.chunkInfo,
 				throttleInfo: indexingDisplay.throttleInfo,
+				stallInfo: indexingDisplay.stallInfo,
 			}
 		: {
 				text: nonIndexingStatus.text,
@@ -222,6 +241,7 @@ export default function StatusBar({status, stats}: Props) {
 		progressInfo,
 		chunkInfo,
 		throttleInfo,
+		stallInfo,
 	} = displayValues;
 
 	// Show failure summary if any batches failed
@@ -243,6 +263,7 @@ export default function StatusBar({status, stats}: Props) {
 							{progressInfo && <Text dimColor> · {progressInfo}</Text>}
 							{chunkInfo && <Text dimColor> · {chunkInfo}</Text>}
 							{throttleInfo && <Text color="yellow"> · {throttleInfo}</Text>}
+							{stallInfo && <Text color="yellow"> · {stallInfo}</Text>}
 						</>
 					) : (
 						<Text color={color}>{text}</Text>

@@ -8,6 +8,7 @@
 import pLimit from 'p-limit';
 import type {Logger} from '../lib/logger.js';
 import {CONCURRENCY} from '../lib/constants.js';
+import {createAbortError, isAbortError, throwIfAborted} from '../lib/abort.js';
 
 // Re-export for backward compatibility
 export {CONCURRENCY};
@@ -37,6 +38,41 @@ export const MAX_BACKOFF_MS = 60000;
  */
 export function sleep(ms: number): Promise<void> {
 	return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Sleep for a specified duration with optional abort support.
+ */
+export function sleepWithSignal(
+	ms: number,
+	signal?: AbortSignal,
+): Promise<void> {
+	if (!signal) {
+		return sleep(ms);
+	}
+
+	if (signal.aborted) {
+		return Promise.reject(
+			createAbortError((signal as AbortSignal & {reason?: unknown}).reason),
+		);
+	}
+
+	return new Promise((resolve, reject) => {
+		const timer = setTimeout(() => {
+			signal.removeEventListener('abort', onAbort);
+			resolve();
+		}, ms);
+
+		const onAbort = () => {
+			clearTimeout(timer);
+			signal.removeEventListener('abort', onAbort);
+			reject(
+				createAbortError((signal as AbortSignal & {reason?: unknown}).reason),
+			);
+		};
+
+		signal.addEventListener('abort', onAbort, {once: true});
+	});
 }
 
 /**
@@ -177,6 +213,7 @@ export async function withRetry<T>(
 	onRetrying?: (retryInfo: string | null) => void,
 	logger?: Logger,
 	context?: BatchContext,
+	signal?: AbortSignal,
 ): Promise<T> {
 	let attempt = 0;
 	let backoffMs = INITIAL_BACKOFF_MS;
@@ -185,6 +222,7 @@ export async function withRetry<T>(
 		: {};
 
 	while (attempt < MAX_ATTEMPTS) {
+		throwIfAborted(signal, 'Retry cancelled');
 		try {
 			attempt++;
 			const result = await fn();
@@ -195,6 +233,9 @@ export async function withRetry<T>(
 			}
 			return result;
 		} catch (error) {
+			if (isAbortError(error) || signal?.aborted) {
+				throw error;
+			}
 			const errorMessage =
 				error instanceof Error ? error.message : String(error);
 			const errorPreview =
@@ -242,7 +283,7 @@ export async function withRetry<T>(
 			callbacks?.onThrottle?.(`${reason} - ${retryInfo}`);
 			onRetrying?.(retryInfo);
 
-			await sleep(backoffMs);
+			await sleepWithSignal(backoffMs, signal);
 			backoffMs = Math.min(backoffMs * 2, MAX_BACKOFF_MS);
 		}
 	}
@@ -267,6 +308,7 @@ export async function withRetry<T>(
  * @param batchMetadata - Optional metadata per batch for detailed failure logging
  * @param logger - Optional logger for debug output
  * @param chunkOffset - Optional offset for cumulative chunk numbering (default: 0)
+ * @param signal - Optional abort signal for cancellation
  * @param concurrency - Optional concurrency override for API requests
  * @returns Flattened array of results (null entries for failed batches)
  */
@@ -282,6 +324,7 @@ export async function processBatchesWithLimit<T>(
 	batchMetadata?: BatchMetadata[],
 	logger?: Logger,
 	chunkOffset: number = 0,
+	signal?: AbortSignal,
 	concurrency: number = CONCURRENCY,
 ): Promise<Array<number[] | null>> {
 	const limit = pLimit(concurrency);
@@ -291,83 +334,90 @@ export async function processBatchesWithLimit<T>(
 	// Track which slot index to assign next (wraps around concurrency)
 	let nextSlotIndex = 0;
 
-	const batchResults = await Promise.all(
-		batches.map((batch, batchIndex) =>
-			limit(async () => {
-				// Assign slot index (reuse slots as batches complete)
-				const slotIndex = nextSlotIndex++ % concurrency;
-				// Calculate cumulative chunk positions (with offset from prior batches)
-				const startChunk =
-					chunkOffset + batchIndex * (batchSize ?? batch.length) + 1;
-				const endChunk = startChunk + batch.length - 1;
-				const batchInfo = `chunks ${startChunk}-${endChunk}`;
-				const context = {batchIndex, batchInfo};
+	const batchPromises = batches.map((batch, batchIndex) =>
+		limit(async () => {
+			throwIfAborted(signal, 'Batch processing cancelled');
+			// Assign slot index (reuse slots as batches complete)
+			const slotIndex = nextSlotIndex++ % concurrency;
+			// Calculate cumulative chunk positions (with offset from prior batches)
+			const startChunk =
+				chunkOffset + batchIndex * (batchSize ?? batch.length) + 1;
+			const endChunk = startChunk + batch.length - 1;
+			const batchInfo = `chunks ${startChunk}-${endChunk}`;
+			const context = {batchIndex, batchInfo};
 
-				// Report slot as processing via callback
-				callbacks?.onSlotProcessing?.(slotIndex, batchInfo);
+			// Report slot as processing via callback
+			callbacks?.onSlotProcessing?.(slotIndex, batchInfo);
 
-				// Callback for when this slot enters retry state
-				const onRetrying = (retryInfo: string | null) => {
-					if (retryInfo) {
-						callbacks?.onSlotRateLimited?.(slotIndex, batchInfo, retryInfo);
-					} else {
-						// Cleared - back to processing
-						callbacks?.onSlotProcessing?.(slotIndex, batchInfo);
-					}
-				};
-
-				try {
-					const result = await processBatch(batch, onRetrying, context);
-
-					// Delay before releasing the slot (rate limit protection)
-					await sleep(BATCH_DELAY_MS);
-					callbacks?.onSlotIdle?.(slotIndex);
-
-					processedItems += batch.length;
-					callbacks?.onBatchProgress?.(processedItems, totalItems);
-					return result;
-				} catch (error) {
-					const errorMsg =
-						error instanceof Error ? error.message : String(error);
-					const batchMeta = batchMetadata?.[batchIndex];
-
-					// Log with full chunk context (service logger)
-					if (logger) {
-						logger.error('api-utils', 'Batch failed', {
-							batchIndex,
-							batchInfo,
-							chunkCount: batch.length,
-							files: batchMeta?.filepaths ?? [],
-							lineRanges: batchMeta?.lineRanges ?? [],
-							sizes: batchMeta?.sizes ?? [],
-							error: errorMsg,
-						} as unknown as Error);
-					}
-
-					// Report failure via callback
-					callbacks?.onSlotFailure?.({
-						batchInfo,
-						files: batchMeta?.filepaths ?? [],
-						chunkCount: batch.length,
-						error: errorMsg,
-						timestamp: new Date().toISOString(),
-					});
-
-					// Delay before releasing the slot (rate limit protection)
-					await sleep(BATCH_DELAY_MS);
-					callbacks?.onSlotIdle?.(slotIndex);
-
-					processedItems += batch.length;
-					callbacks?.onBatchProgress?.(processedItems, totalItems);
-
-					return Array.from({length: batch.length}, () => null);
+			// Callback for when this slot enters retry state
+			const onRetrying = (retryInfo: string | null) => {
+				if (retryInfo) {
+					callbacks?.onSlotRateLimited?.(slotIndex, batchInfo, retryInfo);
+				} else {
+					// Cleared - back to processing
+					callbacks?.onSlotProcessing?.(slotIndex, batchInfo);
 				}
-			}),
-		),
+			};
+
+			try {
+				const result = await processBatch(batch, onRetrying, context);
+
+				// Delay before releasing the slot (rate limit protection)
+				await sleepWithSignal(BATCH_DELAY_MS, signal);
+				callbacks?.onSlotIdle?.(slotIndex);
+
+				processedItems += batch.length;
+				callbacks?.onBatchProgress?.(processedItems, totalItems);
+				return result;
+			} catch (error) {
+				if (isAbortError(error) || signal?.aborted) {
+					callbacks?.onSlotIdle?.(slotIndex);
+					throw error;
+				}
+				const errorMsg = error instanceof Error ? error.message : String(error);
+				const batchMeta = batchMetadata?.[batchIndex];
+
+				// Log with full chunk context (service logger)
+				if (logger) {
+					logger.error('api-utils', 'Batch failed', {
+						batchIndex,
+						batchInfo,
+						chunkCount: batch.length,
+						files: batchMeta?.filepaths ?? [],
+						lineRanges: batchMeta?.lineRanges ?? [],
+						sizes: batchMeta?.sizes ?? [],
+						error: errorMsg,
+					} as unknown as Error);
+				}
+
+				// Report failure via callback
+				callbacks?.onSlotFailure?.({
+					batchInfo,
+					files: batchMeta?.filepaths ?? [],
+					chunkCount: batch.length,
+					error: errorMsg,
+					timestamp: new Date().toISOString(),
+				});
+
+				// Delay before releasing the slot (rate limit protection)
+				await sleepWithSignal(BATCH_DELAY_MS, signal);
+				callbacks?.onSlotIdle?.(slotIndex);
+
+				processedItems += batch.length;
+				callbacks?.onBatchProgress?.(processedItems, totalItems);
+
+				return Array.from({length: batch.length}, () => null);
+			}
+		}),
 	);
 
-	// Reset all slots when complete
-	callbacks?.onResetSlots?.();
+	let batchResults: Array<number[] | null>[];
+	try {
+		batchResults = await Promise.all(batchPromises);
+	} finally {
+		// Reset all slots when complete or cancelled
+		callbacks?.onResetSlots?.();
+	}
 
 	return batchResults.flat();
 }
