@@ -12,7 +12,7 @@
  * - Easy to test (just check state object)
  */
 
-import type {IndexStats as IndexingRunStats} from './services/indexing.js';
+import type {V2IndexStats as IndexingRunStats} from './services/v2/indexing.js';
 import type {IndexingPhase, IndexingUnit} from './services/types.js';
 
 // ============================================================================

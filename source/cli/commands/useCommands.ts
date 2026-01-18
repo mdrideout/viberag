@@ -12,6 +12,8 @@ import {
 	getStatus,
 	loadIndexStats,
 	cancelActivity,
+	runEval,
+	formatEvalReport,
 } from './handlers.js';
 import {setupVSCodeTerminal} from '../../common/commands/terminalSetup.js';
 import type {SearchResultsData} from '../../common/types.js';
@@ -54,6 +56,7 @@ export function useCommands({
   /index          - Index the codebase
   /reindex        - Force full reindex
   /search <query> - Search the codebase
+  /eval           - Run evaluation harness (v2)
   /status         - Show index status
   /cancel [target] - Cancel indexing or warmup (targets: indexing, warmup)
   /mcp-setup      - Configure MCP server for AI coding tools
@@ -130,20 +133,7 @@ Manual MCP Setup:
 			runSearch(projectRoot, query)
 				.then(results => {
 					// Use the component-based display with syntax highlighting
-					addSearchResults({
-						query: results.query,
-						elapsedMs: results.elapsedMs,
-						results: results.results.map(r => ({
-							type: r.type,
-							name: r.name,
-							filepath: r.filepath,
-							filename: r.filename,
-							startLine: r.startLine,
-							endLine: r.endLine,
-							score: r.score,
-							text: r.text,
-						})),
-					});
+					addSearchResults(results);
 					dispatch(AppActions.setReady());
 				})
 				.catch(err => {
@@ -159,6 +149,22 @@ Manual MCP Setup:
 			.then(status => addOutput('system', status))
 			.catch(err => addOutput('system', `Status failed: ${err.message}`));
 	}, [projectRoot, addOutput]);
+
+	const handleEval = useCallback(() => {
+		addOutput('system', 'Running eval harness...');
+		dispatch(AppActions.setWorking('Running eval harness...'));
+
+		runEval(projectRoot)
+			.then(report => {
+				addOutput('system', formatEvalReport(report));
+				dispatch(AppActions.setReady());
+			})
+			.catch(err => {
+				const message = err instanceof Error ? err.message : String(err);
+				addOutput('system', `Eval failed: ${message}`);
+				dispatch(AppActions.setReady());
+			});
+	}, [projectRoot, addOutput, dispatch]);
 
 	const handleCancel = useCallback(
 		(target?: string) => {
@@ -236,6 +242,9 @@ Manual MCP Setup:
 				case '/status':
 					handleStatus();
 					break;
+				case '/eval':
+					handleEval();
+					break;
 				case '/mcp-setup':
 					handleMcpSetup();
 					break;
@@ -262,6 +271,7 @@ Manual MCP Setup:
 			handleIndex,
 			handleSearch,
 			handleStatus,
+			handleEval,
 			handleCancel,
 			handleMcpSetup,
 			handleClean,

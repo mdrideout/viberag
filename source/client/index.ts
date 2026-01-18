@@ -19,11 +19,15 @@ import {
 import type {
 	DaemonClientOptions,
 	ClientSearchOptions,
+	ClientFindUsagesOptions,
+	ClientEvalOptions,
 	ClientIndexOptions,
 	IndexStartResponse,
 	DaemonStatusResponse,
 	PingResponse,
 	SearchResults,
+	FindUsagesResults,
+	EvalReport,
 	IndexStats,
 	WatcherStatus,
 	CancelResponse,
@@ -159,6 +163,56 @@ export class DaemonClient {
 			query,
 			...options,
 		}) as Promise<SearchResults>;
+	}
+
+	/**
+	 * Fetch a symbol definition row by symbol_id.
+	 */
+	async getSymbol(symbol_id: string): Promise<Record<string, unknown> | null> {
+		await this.ensureConnected();
+		return this.connection!.request('getSymbol', {symbol_id}) as Promise<Record<
+			string,
+			unknown
+		> | null>;
+	}
+
+	/**
+	 * Find usages for a symbol name or symbol_id.
+	 */
+	async findUsages(
+		options: ClientFindUsagesOptions,
+	): Promise<FindUsagesResults> {
+		await this.ensureConnected();
+		return this.connection!.request(
+			'findUsages',
+			options as unknown as Record<string, unknown>,
+		) as Promise<FindUsagesResults>;
+	}
+
+	/**
+	 * Run the v2 eval harness (quality + latency).
+	 */
+	async eval(options?: ClientEvalOptions): Promise<EvalReport> {
+		await this.ensureConnected();
+		return this.connection!.request(
+			'eval',
+			options as unknown as Record<string, unknown> | undefined,
+		) as Promise<EvalReport>;
+	}
+
+	/**
+	 * Expand context for a hit (symbols/chunks/files).
+	 */
+	async expandContext(args: {
+		table: 'symbols' | 'chunks' | 'files';
+		id: string;
+		limit?: number;
+	}): Promise<Record<string, unknown>> {
+		await this.ensureConnected();
+		return this.connection!.request(
+			'expandContext',
+			args as unknown as Record<string, unknown>,
+		) as Promise<Record<string, unknown>>;
 	}
 
 	/**

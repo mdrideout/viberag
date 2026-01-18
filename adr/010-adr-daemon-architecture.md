@@ -171,13 +171,13 @@ STEP 4: Clients auto-reconnect to new daemon
 
 The daemon exclusively owns:
 
-| Resource                | Daemon Owns       | Clients Access Via              |
-| ----------------------- | ----------------- | ------------------------------- |
-| LanceDB connection      | Single connection | IPC: `search()`, `getChunks()`  |
-| File watcher (chokidar) | Single watcher    | IPC: notifications pushed       |
-| Indexer                 | Single indexer    | IPC: `index()`, progress events |
-| Manifest                | Read/write        | IPC: `status()`                 |
-| Config                  | Read              | IPC: `status()`                 |
+| Resource                | Daemon Owns       | Clients Access Via                                                 |
+| ----------------------- | ----------------- | ------------------------------------------------------------------ |
+| LanceDB connection      | Single connection | IPC: `search()`, `getSymbol()`, `expandContext()`                  |
+| File watcher (chokidar) | Single watcher    | IPC: `watchStatus()` (polled)                                      |
+| Indexer                 | Single indexer    | IPC: `index()` / `indexAsync()` (progress observed via `status()`) |
+| Manifest                | Read/write        | IPC: `status()`                                                    |
+| Config                  | Read              | IPC: `status()`                                                    |
 
 ### IPC Protocol
 
@@ -188,23 +188,22 @@ Protocol: JSON-RPC 2.0 over newline-delimited JSON
 ```
 Client → Daemon (requests):
 ─────────────────────────
-{"jsonrpc":"2.0","method":"search","params":{...},"id":1}
-{"jsonrpc":"2.0","method":"index","params":{"force":false},"id":2}
-{"jsonrpc":"2.0","method":"status","id":3}
-{"jsonrpc":"2.0","method":"shutdown","params":{"reason":"reinit"},"id":4}
-{"jsonrpc":"2.0","method":"subscribe","id":5}
+{"jsonrpc":"2.0","method":"search","params":{"query":"auth","intent":"auto","k":20},"id":1}
+{"jsonrpc":"2.0","method":"getSymbol","params":{"symbol_id":"..."},"id":2}
+{"jsonrpc":"2.0","method":"expandContext","params":{"table":"symbols","id":"..."},"id":3}
+{"jsonrpc":"2.0","method":"indexAsync","params":{"force":false},"id":4}
+{"jsonrpc":"2.0","method":"status","id":5}
+{"jsonrpc":"2.0","method":"watchStatus","id":6}
+{"jsonrpc":"2.0","method":"cancel","params":{"target":"indexing","reason":"cli"},"id":7}
+{"jsonrpc":"2.0","method":"shutdown","params":{"reason":"reinit"},"id":8}
 
 Daemon → Client (responses):
 ───────────────────────────
 {"jsonrpc":"2.0","result":{...},"id":1}
 {"jsonrpc":"2.0","error":{"code":-1,"message":"..."},"id":2}
-
-Daemon → Client (push notifications):
-────────────────────────────────────
-{"jsonrpc":"2.0","method":"indexUpdated","params":{"epoch":42,"stats":{...}}}
-{"jsonrpc":"2.0","method":"watcherEvent","params":{"type":"change","path":"src/foo.ts"}}
-{"jsonrpc":"2.0","method":"shuttingDown","params":{"reason":"reinit"}}
 ```
+
+The protocol is request/response only. Clients poll `status()` (and optionally `watchStatus()`) to observe progress and state changes.
 
 ### Daemon Lifecycle
 
@@ -216,7 +215,7 @@ Daemon → Client (push notifications):
 
 **Shutdown:**
 
-1. Idle timeout: daemon exits after 5 minutes with no connected clients
+1. Idle timeout: daemon exits after 5 minutes with no activity (any request resets the timer)
 2. Explicit: CLI sends `shutdown` command for `/clean`, `/init`
 3. Signal: SIGTERM/SIGINT triggers graceful shutdown
 
@@ -249,8 +248,8 @@ Daemon → Client (push notifications):
                     ▼                     ▼
             ┌───────────────────────────────────┐
             │           CONNECTED               │◄────────┐
-            │   - Can call search(), index()    │         │
-            │   - Receives push notifications   │         │
+            │   - Can call search(), indexAsync() │         │
+            │   - Polls status() for updates    │         │
             └───────────────┬───────────────────┘         │
                             │                             │
                    daemon disconnects                     │

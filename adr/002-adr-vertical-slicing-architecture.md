@@ -78,8 +78,8 @@ The `daemon/` module contains all business logic with no UI dependencies. Interf
 
 ```typescript
 import {DaemonClient} from '../client/index.js';
-const client = new DaemonClient();
-await client.search({query: 'auth'});
+const client = new DaemonClient(process.cwd());
+await client.search('auth', {intent: 'concept', k: 20});
 ```
 
 #### 3. Direct Imports (NO BARREL EXPORTS)
@@ -90,7 +90,7 @@ Use direct imports to specific files. Barrel exports are FORBIDDEN:
 // ✅ Direct imports
 import TextInput from '../common/components/TextInput.js';
 import {useCtrlC} from '../common/hooks/useCtrlC.js';
-import {SearchEngine} from '../daemon/services/search/index.js';
+import {SearchEngineV2} from '../daemon/services/v2/search/engine.js';
 
 // ❌ FORBIDDEN - barrel imports
 import {SearchEngine, Storage} from '../daemon/services/index.js';

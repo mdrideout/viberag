@@ -56,23 +56,35 @@ We adopt **Approach B: Store facts, not interpretations**.
 
 ### What We Index
 
-#### 1. Existing Fields (unchanged)
+Search v2 uses a **multi-entity index** (see ADR-014). The core principle remains the same: index deterministic facts derived from source code.
 
-- `filepath`, `filename`, `extension` — File location facts
-- `type` — AST-derived: "function", "class", "method", "module"
-- `name` — Symbol name from AST
+#### Common facts (across v2 tables)
+
+- `file_path`, `extension` — File location facts
 - `start_line`, `end_line` — Location in file
-- `text` — The actual code content
-- `vector` — Embedding for semantic search
+- `code_text` — Exact source span for the row
+- `content_hash`, `file_hash` — Content fingerprints for consistency + incremental updates
 
-#### 2. New Deterministic Fields
+#### Definition facts (symbols)
 
-- `signature` — Function/method signature line (first line of declaration)
-- `docstring` — Extracted documentation (JSDoc, Python docstring, etc.)
-- `is_exported` — Boolean: does this symbol have `export` modifier?
-- `decorator_names` — Comma-separated list of decorator/annotation names
+- `symbol_kind`, `symbol_name`, `qualname` — Deterministic definition identity
+- `signature` — Best-effort signature text (language-dependent)
+- `docstring` — Best-effort extracted doc text (language-dependent)
+- `is_exported` — Export/public flag (deterministic rules)
+- `decorator_names` — Array of decorator/annotation names
 
-All new fields are **deterministic extractions from the AST**. If the extraction is wrong, it's a bug to fix — not a heuristic that varies by codebase.
+#### Token facts (symbols/chunks)
+
+- `identifiers`, `identifier_parts` — Identifier tokens and deterministic splits
+- `called_names` — Callee names from calls (best-effort)
+- `string_literals` — String contents (best-effort)
+
+#### Search surfaces
+
+- `search_text` / `identifiers_text` — Normalized text surfaces for FTS
+- `vec_summary` (symbols), `vec_code` (chunks), `vec_file` (files) — Vector surfaces
+
+If any extraction is wrong, it should be treated as a bug in deterministic extraction—not a heuristic “category” that silently hides results.
 
 ### What We Do NOT Index
 
@@ -93,10 +105,10 @@ Instead of pre-computed categories, we provide **transparent path-based filters*
 // AI wants: "Find auth code, not tests"
 
 // BAD: Opaque category (we might be wrong)
-filters: { file_category: "source", path_contains: ["auth"] }
+scope: { file_category: "source", path_contains: ["auth"] }
 
 // GOOD: Explicit path exclusion (AI controls exactly what's excluded)
-filters: {
+scope: {
   path_contains: ["auth"],
   path_not_contains: ["test", "__tests__", "spec", ".test.", ".spec."]
 }
@@ -118,10 +130,10 @@ We considered pre-computing event publishers/subscribers and API endpoints. Inst
 **Multi-stage search (adopted):**
 
 ```
-Stage 1: codebase_search(query="event publish emit", mode="semantic")
+Stage 1: search(query="event publish emit", intent="concept")
          → Finds event-related code
 
-Stage 2: codebase_search(query="order-created", mode="exact")
+Stage 2: search(query="order-created", intent="exact_text")
          → Finds specific event references
 
 Stage 3: AI reads results, interprets which are publishers vs subscribers
@@ -243,17 +255,14 @@ async getUsers() {}
 
 ### Filter Implementation
 
-Path filters map to LanceDB WHERE clauses:
+Path filters map directly to LanceDB WHERE clauses in v2:
 
-| Filter                        | LanceDB                        |
-| ----------------------------- | ------------------------------ |
-| `path_prefix: "src/api/"`     | `filepath LIKE 'src/api/%'`    |
-| `path_contains: ["auth"]`     | `filepath LIKE '%auth%'`       |
-| `path_not_contains: ["test"]` | `filepath NOT LIKE '%test%'`   |
-| `extension: [".ts"]`          | `extension = '.ts'`            |
-| `type: ["function"]`          | `type = 'function'`            |
-| `is_exported: true`           | `is_exported = true`           |
-| `decorator_contains: "Get"`   | `decorator_names LIKE '%Get%'` |
+| Filter                        | LanceDB                       |
+| ----------------------------- | ----------------------------- |
+| `path_prefix: ["src/api/"]`   | `file_path LIKE 'src/api/%'`  |
+| `path_contains: ["auth"]`     | `file_path LIKE '%auth%'`     |
+| `path_not_contains: ["test"]` | `file_path NOT LIKE '%test%'` |
+| `extension: [".ts"]`          | `extension IN ('.ts')`        |
 
 ### Symbol Index (Phase 3)
 
@@ -272,4 +281,4 @@ This is **deterministic** — a definition is a definition, an import is an impo
 ## References
 
 - ADR-004: Embedding Model Selection (related: what we embed)
-- MCP_ENHANCE_PLAN.md (implementation details)
+- ADR-014: Search v2 indexing and retrieval

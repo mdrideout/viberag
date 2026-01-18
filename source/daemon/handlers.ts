@@ -21,18 +21,54 @@ import {isAbortError} from './lib/abort.js';
 
 const searchParamsSchema = z.object({
 	query: z.string().min(1),
-	mode: z
-		.enum(['semantic', 'exact', 'hybrid', 'definition', 'similar'])
+	intent: z
+		.enum([
+			'auto',
+			'definition',
+			'usage',
+			'concept',
+			'exact_text',
+			'similar_code',
+		])
 		.optional(),
-	limit: z.number().min(1).max(100).optional(),
-	bm25Weight: z.number().min(0).max(1).optional(),
-	minScore: z.number().min(0).max(1).optional(),
-	filters: z.record(z.string(), z.unknown()).optional(),
-	codeSnippet: z.string().optional(),
-	symbolName: z.string().optional(),
-	autoBoost: z.boolean().optional(),
-	autoBoostThreshold: z.number().min(0).max(1).optional(),
-	returnDebug: z.boolean().optional(),
+	scope: z
+		.object({
+			path_prefix: z.array(z.string()).optional(),
+			path_contains: z.array(z.string()).optional(),
+			path_not_contains: z.array(z.string()).optional(),
+			extension: z.array(z.string()).optional(),
+		})
+		.optional(),
+	k: z.number().min(1).max(100).optional(),
+	explain: z.boolean().optional(),
+});
+
+const getSymbolParamsSchema = z.object({
+	symbol_id: z.string().min(1),
+});
+
+const findUsagesParamsSchema = z
+	.object({
+		symbol_id: z.string().min(1).optional(),
+		symbol_name: z.string().min(1).optional(),
+		scope: z
+			.object({
+				path_prefix: z.array(z.string()).optional(),
+				path_contains: z.array(z.string()).optional(),
+				path_not_contains: z.array(z.string()).optional(),
+				extension: z.array(z.string()).optional(),
+			})
+			.optional(),
+		k: z.number().min(1).max(2000).optional(),
+	})
+	.refine(v => v.symbol_id || v.symbol_name, {
+		message: 'symbol_id or symbol_name is required',
+	});
+
+const expandContextParamsSchema = z.object({
+	table: z.enum(['symbols', 'chunks', 'files']),
+	id: z.string().min(1),
+	limit: z.number().min(1).max(200).optional(),
 });
 
 const indexParamsSchema = z.object({
@@ -54,6 +90,17 @@ const cancelParamsSchema = z.object({
 	reason: z.string().optional(),
 });
 
+const evalParamsSchema = z
+	.object({
+		definition_samples: z.number().min(1).max(500).optional(),
+		concept_samples: z.number().min(1).max(500).optional(),
+		exact_text_samples: z.number().min(1).max(500).optional(),
+		similar_code_samples: z.number().min(1).max(500).optional(),
+		seed: z.number().int().optional(),
+		explain: z.boolean().optional(),
+	})
+	.optional();
+
 // ============================================================================
 // Handlers
 // ============================================================================
@@ -67,6 +114,33 @@ const searchHandler: Handler = async (params, ctx) => {
 
 	await ctx.owner.ensureInitialized();
 	return ctx.owner.search(query, options);
+};
+
+/**
+ * Get symbol handler.
+ */
+const getSymbolHandler: Handler = async (params, ctx) => {
+	const validated = getSymbolParamsSchema.parse(params ?? {});
+	await ctx.owner.ensureInitialized();
+	return ctx.owner.getSymbol(validated.symbol_id);
+};
+
+/**
+ * Find usages handler.
+ */
+const findUsagesHandler: Handler = async (params, ctx) => {
+	const validated = findUsagesParamsSchema.parse(params ?? {});
+	await ctx.owner.ensureInitialized();
+	return ctx.owner.findUsages(validated);
+};
+
+/**
+ * Expand context handler.
+ */
+const expandContextHandler: Handler = async (params, ctx) => {
+	const validated = expandContextParamsSchema.parse(params ?? {});
+	await ctx.owner.ensureInitialized();
+	return ctx.owner.expandContext(validated);
 };
 
 /**
@@ -137,6 +211,15 @@ const cancelHandler: Handler = async (params, ctx) => {
 };
 
 /**
+ * Eval handler.
+ */
+const evalHandler: Handler = async (params, ctx) => {
+	const validated = evalParamsSchema.parse(params ?? {});
+	await ctx.owner.ensureInitialized();
+	return ctx.owner.eval(validated);
+};
+
+/**
  * Shutdown handler.
  * Schedules server stop.
  */
@@ -196,8 +279,12 @@ const healthHandler: Handler = async (_params, ctx) => {
 export function createHandlers(): HandlerRegistry {
 	return {
 		search: searchHandler,
+		getSymbol: getSymbolHandler,
+		findUsages: findUsagesHandler,
+		expandContext: expandContextHandler,
 		index: indexHandler,
 		indexAsync: indexAsyncHandler,
+		eval: evalHandler,
 		cancel: cancelHandler,
 		status: statusHandler,
 		watchStatus: watchStatusHandler,

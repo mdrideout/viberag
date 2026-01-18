@@ -89,13 +89,13 @@ Move shared constants to avoid pulling in heavy dependencies:
 
 ### Light Modules (Direct Import)
 
-| Module    | Path                               | Load Time |
-| --------- | ---------------------------------- | --------- |
-| config    | `../daemon/lib/config.js`          | <10ms     |
-| manifest  | `../daemon/lib/manifest.js`        | <10ms     |
-| logger    | `../daemon/lib/logger/index.js`    | <10ms     |
-| gitignore | `../daemon/lib/gitignore/index.js` | <10ms     |
-| constants | `../daemon/lib/constants.js`       | <5ms      |
+| Module    | Path                                | Load Time |
+| --------- | ----------------------------------- | --------- |
+| config    | `../daemon/lib/config.js`           | <10ms     |
+| manifest  | `../daemon/services/v2/manifest.js` | <10ms     |
+| logger    | `../daemon/lib/logger.js`           | <10ms     |
+| gitignore | `../daemon/lib/gitignore.js`        | <10ms     |
+| constants | `../daemon/lib/constants.js`        | <5ms      |
 
 ### Heavy Modules (Lazy Load via Client)
 

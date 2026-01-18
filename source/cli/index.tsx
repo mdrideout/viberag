@@ -16,6 +16,7 @@ const cli = meow(
 	Commands
 	  /help   Show available commands
 	  /clear  Clear the screen
+	  /eval   Run evaluation harness
 	  /cancel Cancel indexing or warmup
 	  /quit   Exit the application
 `,

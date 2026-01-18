@@ -73,9 +73,11 @@ export const daemonState = new StateContainer();
 Services emit events instead of dispatching Redux actions:
 
 ```typescript
-// source/daemon/services/indexing.ts
-export class IndexingService extends TypedEmitter<IndexingEvents & SlotEvents> {
-	async index(options: IndexOptions): Promise<IndexStats> {
+// source/daemon/services/v2/indexing.ts
+export class IndexingServiceV2 extends TypedEmitter<
+	IndexingEvents & SlotEvents
+> {
+	async index(options: V2IndexOptions): Promise<V2IndexStats> {
 		this.emit('start');
 
 		// Instead of: store.dispatch(IndexingActions.setProgress(...))
@@ -90,7 +92,7 @@ The daemon owner wires events to state:
 
 ```typescript
 // source/daemon/owner.ts
-private wireIndexingEvents(indexer: IndexingService): void {
+private wireIndexingEvents(indexer: IndexingServiceV2): void {
   indexer.on('start', () => {
     daemonState.updateNested('indexing', () => ({
       status: 'initializing' as const,
@@ -124,18 +126,19 @@ source/daemon/                    ← SELF-CONTAINED VERTICAL SLICE
 │
 ├── services/                     # Business logic OWNED by daemon
 │   ├── types.ts                  # TypedEmitter, event interfaces
-│   ├── indexing.ts               # IndexingService with events
 │   ├── watcher.ts                # FileWatcher with events
-│   ├── storage/                  # LanceDB wrapper
-│   │   ├── index.ts              # Storage class (no re-exports)
-│   │   ├── types.ts
-│   │   └── schema.ts
-│   └── search/                   # Search engine
-│       ├── index.ts              # SearchEngine class (no re-exports)
-│       ├── types.ts
-│       ├── vector.ts
-│       ├── fts.ts
-│       └── hybrid.ts
+│   └── v2/                       # Search v2 (multi-entity tables)
+│       ├── indexing.ts           # IndexingServiceV2 with events
+│       ├── manifest.ts           # manifest-v2.json persistence
+│       ├── storage/              # LanceDB wrapper (symbols/chunks/files)
+│       │   ├── index.ts          # StorageV2 class (no re-exports)
+│       │   ├── types.ts
+│       │   └── schema.ts
+│       ├── extract/              # Deterministic extraction pipeline
+│       │   └── extract.ts
+│       └── search/               # Intent-routed retrieval
+│           ├── engine.ts
+│           └── types.ts
 │
 ├── providers/                    # Embedding providers (direct imports)
 │   ├── types.ts
@@ -160,8 +163,8 @@ source/daemon/                    ← SELF-CONTAINED VERTICAL SLICE
 Each domain owns its types:
 
 - `daemon/state.ts` → `DaemonState`, `SlotInfo`, `FailureInfo`
-- `daemon/services/indexing.ts` → `IndexStats`, `IndexOptions`
-- `daemon/services/search/types.ts` → `SearchResults`, `SearchFilters`
+- `daemon/services/v2/indexing.ts` → `V2IndexStats`, `V2IndexOptions`
+- `daemon/services/v2/search/types.ts` → `V2SearchResponse`, `V2SearchScope`
 - `client/types.ts` → Client-facing types, re-exports from daemon
 
 Cross-imports between services are fine. The domain that owns the data is the origin and owner of the type.

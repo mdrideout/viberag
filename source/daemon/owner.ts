@@ -14,16 +14,29 @@
 import * as crypto from 'node:crypto';
 import path from 'node:path';
 import {loadConfig, configExists, type ViberagConfig} from './lib/config.js';
-import {loadManifest, manifestExists} from './lib/manifest.js';
 import {createServiceLogger, type Logger} from './lib/logger.js';
 import {isAbortError, throwIfAborted} from './lib/abort.js';
 import {daemonState, type IndexingStatus} from './state.js';
-import {SearchEngine} from './services/search/index.js';
-import type {SearchResults} from './services/search/types.js';
-import {IndexingService, type IndexStats} from './services/indexing.js';
+import {SearchEngineV2} from './services/v2/search/engine.js';
+import type {
+	V2FindUsagesOptions,
+	V2FindUsagesResponse,
+	V2SearchResponse,
+} from './services/v2/search/types.js';
+import {
+	runV2Eval,
+	type V2EvalOptions,
+	type V2EvalReport,
+} from './services/v2/eval/eval.js';
+import {IndexingServiceV2, type V2IndexStats} from './services/v2/indexing.js';
 import type {IndexingPhase, IndexingUnit} from './services/types.js';
 import {FileWatcher, type WatcherStatus} from './services/watcher.js';
-import {Storage} from './services/storage/index.js';
+import {StorageV2} from './services/v2/storage/index.js';
+import {loadV2Manifest, v2ManifestExists} from './services/v2/manifest.js';
+import type {
+	V2SearchIntent,
+	V2SearchScope,
+} from './services/v2/search/types.js';
 
 // ============================================================================
 // Types
@@ -35,16 +48,10 @@ const AUTO_INDEX_CANCEL_PAUSE_MS = 30_000;
  * Search options passed from client.
  */
 export interface DaemonSearchOptions {
-	mode?: 'semantic' | 'exact' | 'hybrid' | 'definition' | 'similar';
-	limit?: number;
-	bm25Weight?: number;
-	minScore?: number;
-	filters?: Record<string, unknown>;
-	codeSnippet?: string;
-	symbolName?: string;
-	autoBoost?: boolean;
-	autoBoostThreshold?: number;
-	returnDebug?: boolean;
+	intent?: V2SearchIntent;
+	scope?: V2SearchScope;
+	k?: number;
+	explain?: boolean;
 }
 
 /**
@@ -104,7 +111,9 @@ export interface DaemonStatus {
 	createdAt?: string;
 	updatedAt?: string;
 	totalFiles?: number;
+	totalSymbols?: number;
 	totalChunks?: number;
+	totalRefs?: number;
 	embeddingProvider?: string;
 	embeddingModel?: string;
 	warmupStatus: string;
@@ -134,7 +143,7 @@ export interface DaemonStatus {
 		error: string | null;
 		startedAt: string | null;
 		lastCompleted: string | null;
-		lastStats: IndexStats | null;
+		lastStats: V2IndexStats | null;
 		lastProgressAt: string | null;
 		cancelRequestedAt: string | null;
 		cancelledAt: string | null;
@@ -168,11 +177,11 @@ export class DaemonOwner {
 	private initializePromise: Promise<void> | null = null;
 
 	// Shared Storage instance (owned by DaemonOwner)
-	private storage: Storage | null = null;
+	private storage: StorageV2 | null = null;
 
 	// SearchEngine singleton (lazy initialized)
-	private searchEngine: SearchEngine | null = null;
-	private warmupPromise: Promise<SearchEngine> | null = null;
+	private searchEngine: SearchEngineV2 | null = null;
+	private warmupPromise: Promise<SearchEngineV2> | null = null;
 	private warmupStartTime: number | null = null;
 	private warmupAbortController: AbortController | null = null;
 	private indexingAbortController: AbortController | null = null;
@@ -230,8 +239,8 @@ export class DaemonOwner {
 
 		this.log('info', `Daemon initializing for ${this.projectRoot}`);
 
-		// Create and connect shared Storage instance
-		this.storage = new Storage(
+		// Create and connect shared v2 Storage instance
+		this.storage = new StorageV2(
 			this.projectRoot,
 			this.config.embeddingDimensions,
 		);
@@ -247,8 +256,8 @@ export class DaemonOwner {
 			this.watcher.setIndexTrigger(async () => {
 				const stats = await this.index({force: false});
 				return {
-					chunksAdded: stats.chunksAdded,
-					chunksDeleted: stats.chunksDeleted,
+					chunksAdded: stats.chunkRowsUpserted,
+					chunksDeleted: stats.chunkRowsDeleted,
 				};
 			});
 
@@ -356,7 +365,7 @@ export class DaemonOwner {
 	/**
 	 * Wire indexing service events to daemon state.
 	 */
-	private wireIndexingEvents(indexer: IndexingService): void {
+	private wireIndexingEvents(indexer: IndexingServiceV2): void {
 		indexer.on('start', () => {
 			const startedAt = new Date().toISOString();
 			daemonState.updateNested('indexing', () => ({
@@ -561,7 +570,7 @@ export class DaemonOwner {
 	/**
 	 * Perform warmup - initialize SearchEngine with embedding provider.
 	 */
-	private async doWarmup(signal?: AbortSignal): Promise<SearchEngine> {
+	private async doWarmup(signal?: AbortSignal): Promise<SearchEngineV2> {
 		this.warmupStartTime = Date.now();
 
 		try {
@@ -583,8 +592,8 @@ export class DaemonOwner {
 
 			this.log('info', `Warming up ${this.config.embeddingProvider} provider`);
 
-			// Create SearchEngine with shared storage
-			const engine = new SearchEngine(this.projectRoot, {
+			// Create v2 SearchEngine with shared storage
+			const engine = new SearchEngineV2(this.projectRoot, {
 				logger: this.logger ?? undefined,
 				storage: this.storage ?? undefined,
 			});
@@ -655,7 +664,7 @@ export class DaemonOwner {
 	/**
 	 * Get the initialized SearchEngine.
 	 */
-	private async getSearchEngine(): Promise<SearchEngine> {
+	private async getSearchEngine(): Promise<SearchEngineV2> {
 		if (this.searchEngine) {
 			return this.searchEngine;
 		}
@@ -680,15 +689,56 @@ export class DaemonOwner {
 	async search(
 		query: string,
 		options?: DaemonSearchOptions,
-	): Promise<SearchResults> {
+	): Promise<V2SearchResponse> {
 		const engine = await this.getSearchEngine();
 		return engine.search(query, options);
 	}
 
 	/**
+	 * Fetch a symbol row by symbol_id.
+	 */
+	async getSymbol(symbolId: string): Promise<Record<string, unknown> | null> {
+		const engine = await this.getSearchEngine();
+		return engine.getSymbol(symbolId);
+	}
+
+	/**
+	 * Find usages for a symbol name or symbol_id.
+	 */
+	async findUsages(
+		options: V2FindUsagesOptions,
+	): Promise<V2FindUsagesResponse> {
+		const engine = await this.getSearchEngine();
+		return engine.findUsages(options);
+	}
+
+	/**
+	 * Run the v2 eval harness (quality + latency).
+	 */
+	async eval(options?: V2EvalOptions): Promise<V2EvalReport> {
+		const engine = await this.getSearchEngine();
+		if (!this.storage) {
+			throw new Error('Storage not initialized');
+		}
+		return runV2Eval({engine, storage: this.storage, options});
+	}
+
+	/**
+	 * Expand context for a hit (symbols/chunks/files).
+	 */
+	async expandContext(args: {
+		table: 'symbols' | 'chunks' | 'files';
+		id: string;
+		limit?: number;
+	}): Promise<Record<string, unknown>> {
+		const engine = await this.getSearchEngine();
+		return engine.expandContext(args);
+	}
+
+	/**
 	 * Index the codebase.
 	 */
-	async index(options?: DaemonIndexOptions): Promise<IndexStats> {
+	async index(options?: DaemonIndexOptions): Promise<V2IndexStats> {
 		// Notify watcher that indexing is starting
 		this.watcher?.setIndexingState(true);
 
@@ -701,7 +751,7 @@ export class DaemonOwner {
 		const signal = this.indexingAbortController.signal;
 
 		// Create IndexingService with shared storage
-		const indexer = new IndexingService(this.projectRoot, {
+		const indexer = new IndexingServiceV2(this.projectRoot, {
 			logger: this.logger ?? undefined,
 			storage: this.storage ?? undefined,
 			signal,
@@ -861,7 +911,7 @@ export class DaemonOwner {
 
 		const status: DaemonStatus = {
 			initialized: await configExists(this.projectRoot),
-			indexed: await manifestExists(this.projectRoot),
+			indexed: await v2ManifestExists(this.projectRoot),
 			warmupStatus: state.warmup.status,
 			warmupElapsedMs,
 			warmupCancelRequestedAt: state.warmup.cancelRequestedAt,
@@ -927,12 +977,17 @@ export class DaemonOwner {
 
 		// Add manifest info if indexed
 		if (status.indexed) {
-			const manifest = await loadManifest(this.projectRoot);
+			const manifest = await loadV2Manifest(this.projectRoot, {
+				repoId: computeRepoId(this.projectRoot),
+				revision: 'working',
+			});
 			status.version = manifest.version;
 			status.createdAt = manifest.createdAt;
 			status.updatedAt = manifest.updatedAt;
 			status.totalFiles = manifest.stats.totalFiles;
+			status.totalSymbols = manifest.stats.totalSymbols;
 			status.totalChunks = manifest.stats.totalChunks;
+			status.totalRefs = manifest.stats.totalRefs;
 		}
 
 		return status;
@@ -1020,4 +1075,8 @@ export class DaemonOwner {
 			console.error(`${prefix} ${message}`);
 		}
 	}
+}
+
+function computeRepoId(projectRoot: string): string {
+	return crypto.createHash('sha256').update(projectRoot).digest('hex');
 }

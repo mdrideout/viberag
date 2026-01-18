@@ -373,18 +373,25 @@ describe('MCP Server', () => {
 		let statusAfterIndex: {
 			status: string;
 			totalFiles?: number;
+			totalSymbols?: number;
 			totalChunks?: number;
+			totalRefs?: number;
 			embeddingProvider?: string;
 			embeddingDimensions?: number;
-			warmup?: {status?: string};
+			daemon?: {warmup?: {status?: string}};
 		} | null = null;
 		let indexStats: {
 			filesScanned: number;
+			filesIndexed: number;
 			filesNew: number;
 			filesModified: number;
 			filesDeleted: number;
-			chunksAdded: number;
-			chunksDeleted: number;
+			fileRowsUpserted: number;
+			symbolRowsUpserted: number;
+			chunkRowsUpserted: number;
+			fileRowsDeleted: number;
+			symbolRowsDeleted: number;
+			chunkRowsDeleted: number;
 			embeddingsComputed: number;
 			embeddingsCached: number;
 		} | null = null;
@@ -410,20 +417,20 @@ describe('MCP Server', () => {
 			}
 
 			const statusBeforeResult = await harness.client.callTool({
-				name: 'viberag_status',
+				name: 'status',
 				arguments: {},
 			});
 			statusBeforeIndex =
 				parseToolJson<typeof statusBeforeIndex>(statusBeforeResult).data;
 
 			const indexResult = await harness.client.callTool({
-				name: 'viberag_index',
+				name: 'index',
 				arguments: {force: false},
 			});
 			indexStats = parseToolJson<typeof indexStats>(indexResult).data;
 
 			const statusAfterResult = await harness.client.callTool({
-				name: 'viberag_status',
+				name: 'status',
 				arguments: {},
 			});
 			statusAfterIndex =
@@ -460,12 +467,15 @@ describe('MCP Server', () => {
 
 			// Verify expected tools are registered
 			const toolNames = result.tools.map(t => t.name);
-			expect(toolNames).toContain('codebase_search');
-			expect(toolNames).toContain('codebase_parallel_search');
-			expect(toolNames).toContain('viberag_index');
-			expect(toolNames).toContain('viberag_status');
-			expect(toolNames).toContain('viberag_cancel');
-			expect(toolNames).toContain('viberag_watch_status');
+			expect(toolNames).toContain('search');
+			expect(toolNames).toContain('get_symbol');
+			expect(toolNames).toContain('find_usages');
+			expect(toolNames).toContain('expand_context');
+			expect(toolNames).toContain('open_span');
+			expect(toolNames).toContain('index');
+			expect(toolNames).toContain('status');
+			expect(toolNames).toContain('cancel');
+			expect(toolNames).toContain('watch_status');
 		});
 
 		it('reports not_indexed before indexing', async ({skip}) => {
@@ -477,179 +487,174 @@ describe('MCP Server', () => {
 			expect(statusBeforeIndex?.message).toContain('No index found');
 		});
 
-		it('indexes the fixture via viberag_index', async ({skip}) => {
+		it('indexes the fixture via index', async ({skip}) => {
 			if (setupError) {
 				skip();
 				return;
 			}
 			expect(indexStats?.filesScanned).toBeGreaterThan(0);
 			expect(indexStats?.filesNew).toBeGreaterThan(0);
-			expect(indexStats?.chunksAdded).toBeGreaterThan(0);
+			expect(indexStats?.chunkRowsUpserted).toBeGreaterThan(0);
 			expect(
 				(indexStats?.embeddingsComputed ?? 0) +
 					(indexStats?.embeddingsCached ?? 0),
 			).toBeGreaterThan(0);
 		});
 
-		it('reports indexed status after viberag_index', async ({skip}) => {
+		it('reports indexed status after index', async ({skip}) => {
 			if (setupError) {
 				skip();
 				return;
 			}
 			expect(statusAfterIndex?.status).toBe('indexed');
 			expect(statusAfterIndex?.totalFiles).toBeGreaterThan(0);
+			expect(statusAfterIndex?.totalSymbols).toBeGreaterThan(0);
 			expect(statusAfterIndex?.totalChunks).toBeGreaterThan(0);
+			expect(statusAfterIndex?.totalRefs).toBeGreaterThan(0);
 			expect(statusAfterIndex?.embeddingProvider).toBe(testProvider);
 			expect(statusAfterIndex?.embeddingDimensions).toBeGreaterThan(0);
-			expect(statusAfterIndex?.warmup?.status).toBeDefined();
+			expect(statusAfterIndex?.daemon?.warmup?.status).toBeDefined();
 		});
 
-		it('codebase_search finds HttpClient definition', async ({skip}) => {
+		it('search finds HttpClient definition', async ({skip}) => {
 			if (setupError) {
 				skip();
 				return;
 			}
 			const result = await harness!.client.callTool({
-				name: 'codebase_search',
+				name: 'search',
 				arguments: {
 					query: 'HttpClient',
-					mode: 'definition',
-					symbol_name: 'HttpClient',
-					limit: 5,
+					intent: 'definition',
+					k: 10,
 				},
 			});
 			const {data} = parseToolJson<{
-				results: Array<{filepath: string}>;
+				groups: {definitions: Array<{id: string; file_path: string}>};
 			}>(result);
 			expect(
-				data.results.some(r => r.filepath.includes('http_client.ts')),
-			).toBe(true);
-		});
-
-		it('codebase_search applies exported filters', async ({skip}) => {
-			if (setupError) {
-				skip();
-				return;
-			}
-			const result = await harness!.client.callTool({
-				name: 'codebase_search',
-				arguments: {
-					query: 'UserService',
-					mode: 'definition',
-					symbol_name: 'UserService',
-					filters: {
-						extension: ['.ts'],
-						is_exported: true,
-					},
-				},
-			});
-
-			const {data} = parseToolJson<{
-				results: Array<{filepath: string; isExported?: boolean}>;
-			}>(result);
-			expect(data.results.length).toBeGreaterThan(0);
-			expect(
-				data.results.every(
-					r => r.filepath.includes('exported.ts') && r.isExported === true,
+				data.groups.definitions.some(r =>
+					r.file_path.includes('http_client.ts'),
 				),
 			).toBe(true);
 		});
 
-		it('codebase_search applies decorator and docstring filters', async ({
+		it('get_symbol returns a definition for HttpClient', async ({skip}) => {
+			if (setupError) {
+				skip();
+				return;
+			}
+			const result = await harness!.client.callTool({
+				name: 'search',
+				arguments: {
+					query: 'HttpClient',
+					intent: 'definition',
+					k: 5,
+				},
+			});
+
+			const search = parseToolJson<{
+				groups: {definitions: Array<{id: string; file_path: string}>};
+			}>(result).data;
+			const first = search.groups.definitions[0];
+			expect(first).toBeDefined();
+
+			const symbolResult = await harness!.client.callTool({
+				name: 'get_symbol',
+				arguments: {symbol_id: first!.id, include_code: true},
+			});
+			const {data} = parseToolJson<{
+				found: boolean;
+				file_path: string;
+				code_text?: string;
+			}>(symbolResult);
+			expect(data.found).toBe(true);
+			expect(data.file_path).toContain('http_client.ts');
+			expect(data.code_text).toBeDefined();
+			expect(data.code_text).toContain('HttpClient');
+		});
+
+		it('find_usages returns refs for HttpClient', async ({skip}) => {
+			if (setupError) {
+				skip();
+				return;
+			}
+
+			const searchResult = await harness!.client.callTool({
+				name: 'search',
+				arguments: {query: 'HttpClient', intent: 'definition', k: 5},
+			});
+			const search = parseToolJson<{
+				groups: {definitions: Array<{id: string; file_path: string}>};
+			}>(searchResult).data;
+			const first = search.groups.definitions[0];
+			expect(first).toBeDefined();
+
+			const result = await harness!.client.callTool({
+				name: 'find_usages',
+				arguments: {symbol_id: first!.id, k: 50},
+			});
+			const {data} = parseToolJson<{
+				resolved: {symbol_name: string};
+				by_file: Array<{file_path: string; refs: Array<{token_text: string}>}>;
+			}>(result);
+
+			expect(data.resolved.symbol_name).toBe('HttpClient');
+			const file = data.by_file.find(f =>
+				f.file_path.includes('http_client.ts'),
+			);
+			expect(file).toBeDefined();
+			expect(file!.refs.some(r => r.token_text === 'HttpClient')).toBe(true);
+		});
+
+		it('expand_context returns neighbors for a definition hit', async ({
 			skip,
 		}) => {
 			if (setupError) {
 				skip();
 				return;
 			}
-			const result = await harness!.client.callTool({
-				name: 'codebase_search',
-				arguments: {
-					query: 'process_data',
-					mode: 'definition',
-					symbol_name: 'process_data',
-					filters: {
-						extension: ['.py'],
-						decorator_contains: 'log_call',
-						has_docstring: true,
-					},
-				},
+			const searchResult = await harness!.client.callTool({
+				name: 'search',
+				arguments: {query: 'HttpClient', intent: 'definition', k: 5},
+			});
+			const search = parseToolJson<{
+				groups: {definitions: Array<{id: string; file_path: string}>};
+			}>(searchResult).data;
+			const first = search.groups.definitions[0];
+			expect(first).toBeDefined();
+
+			const expandedResult = await harness!.client.callTool({
+				name: 'expand_context',
+				arguments: {table: 'symbols', id: first!.id, limit: 10},
 			});
 			const {data} = parseToolJson<{
-				results: Array<{filepath: string; name?: string}>;
-			}>(result);
-			expect(
-				data.results.some(
-					r =>
-						r.filepath.includes('decorators.py') && r.name === 'process_data',
-				),
-			).toBe(true);
+				found: boolean;
+				neighbors?: unknown[];
+				chunks?: unknown[];
+			}>(expandedResult);
+			expect(data.found).toBe(true);
+			expect(Array.isArray(data.neighbors)).toBe(true);
 		});
 
-		it('codebase_search respects max_response_size', async ({skip}) => {
+		it('search respects max_response_size', async ({skip}) => {
 			if (setupError) {
 				skip();
 				return;
 			}
 			const result = await harness!.client.callTool({
-				name: 'codebase_search',
+				name: 'search',
 				arguments: {
 					query: 'lorem',
-					mode: 'exact',
-					limit: 20,
-					include_text: true,
-					max_response_size: 1024,
+					intent: 'exact_text',
+					k: 50,
+					explain: true,
+					max_response_size: 2048,
 				},
 			});
-			const {data} = parseToolJson<{
-				resultCount: number;
-				originalResultCount?: number;
-				reducedForSize?: boolean;
-			}>(result);
-			expect(data.reducedForSize).toBe(true);
-			expect(data.originalResultCount).toBeGreaterThan(data.resultCount);
-		});
 
-		it('codebase_parallel_search merges results', async ({skip}) => {
-			if (setupError) {
-				skip();
-				return;
-			}
-			const result = await harness!.client.callTool({
-				name: 'codebase_parallel_search',
-				arguments: {
-					searches: [
-						{query: 'HttpClient', mode: 'definition', limit: 5},
-						{query: 'UserService', mode: 'definition', limit: 5},
-					],
-					merge_results: true,
-					merge_strategy: 'dedupe',
-					merged_limit: 10,
-					include_individual: true,
-				},
-			});
-			const {data} = parseToolJson<{
-				searchCount: number;
-				individual: Array<{
-					resultCount: number;
-					results: Array<{filepath: string}>;
-				}>;
-				merged?: {
-					strategy: string;
-					resultCount: number;
-					results: Array<{filepath: string}>;
-				};
-			}>(result);
-			expect(data.searchCount).toBe(2);
-			expect(data.individual.length).toBe(2);
-			expect(data.merged?.strategy).toBe('dedupe');
-			expect(data.merged?.resultCount).toBeGreaterThan(0);
-			expect(
-				data.merged?.results.some(r => r.filepath.includes('http_client.ts')),
-			).toBe(true);
-			expect(
-				data.merged?.results.some(r => r.filepath.includes('exported.ts')),
-			).toBe(true);
+			const {text} = getToolText(result);
+			expect(Buffer.byteLength(text, 'utf8')).toBeLessThanOrEqual(2048);
 		});
 
 		it('rejects invalid search parameters', async ({skip}) => {
@@ -662,10 +667,10 @@ describe('MCP Server', () => {
 
 			try {
 				result = (await harness!.client.callTool({
-					name: 'codebase_search',
+					name: 'search',
 					arguments: {
 						query: 'HttpClient',
-						limit: 101,
+						k: 101,
 					},
 				})) as ToolResult;
 			} catch (error) {
@@ -673,7 +678,7 @@ describe('MCP Server', () => {
 			}
 
 			if (callError) {
-				expect(String(callError)).toContain('limit');
+				expect(String(callError)).toContain('k');
 				return;
 			}
 
@@ -715,7 +720,7 @@ describe('MCP Server', () => {
 			const status = await waitForStatus(
 				async () => {
 					const result = await harness!.client.callTool({
-						name: 'viberag_watch_status',
+						name: 'watch_status',
 						arguments: {},
 					});
 					return parseToolJson<{
@@ -736,7 +741,7 @@ describe('MCP Server', () => {
 			const updated = await waitForStatus(
 				async () => {
 					const result = await harness!.client.callTool({
-						name: 'viberag_watch_status',
+						name: 'watch_status',
 						arguments: {},
 					});
 					return parseToolJson<{
@@ -815,9 +820,9 @@ describe('MCP Server', () => {
 			expect(serverVersion?.name).toBe('viberag');
 		});
 
-		it('viberag_status returns not_initialized with instructions', async () => {
+		it('status returns not_initialized with instructions', async () => {
 			const result = await client.callTool({
-				name: 'viberag_status',
+				name: 'status',
 				arguments: {},
 			});
 
@@ -837,33 +842,40 @@ describe('MCP Server', () => {
 			expect(status.instructions).toBeDefined();
 			expect(status.instructions.step1).toContain('npx viberag');
 			expect(status.instructions.step2).toContain('/init');
-			expect(status.instructions.providers).toContain('Gemini');
+			expect(status.instructions.note).toContain('index');
 		});
 
-		it('codebase_search returns helpful error for uninitialized project', async () => {
-			const result = await client.callTool({
-				name: 'codebase_search',
-				arguments: {
-					query: 'test query',
-					mode: 'hybrid',
-					limit: 10,
-					auto_boost: true,
-					auto_boost_threshold: 0.3,
-					max_response_size: 51200,
-				},
-			});
+		it('search returns helpful error for uninitialized project', async () => {
+			let callError: unknown = null;
+			let result: ToolResult | null = null;
+
+			try {
+				result = (await client.callTool({
+					name: 'search',
+					arguments: {
+						query: 'test query',
+						intent: 'concept',
+						k: 10,
+					},
+				})) as ToolResult;
+			} catch (error) {
+				callError = error;
+			}
+
+			if (callError) {
+				expect(String(callError)).toContain('not initialized');
+				return;
+			}
 
 			// Tool should return an error (isError: true)
-			const content = result as {
-				content: Array<{type: string; text?: string}>;
-				isError?: boolean;
-			};
+			const content = result as ToolResult;
+			expect(content.isError).toBe(true);
 
-			// The error message should guide users to viberag_status
+			// The error message should be actionable
 			const firstContent = content.content[0]!;
 			expect(firstContent.text).toBeDefined();
 			expect(firstContent.text).toContain('not initialized');
-			expect(firstContent.text).toContain('viberag_status');
+			expect(firstContent.text).toContain('npx viberag');
 		});
 	});
 });

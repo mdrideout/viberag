@@ -5,7 +5,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import chalk from 'chalk';
-import {loadManifest, manifestExists} from '../../daemon/lib/manifest.js';
+import {computeStringHash} from '../../daemon/lib/merkle/hash.js';
 import {
 	configExists,
 	saveConfig,
@@ -14,22 +14,24 @@ import {
 	type ViberagConfig,
 } from '../../daemon/lib/config.js';
 import {getViberagDir} from '../../daemon/lib/constants.js';
+import {
+	loadV2Manifest,
+	v2ManifestExists,
+} from '../../daemon/services/v2/manifest.js';
 import type {
 	DaemonStatusResponse,
 	IndexStats,
 	SearchResults,
+	EvalReport,
 	SlotState,
 } from '../../client/types.js';
 import {DaemonClient} from '../../client/index.js';
-import type {InitWizardConfig} from '../../common/types.js';
-
-/**
- * Index display stats type (re-exported for convenience).
- */
-export type IndexDisplayStats = {
-	totalFiles: number;
-	totalChunks: number;
-};
+import type {
+	InitWizardConfig,
+	IndexDisplayStats,
+	SearchHit,
+	SearchResultsData,
+} from '../../common/types.js';
 
 /**
  * Check if project is initialized.
@@ -44,13 +46,17 @@ export async function checkInitialized(projectRoot: string): Promise<boolean> {
 export async function loadIndexStats(
 	projectRoot: string,
 ): Promise<IndexDisplayStats | null> {
-	if (!(await manifestExists(projectRoot))) {
+	if (!(await v2ManifestExists(projectRoot))) {
 		return null;
 	}
-	const manifest = await loadManifest(projectRoot);
+	const repoId = computeStringHash(projectRoot);
+	const revision = 'working';
+	const manifest = await loadV2Manifest(projectRoot, {repoId, revision});
 	return {
 		totalFiles: manifest.stats.totalFiles,
+		totalSymbols: manifest.stats.totalSymbols,
 		totalChunks: manifest.stats.totalChunks,
+		totalRefs: manifest.stats.totalRefs,
 	};
 }
 
@@ -216,11 +222,16 @@ export function formatIndexStats(stats: IndexStats): string {
 	const lines = [
 		'Index complete:',
 		`  Files scanned: ${stats.filesScanned}`,
+		`  Files indexed: ${stats.filesIndexed}`,
 		`  New files: ${stats.filesNew}`,
 		`  Modified files: ${stats.filesModified}`,
 		`  Deleted files: ${stats.filesDeleted}`,
-		`  Chunks added: ${stats.chunksAdded}`,
-		`  Chunks deleted: ${stats.chunksDeleted}`,
+		`  File rows upserted: ${stats.fileRowsUpserted}`,
+		`  Symbol rows upserted: ${stats.symbolRowsUpserted}`,
+		`  Chunk rows upserted: ${stats.chunkRowsUpserted}`,
+		`  File rows deleted: ${stats.fileRowsDeleted}`,
+		`  Symbol rows deleted: ${stats.symbolRowsDeleted}`,
+		`  Chunk rows deleted: ${stats.chunkRowsDeleted}`,
 		`  Embeddings computed: ${stats.embeddingsComputed}`,
 		`  Embeddings cached: ${stats.embeddingsCached}`,
 	];
@@ -234,27 +245,65 @@ export function formatIndexStats(stats: IndexStats): string {
 export async function runSearch(
 	projectRoot: string,
 	query: string,
-	limit: number = 10,
-): Promise<SearchResults> {
+	k: number = 10,
+): Promise<SearchResultsData> {
 	const client = new DaemonClient(projectRoot);
+	const startTime = Date.now();
 
 	try {
 		await client.connect();
-		return await client.search(query, {limit});
+		const result = await client.search(query, {k});
+		const elapsedMs = Date.now() - startTime;
+		return toSearchResultsData(query, elapsedMs, result);
 	} finally {
 		await client.disconnect();
 	}
 }
 
 /**
- * Color mapping for chunk types.
+ * Run the v2 eval harness via daemon.
  */
-const TYPE_COLORS: Record<string, (s: string) => string> = {
-	function: chalk.cyan,
-	class: chalk.magenta,
-	method: chalk.blue,
-	module: chalk.dim,
-};
+export async function runEval(projectRoot: string): Promise<EvalReport> {
+	const client = new DaemonClient(projectRoot);
+	try {
+		await client.connect();
+		return await client.eval();
+	} finally {
+		await client.disconnect();
+	}
+}
+
+export function formatEvalReport(report: EvalReport): string {
+	const lines: string[] = [];
+	lines.push('Eval report:');
+	lines.push(`  Started: ${report.started_at}`);
+	lines.push(`  Finished: ${report.finished_at}`);
+	lines.push(`  Duration: ${Math.round(report.duration_ms)}ms`);
+
+	const addBucket = (
+		name: string,
+		bucket: EvalReport['buckets'][keyof EvalReport['buckets']],
+	) => {
+		lines.push(`  ${name}:`);
+		lines.push(`    Queries: ${bucket.queries}`);
+		lines.push(
+			`    Latency p50/p95: ${bucket.latency_ms.p50}ms / ${bucket.latency_ms.p95}ms`,
+		);
+		for (const [k, v] of Object.entries(bucket.metrics)) {
+			lines.push(`    ${k}: ${v}`);
+		}
+		if (bucket.failures.length > 0) {
+			lines.push(`    Failures: ${bucket.failures.length} (showing up to 10)`);
+		}
+	};
+
+	addBucket('Definition', report.buckets.definition);
+	addBucket('Concept', report.buckets.concept);
+	addBucket('Exact text', report.buckets.exact_text);
+	addBucket('Similar code', report.buckets.similar_code);
+
+	return lines.join('\n');
+}
 
 /**
  * Get score color based on value.
@@ -268,48 +317,89 @@ function getScoreColor(score: number): (s: string) => string {
 /**
  * Format search results for display with colors.
  */
-export function formatSearchResults(results: SearchResults): string {
-	if (results.results.length === 0) {
+export function formatSearchResults(data: SearchResultsData): string {
+	const total =
+		data.groups.definitions.length +
+		data.groups.usages.length +
+		data.groups.files.length +
+		data.groups.blocks.length;
+
+	if (total === 0) {
 		return chalk.dim(
-			`No results found for "${results.query}" (${results.elapsedMs}ms)`,
+			`No results found for "${data.query}" (${data.elapsedMs}ms)`,
 		);
 	}
 
 	const lines = [
-		chalk.bold(`Found ${results.results.length} results for `) +
-			chalk.cyan(`"${results.query}"`) +
-			chalk.dim(` (${results.elapsedMs}ms):`),
+		chalk.bold(`Search `) +
+			chalk.cyan(`"${data.query}"`) +
+			chalk.dim(` · intent ${data.intentUsed} · ${data.elapsedMs}ms:`),
 		'',
 	];
 
-	for (const result of results.results) {
-		const typeColor = TYPE_COLORS[result.type] ?? chalk.white;
-		const scoreColor = getScoreColor(result.score);
+	const addGroup = (label: string, hits: SearchHit[]) => {
+		if (hits.length === 0) return;
+		lines.push(chalk.bold(`${label} (${hits.length})`));
+		for (const hit of hits) {
+			const scoreColor = getScoreColor(hit.score);
+			lines.push(
+				chalk.magenta(`[${hit.table}]`) + ` ${chalk.white(hit.title)}`,
+			);
+			lines.push(
+				`  ${chalk.green(hit.filePath)}` +
+					chalk.dim(`:${hit.startLine}-${hit.endLine}`),
+			);
+			lines.push(`  Score: ${scoreColor(hit.score.toFixed(4))}`);
+			const snippet = hit.snippet.slice(0, 120).replace(/\n/g, ' ');
+			lines.push(
+				chalk.dim(`  ${snippet}${hit.snippet.length > 120 ? '...' : ''}`),
+			);
+			lines.push('');
+		}
+	};
 
-		// Type badge and name
-		lines.push(
-			typeColor(`[${result.type}]`) +
-				(result.name ? ` ${chalk.white(result.name)}` : ''),
-		);
-
-		// File path and line numbers
-		lines.push(
-			`  ${chalk.green(result.filepath)}` +
-				chalk.dim(`:${result.startLine}-${result.endLine}`),
-		);
-
-		// Score
-		lines.push(`  Score: ${scoreColor(result.score.toFixed(4))}`);
-
-		// Snippet (first 100 chars, dimmed)
-		const snippet = result.text.slice(0, 100).replace(/\n/g, ' ');
-		lines.push(
-			chalk.dim(`  ${snippet}${result.text.length > 100 ? '...' : ''}`),
-		);
-		lines.push('');
-	}
+	addGroup('Definitions', data.groups.definitions);
+	addGroup('Files', data.groups.files);
+	addGroup('Blocks', data.groups.blocks);
+	addGroup('Usages', data.groups.usages);
 
 	return lines.join('\n');
+}
+
+function toSearchHit(
+	hit: SearchResults['groups'][keyof SearchResults['groups']][number],
+): SearchHit {
+	return {
+		table: hit.table,
+		id: hit.id,
+		filePath: hit.file_path,
+		startLine: hit.start_line,
+		endLine: hit.end_line,
+		title: hit.title,
+		snippet: hit.snippet,
+		score: hit.score,
+		...(hit.why ? {why: hit.why} : {}),
+	};
+}
+
+function toSearchResultsData(
+	query: string,
+	elapsedMs: number,
+	result: SearchResults,
+): SearchResultsData {
+	return {
+		query,
+		intentUsed: result.intent_used,
+		elapsedMs,
+		filtersApplied: result.filters_applied ?? {},
+		groups: {
+			definitions: result.groups.definitions.map(toSearchHit),
+			usages: result.groups.usages.map(toSearchHit),
+			files: result.groups.files.map(toSearchHit),
+			blocks: result.groups.blocks.map(toSearchHit),
+		},
+		suggestedNextActions: result.suggested_next_actions,
+	};
 }
 
 /**
@@ -347,25 +437,24 @@ export async function getStatus(projectRoot: string): Promise<string> {
 }
 
 async function formatManifestStatus(projectRoot: string): Promise<string> {
-	if (!(await manifestExists(projectRoot))) {
+	if (!(await v2ManifestExists(projectRoot))) {
 		return 'No index found. Run /index to create one.';
 	}
 
-	const manifest = await loadManifest(projectRoot);
+	const repoId = computeStringHash(projectRoot);
+	const revision = 'working';
+	const manifest = await loadV2Manifest(projectRoot, {repoId, revision});
 	const lines = [
 		'Index status:',
 		`  Version: ${manifest.version}`,
+		`  Schema: ${manifest.schemaVersion}`,
 		`  Created: ${manifest.createdAt}`,
 		`  Updated: ${manifest.updatedAt}`,
 		`  Total files: ${manifest.stats.totalFiles}`,
+		`  Total symbols: ${manifest.stats.totalSymbols}`,
 		`  Total chunks: ${manifest.stats.totalChunks}`,
+		`  Total refs: ${manifest.stats.totalRefs}`,
 	];
-	const failedFiles = manifest.failedFiles ?? [];
-	const failedBatches = manifest.failedBatches ?? [];
-	if (failedFiles.length > 0 || failedBatches.length > 0) {
-		lines.push(`  Failed files: ${failedFiles.length}`);
-		lines.push(`  Failed batches: ${failedBatches.length}`);
-	}
 
 	return lines.join('\n');
 }
@@ -375,8 +464,12 @@ function formatDaemonStatus(status: DaemonStatusResponse): string {
 
 	lines.push(`  Initialized: ${status.initialized ? 'yes' : 'no'}`);
 	if (status.indexed) {
+		const totalFiles = status.totalFiles ?? 0;
+		const totalSymbols = status.totalSymbols ?? 0;
+		const totalChunks = status.totalChunks ?? 0;
+		const totalRefs = status.totalRefs ?? 0;
 		lines.push(
-			`  Index: ${status.totalFiles ?? 0} files · ${status.totalChunks ?? 0} chunks`,
+			`  Index: ${totalFiles} files · ${totalSymbols} symbols · ${totalChunks} chunks · ${totalRefs} refs`,
 		);
 		if (status.updatedAt) {
 			lines.push(`  Updated: ${status.updatedAt}`);
@@ -586,11 +679,14 @@ This registers VibeRAG as an MCP server. After adding:
 
 1. Restart Claude Code (or run: claude mcp restart viberag)
 2. The following tools will be available:
-   - codebase_search          Search the codebase semantically
-   - codebase_parallel_search  Run multiple searches in parallel
-   - viberag_index             Index or reindex the codebase
-   - viberag_status            Get index statistics
-   - viberag_cancel            Cancel indexing or warmup
+   - search                    Intent-routed codebase search (definitions/files/blocks)
+   - get_symbol                Fetch a symbol definition by symbol_id
+   - expand_context            Expand context around a hit (neighbors/blocks)
+   - open_span                 Read an exact span from disk
+   - index                     Build/update the v2 index
+   - status                    Get index + daemon status
+   - cancel                    Cancel indexing or warmup
+   - watch_status              Get watcher status (auto-indexing)
 
 Note: The project must be initialized first (run /init in the CLI).
 The MCP server uses the current working directory as the project root.`;

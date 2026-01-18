@@ -1,52 +1,48 @@
 /**
- * MCP Server for VibeRAG
+ * MCP Server for VibeRAG (v2).
  *
- * Exposes RAG functionality via Model Context Protocol.
- * Tools: codebase_search, codebase_parallel_search, viberag_index, viberag_status, viberag_watch_status
+ * Exposes agent-centric search + navigation tools over MCP, backed by the daemon.
  *
- * Includes file watcher for automatic incremental indexing.
+ * Tools:
+ * - search: intent-routed retrieval (symbols/files/blocks)
+ * - get_symbol: fetch a symbol definition + metadata
+ * - expand_context: fetch neighbors for a hit (symbols/chunks/files)
+ * - open_span: read an exact code span from disk
+ * - index: build/update the v2 index
+ * - status: initialization + index status
+ * - watch_status: watcher status (auto-indexing)
+ * - cancel: cancel warmup/indexing
  */
 
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import {createRequire} from 'node:module';
 import {FastMCP} from 'fastmcp';
 import {z} from 'zod';
-// Direct imports from daemon for fast startup (avoid barrel file)
 import {configExists, loadConfig} from '../daemon/lib/config.js';
 import {
-	loadManifest,
-	manifestExists,
-	getSchemaVersionInfo,
-} from '../daemon/lib/manifest.js';
-import type {
-	SearchResults,
-	SearchFilters,
-} from '../daemon/services/search/types.js';
-import type {IndexStats} from '../daemon/services/indexing.js';
+	loadV2Manifest,
+	v2ManifestExists,
+} from '../daemon/services/v2/manifest.js';
 import {DaemonClient} from '../client/index.js';
-import {createServiceLogger, type Logger} from '../daemon/lib/logger.js';
 import type {DaemonStatusResponse} from '../client/types.js';
+import {createServiceLogger, type Logger} from '../daemon/lib/logger.js';
 
 const require = createRequire(import.meta.url);
 const pkg = require('../../package.json') as {
 	version: `${number}.${number}.${number}`;
 };
 
-/**
- * Error thrown when project is not initialized.
- */
 class NotInitializedError extends Error {
 	constructor(projectRoot: string) {
 		super(
 			`VibeRAG not initialized in ${projectRoot}. ` +
-				`Use viberag_status tool for details, or run 'npx viberag' CLI and use /init command.`,
+				`Run 'npx viberag' in this directory and complete initialization.`,
 		);
 		this.name = 'NotInitializedError';
 	}
 }
 
-/**
- * Verify project is initialized, throw if not.
- */
 async function ensureInitialized(projectRoot: string): Promise<void> {
 	const exists = await configExists(projectRoot);
 	if (!exists) {
@@ -54,454 +50,64 @@ async function ensureInitialized(projectRoot: string): Promise<void> {
 	}
 }
 
-/**
- * Default maximum response size in bytes (50KB).
- * Reduces result count to fit; does NOT truncate text.
- * Note: Claude Code has ~25K token limit (~100KB), so 50KB default leaves headroom.
- */
 const DEFAULT_MAX_RESPONSE_SIZE = 50 * 1024;
-
-/**
- * Maximum allowed response size (100KB).
- * Hard cap to prevent token overflow in AI tools.
- */
 const MAX_RESPONSE_SIZE = 100 * 1024;
 
-/**
- * Overhead per result in JSON (metadata fields, formatting).
- */
-const RESULT_OVERHEAD_BYTES = 200;
-
-/**
- * Threshold (seconds) for considering indexing stalled.
- */
-const STALL_THRESHOLD_SECONDS = 60;
-
-/**
- * Estimate JSON response size for a set of results.
- */
-function estimateResponseSize(
-	results: SearchResults['results'],
-	includeText: boolean,
-): number {
-	const textSize = includeText
-		? results.reduce((sum, r) => sum + r.text.length, 0)
-		: 0;
-	const overhead = results.length * RESULT_OVERHEAD_BYTES + 500; // Base JSON overhead
-	return textSize + overhead;
-}
-
-/**
- * Cap results to fit within max response size.
- * Removes results from the end (lowest relevance) until size fits.
- */
-function capResultsToSize(
-	results: SearchResults['results'],
-	maxSize: number,
-	includeText: boolean,
-): SearchResults['results'] {
-	if (results.length === 0) return results;
-
-	// Quick check: if current size is within limit, return as-is
-	const currentSize = estimateResponseSize(results, includeText);
-	if (currentSize <= maxSize) return results;
-
-	// Binary search for optimal result count
-	let low = 1;
-	let high = results.length;
-	let bestCount = 1;
-
-	while (low <= high) {
-		const mid = Math.floor((low + high) / 2);
-		const subset = results.slice(0, mid);
-		const size = estimateResponseSize(subset, includeText);
-
-		if (size <= maxSize) {
-			bestCount = mid;
-			low = mid + 1;
-		} else {
-			high = mid - 1;
-		}
-	}
-
-	return results.slice(0, bestCount);
-}
-
-/**
- * Estimate JSON response size in bytes.
- */
 function estimateJsonSize(value: unknown): number {
 	return Buffer.byteLength(JSON.stringify(value), 'utf8');
 }
 
-type ParallelIndividualEntry = {
-	searchIndex: number;
-	config: {
-		query: string;
-		mode: string;
-		bm25Weight?: number;
-	};
-	resultCount: number;
-	results?: Array<{
-		id: string;
-		type: string;
-		name: string;
-		filepath: string;
-		startLine: number;
-		endLine: number;
-		score: number;
-	}>;
-	debug?: SearchResults['debug'];
-};
-
-type ParallelMergedResults = {
-	strategy: 'rrf' | 'dedupe';
-	totalUnique: number;
-	resultCount: number;
-	overlap: number;
-	uniquePerSearch: number[];
-	results: Array<{
-		id: string;
-		type: string;
-		name: string;
-		filepath: string;
-		startLine: number;
-		endLine: number;
-		score: number;
-		sources: number[];
-		text?: string;
-	}>;
-};
-
-type ParallelSearchResponse = {
-	searchCount: number;
-	individual: ParallelIndividualEntry[];
-	merged?: ParallelMergedResults;
-	trimmed?: {
-		maxResponseSize: number;
-		originalSize: number;
-		finalSize: number;
-		droppedSections: string[];
-		reducedMergedResults?: {from: number; to: number};
-	};
-};
-
-/**
- * Trim a parallel search response to fit within size limits.
- * Drops debug, then individual results, then reduces merged results.
- */
-function trimParallelSearchResponse(
-	response: ParallelSearchResponse,
-	maxSize: number,
-): ParallelSearchResponse {
-	const originalSize = estimateJsonSize(response);
-	if (originalSize <= maxSize) {
-		return response;
+function safeResolveProjectPath(projectRoot: string, filePath: string): string {
+	const normalized = filePath.replace(/\\/g, '/').replace(/^\/+/, '');
+	const resolved = path.resolve(projectRoot, normalized);
+	const rootResolved = path.resolve(projectRoot);
+	if (resolved === rootResolved) {
+		throw new Error('open_span requires a file path, not the project root.');
 	}
-
-	const trimmedSections: string[] = [];
-	let reducedMergedResults: {from: number; to: number} | undefined;
-
-	const stripDebug = (): boolean => {
-		let removed = false;
-		for (const entry of response.individual) {
-			if (entry.debug !== undefined) {
-				delete entry.debug;
-				removed = true;
-			}
-		}
-		return removed;
-	};
-
-	const stripResults = (): boolean => {
-		let removed = false;
-		for (const entry of response.individual) {
-			if (entry.results !== undefined) {
-				delete entry.results;
-				removed = true;
-			}
-		}
-		return removed;
-	};
-
-	const sizeAfter = (): number => estimateJsonSize(response);
-	let currentSize = sizeAfter();
-
-	if (currentSize > maxSize && stripDebug()) {
-		trimmedSections.push('individual.debug');
-		currentSize = sizeAfter();
+	if (!resolved.startsWith(rootResolved + path.sep)) {
+		throw new Error(`Refusing to read outside project root: ${filePath}`);
 	}
-
-	if (currentSize > maxSize && stripResults()) {
-		trimmedSections.push('individual.results');
-		currentSize = sizeAfter();
-	}
-
-	if (
-		currentSize > maxSize &&
-		response.merged?.results &&
-		response.merged.results.length > 0
-	) {
-		const originalResults = response.merged.results;
-		const total = originalResults.length;
-		let low = 0;
-		let high = total;
-		let best = 0;
-
-		while (low <= high) {
-			const mid = Math.floor((low + high) / 2);
-			response.merged.results = originalResults.slice(0, mid);
-			if (sizeAfter() <= maxSize) {
-				best = mid;
-				low = mid + 1;
-			} else {
-				high = mid - 1;
-			}
-		}
-
-		response.merged.results = originalResults.slice(0, best);
-		if (best < total) {
-			reducedMergedResults = {from: total, to: best};
-			trimmedSections.push('merged.results');
-		}
-		response.merged.resultCount = response.merged.results.length;
-		currentSize = sizeAfter();
-	}
-
-	if (currentSize > maxSize && response.merged) {
-		response.merged = undefined;
-		trimmedSections.push('merged');
-		currentSize = sizeAfter();
-	}
-
-	if (trimmedSections.length > 0) {
-		const trimmed = {
-			maxResponseSize: maxSize,
-			originalSize,
-			finalSize: currentSize,
-			droppedSections: trimmedSections,
-			reducedMergedResults,
-		};
-		response.trimmed = trimmed;
-
-		if (estimateJsonSize(response) > maxSize) {
-			delete response.trimmed;
-		} else {
-			response.trimmed.finalSize = estimateJsonSize(response);
-		}
-	}
-
-	return response;
+	return resolved;
 }
 
-/**
- * Format search results for MCP response.
- *
- * @param maxResponseSize - Maximum response size in bytes. Reduces result count to fit.
- * @param includeText - Include chunk text in each result.
- */
-function formatSearchResults(
-	results: SearchResults,
-	includeDebug: boolean = false,
-	maxResponseSize: number = DEFAULT_MAX_RESPONSE_SIZE,
-	includeText: boolean = true,
-): string {
-	if (results.results.length === 0) {
-		const response: Record<string, unknown> = {
-			message: `No results found for "${results.query}"`,
-			mode: results.searchType,
-			elapsedMs: results.elapsedMs,
-			textIncluded: includeText,
-			results: [],
-		};
-
-		// Include debug info even for empty results (helps diagnose issues)
-		if (includeDebug && results.debug) {
-			response['debug'] = formatDebugInfo(results.debug);
-		}
-
-		return JSON.stringify(response);
-	}
-
-	// Cap results to fit within max response size
-	const cappedResults = capResultsToSize(
-		results.results,
-		maxResponseSize,
-		includeText,
-	);
-	const wasReduced = cappedResults.length < results.results.length;
-
-	const response: Record<string, unknown> = {
-		query: results.query,
-		mode: results.searchType,
-		elapsedMs: results.elapsedMs,
-		resultCount: cappedResults.length,
-		textIncluded: includeText,
-		results: cappedResults.map(r => ({
-			type: r.type,
-			name: r.name || '(anonymous)',
-			filepath: r.filepath,
-			startLine: r.startLine,
-			endLine: r.endLine,
-			score: Number(r.score.toFixed(4)),
-			vectorScore: r.vectorScore ? Number(r.vectorScore.toFixed(4)) : undefined,
-			ftsScore: r.ftsScore ? Number(r.ftsScore.toFixed(4)) : undefined,
-			signature: r.signature ?? undefined,
-			isExported: r.isExported ?? undefined,
-			...(includeText ? {text: r.text} : {}),
-		})),
-	};
-
-	// Add indicator if results were reduced due to size
-	if (wasReduced) {
-		response['originalResultCount'] = results.results.length;
-		response['reducedForSize'] = true;
-	}
-
-	// Add debug info for AI evaluation
-	if (includeDebug && results.debug) {
-		response['debug'] = formatDebugInfo(results.debug);
-	}
-
-	return JSON.stringify(response);
+function truncateString(
+	value: string,
+	maxChars: number,
+): {text: string; truncated: boolean} {
+	if (value.length <= maxChars) return {text: value, truncated: false};
+	return {text: value.slice(0, maxChars) + '\n…(truncated)…', truncated: true};
 }
 
-/**
- * Format debug info with quality assessment and suggestions.
- */
-function formatDebugInfo(
-	debug: NonNullable<SearchResults['debug']>,
-): Record<string, unknown> {
-	const searchQuality =
-		debug.maxVectorScore > 0.5
-			? 'high'
-			: debug.maxVectorScore > 0.3
-				? 'medium'
-				: 'low';
+function clampLineRange(args: {
+	start_line: number;
+	end_line: number;
+	max_lines: number;
+}): {start: number; end: number; truncated: boolean} {
+	const start = Math.max(1, Math.floor(args.start_line));
+	const end = Math.max(start, Math.floor(args.end_line));
+	const maxLines = Math.max(1, Math.floor(args.max_lines));
 
-	const result: Record<string, unknown> = {
-		maxVectorScore: Number(debug.maxVectorScore.toFixed(4)),
-		maxFtsScore: Number(debug.maxFtsScore.toFixed(4)),
-		requestedBm25Weight: Number(debug.requestedBm25Weight.toFixed(2)),
-		effectiveBm25Weight: Number(debug.effectiveBm25Weight.toFixed(2)),
-		autoBoostApplied: debug.autoBoostApplied,
-		vectorResultCount: debug.vectorResultCount,
-		ftsResultCount: debug.ftsResultCount,
-		searchQuality,
-	};
-
-	// Add oversample info if present
-	if (debug.oversampleMultiplier !== undefined) {
-		result['oversampleMultiplier'] = Number(
-			debug.oversampleMultiplier.toFixed(2),
-		);
+	if (end - start + 1 <= maxLines) {
+		return {start, end, truncated: false};
 	}
-	if (debug.dynamicOversampleApplied !== undefined) {
-		result['dynamicOversampleApplied'] = debug.dynamicOversampleApplied;
-	}
-
-	// Add suggestion if search quality is low but FTS found results
-	if (debug.maxVectorScore < 0.3 && debug.maxFtsScore > 1) {
-		result['suggestion'] =
-			'Consider exact mode or higher bm25_weight for this query';
-	}
-
-	return result;
+	return {start, end: start + maxLines - 1, truncated: true};
 }
 
-/**
- * Format index stats for MCP response.
- */
-function formatIndexStats(stats: IndexStats): string {
-	return JSON.stringify({
-		message: 'Index complete',
-		filesScanned: stats.filesScanned,
-		filesNew: stats.filesNew,
-		filesModified: stats.filesModified,
-		filesDeleted: stats.filesDeleted,
-		chunksAdded: stats.chunksAdded,
-		chunksDeleted: stats.chunksDeleted,
-		embeddingsComputed: stats.embeddingsComputed,
-		embeddingsCached: stats.embeddingsCached,
-	});
-}
-
-/**
- * Format daemon status for MCP responses.
- */
-function formatDaemonStatusSummary(
-	status: DaemonStatusResponse,
-): Record<string, unknown> {
-	const indexing = status.indexing;
-	const stalled =
-		indexing.secondsSinceProgress !== null &&
-		(indexing.status === 'initializing' ||
-			indexing.status === 'indexing' ||
-			indexing.status === 'cancelling') &&
-		indexing.secondsSinceProgress > STALL_THRESHOLD_SECONDS;
-
-	return {
-		warmup: {
-			status: status.warmupStatus,
-			elapsedMs: status.warmupElapsedMs,
-			cancelRequestedAt: status.warmupCancelRequestedAt,
-			cancelledAt: status.warmupCancelledAt,
-			cancelReason: status.warmupCancelReason,
-		},
-		indexing: {
-			status: indexing.status,
-			phase: indexing.phase,
-			stage: indexing.stage,
-			progress: {
-				current: indexing.current,
-				total: indexing.total,
-				unit: indexing.unit,
-				percent: indexing.percent,
-				chunksProcessed: indexing.chunksProcessed,
-			},
-			throttleMessage: indexing.throttleMessage,
-			error: indexing.error,
-			startedAt: indexing.startedAt,
-			elapsedMs: indexing.elapsedMs,
-			lastProgressAt: indexing.lastProgressAt,
-			secondsSinceProgress: indexing.secondsSinceProgress,
-			stalled,
-			cancelRequestedAt: indexing.cancelRequestedAt,
-			cancelledAt: indexing.cancelledAt,
-			lastCancelled: indexing.lastCancelled,
-			cancelReason: indexing.cancelReason,
-		},
-		slots: status.slots,
-		failures: status.failures,
-		watcher: status.watcherStatus,
-	};
-}
-
-/**
- * MCP server with daemon client.
- */
 export interface McpServerWithDaemon {
 	server: FastMCP;
 	client: DaemonClient;
-	/** Connect to daemon (call after server.start) */
 	connectDaemon: () => Promise<void>;
-	/** Disconnect from daemon (call before exit) */
 	disconnectDaemon: () => Promise<void>;
 }
 
-/**
- * Create and configure the MCP server with daemon client.
- */
 export function createMcpServer(projectRoot: string): McpServerWithDaemon {
 	const server = new FastMCP({
 		name: 'viberag',
 		version: pkg.version,
 	});
 
-	// Create daemon client (auto-starts daemon if needed)
 	const client = new DaemonClient(projectRoot);
 
-	// Create logger for error tracking (writes to .viberag/logs/mcp/)
 	let logger: Logger | null = null;
 	const getLogger = (): Logger => {
 		if (!logger) {
@@ -510,320 +116,327 @@ export function createMcpServer(projectRoot: string): McpServerWithDaemon {
 		return logger;
 	};
 
-	// Filters schema for transparent, AI-controlled filtering
-	const filtersSchema = z
+	const scopeSchema = z
 		.object({
-			path_prefix: z
-				.string()
-				.optional()
-				.describe('Scope to directory (e.g., "src/api/")'),
-			path_contains: z
-				.array(z.string())
-				.optional()
-				.describe(
-					'Path must contain ALL strings - AND logic (e.g., ["services", "user"])',
-				),
-			path_not_contains: z
-				.array(z.string())
-				.optional()
-				.describe(
-					'Exclude if path contains ANY string - OR logic (e.g., ["test", "__tests__", "_test.", ".spec."])',
-				),
-			type: z
-				.array(z.enum(['function', 'class', 'method', 'module']))
-				.optional()
-				.describe('Match ANY type - OR logic (e.g., ["function", "method"])'),
-			extension: z
-				.array(z.string())
-				.optional()
-				.describe('Match ANY extension - OR logic (e.g., [".ts", ".py"])'),
-			is_exported: z
-				.boolean()
-				.optional()
-				.describe(
-					'Only public/exported symbols (Go: Capitalized, Python: no _ prefix, JS/TS: export)',
-				),
-			decorator_contains: z
-				.string()
-				.optional()
-				.describe(
-					'Has decorator/attribute containing string (Python: @route, Java: @GetMapping, Rust: #[test])',
-				),
-			has_docstring: z
-				.boolean()
-				.optional()
-				.describe('Only code with doc comments'),
+			path_prefix: z.array(z.string()).optional(),
+			path_contains: z.array(z.string()).optional(),
+			path_not_contains: z.array(z.string()).optional(),
+			extension: z.array(z.string()).optional(),
 		})
 		.optional();
 
-	// Tool: codebase_search
+	// Tool: search
 	server.addTool({
-		name: 'codebase_search',
-		description: `
-Codebase search: semantic search, keyword search, and hybrid search options.
-Use this when you need to find code that matches semantic meaning and keyword patterns.
-This tool helps you perform comprehensive searches of the codebase and get the best
-context and understanding when exploring and searching the codebase, docs, etc.
-
-USE FOR CODEBASE EXPLORATION:
-- Finds related code that grep/glob/read would miss. 
-- Semantic codebase search will find more relevant files.
-
-EXAMPLES:
-- "How does X work?"
-- "Where is Y handled?"
-- "Find patterns for Z"
-- "Help me understand X"
-- "How are we handling [exception type]"
-- "Find every instance of Y"
-
-WHEN TO USE codebase_search:
-- You're exploring or investigating
-- You need comprehensive results (not just the first match)
-- The question is conceptual ("how does X work" vs "where is function Y")
-- You want to find related code you might not have thought to search for
-- Find semantically similar code when you don't know the exact function or variable names
-
-REAL EXAMPLE: Asked "how are API keys configured?"
-- grep finds: 3 files with "API_KEY" pattern
-- viberag finds: 36 results including provider implementations, ADR docs explaining
-  design decisions, init wizard UI, error messages, and config interfaces
-
-DELEGATE TO A BACKGROUND AGENT
-- Tell sub-agents / background agents to run viberag codebase_search mcp tool
-- Tell task/explore to use viberag codebase_search and then synthesize findings and results and return a summary
-- Context management: This reduces token usage in the main conversation context
-- For simple lookups ("where is function X?"), direct viberag calls are fine.
-
-MODE SELECTION:
-- 'hybrid' (default): Combined semantic + keyword. Start here for most queries.
-- 'semantic': Pure meaning-based search. Best for conceptual queries.
-- 'exact': Pure keyword/BM25. Best for symbol names, specific strings.
-- 'definition': Direct symbol lookup. Fastest for "where is X defined?"
-- 'similar': Find code similar to a snippet. Pass code_snippet parameter.
-
-WEIGHT TUNING (hybrid mode):
-The bm25_weight parameter (0-1) balances keyword vs semantic matching:
-- 0.2-0.3: Favor semantic (conceptual queries like "how does X work")
-- 0.5: Balanced (documentation, prose, mixed content)
-- 0.7-0.9: Favor keywords (symbol names, exact strings, specific terms)
-
-AUTO-BOOST:
-By default, auto_boost=true increases keyword weight when semantic scores are low.
-This helps find content that doesn't match code embeddings (docs, comments, prose).
-Set auto_boost=false for precise control or comparative searches.
-
-ITERATIVE STRATEGY:
-For thorough searches, consider:
-1. Start with hybrid mode, default weights
-2. Check debug info to evaluate search quality
-3. If maxVectorScore < 0.3, try exact mode or higher bm25_weight
-4. If results seem incomplete, run more searches and try codebase_parallel_search for comparison
-
-RESULT INTERPRETATION:
-- score: Combined relevance (higher = better)
-- vectorScore: Semantic similarity (0-1, may be missing for exact mode)
-- ftsScore: Keyword match strength (BM25 score)
-- debug.searchQuality: 'high', 'medium', or 'low' based on vector scores
-- debug.suggestion: Hints when different settings might work better
-
-OUTPUT:
-- By default, results include metadata only to keep responses small.
-- Set include_text=true to include chunk text for each result.
-
-FILTERS (transparent, you control what's excluded):
-Path filters:
-- recommendation: use sparingly - only exclude what you absolutely do not want included.
-- path_prefix: Scope to directory (e.g., "src/api/") (usually avoid this, prefer unscoped wider searches)
-- path_contains: Path must contain ALL strings (AND logic)
-- path_not_contains: Exclude if path contains ANY string (OR logic)
-
-Code filters:
-- type: Match ANY of ["function", "class", "method", "module"]
-- extension: Match ANY extension (e.g., [".ts", ".py"])
-
-Metadata filters:
-- is_exported: Only public/exported symbols
-- has_docstring: Only code with documentation comments
-- decorator_contains: Has decorator/attribute matching string
-
-COMMON PATTERNS:
-Exclude tests: { path_not_contains: ["test", "__tests__", ".spec.", "mock"] }
-Find API endpoints: { decorator_contains: "Get", is_exported: true }
-Production code: { path_not_contains: ["test", "mock", "fixture"], is_exported: true }`,
+		name: 'search',
+		description:
+			'Intent-routed codebase search. Returns grouped results (definitions/files/blocks) with optional explanations and stable IDs for follow-ups.',
 		parameters: z.object({
-			query: z.string().describe('The search query in natural language'),
-			mode: z
-				.enum(['semantic', 'exact', 'hybrid', 'definition', 'similar'])
+			query: z.string().describe('Natural language, symbol, or code query'),
+			intent: z
+				.enum([
+					'auto',
+					'definition',
+					'usage',
+					'concept',
+					'exact_text',
+					'similar_code',
+				])
 				.optional()
-				.default('hybrid')
-				.describe('Search mode (default: hybrid)'),
-			code_snippet: z
-				.string()
-				.optional()
-				.describe("For mode='similar': code to find similar matches for"),
-			symbol_name: z
-				.string()
-				.optional()
-				.describe("For mode='definition': exact symbol name to look up"),
-			limit: z
+				.default('auto')
+				.describe('Intent routing (default: auto)'),
+			scope: scopeSchema.describe('Transparent path/extension filters'),
+			k: z
 				.number()
 				.min(1)
 				.max(100)
 				.optional()
-				.default(10)
-				.describe('Maximum number of results (1-100, default: 10)'),
-			min_score: z
-				.number()
-				.min(0)
-				.max(1)
-				.optional()
-				.describe('Minimum relevance score threshold (0-1)'),
-			filters: filtersSchema.describe('Transparent filters (see description)'),
-			bm25_weight: z
-				.number()
-				.min(0)
-				.max(1)
-				.optional()
-				.describe(
-					'Balance between keyword (BM25) and semantic search in hybrid mode. ' +
-						'Higher values favor exact keyword matches, lower values favor semantic similarity. ' +
-						'Guidelines: 0.7-0.9 for symbol names/exact strings, 0.5 for documentation/prose, ' +
-						'0.2-0.3 for conceptual queries (default: 0.3). Ignored for non-hybrid modes.',
-				),
-			auto_boost: z
+				.default(20)
+				.describe('Max results per group (best-effort)'),
+			explain: z
 				.boolean()
 				.optional()
 				.default(true)
-				.describe(
-					'When true (default), automatically boosts BM25 weight if semantic scores are low. ' +
-						'Set to false for precise control over weights or when running comparative searches.',
-				),
-			auto_boost_threshold: z
-				.number()
-				.min(0)
-				.max(1)
-				.optional()
-				.default(0.3)
-				.describe(
-					'Vector score threshold below which auto-boost activates (default: 0.3). ' +
-						'Lower values make auto-boost more aggressive. Only applies when auto_boost=true.',
-				),
-			return_debug: z
-				.boolean()
-				.optional()
-				.describe(
-					'Include search diagnostics: max_vector_score, max_fts_score, effective_bm25_weight. ' +
-						'Defaults to true for hybrid mode, false for other modes. ' +
-						'Useful for evaluating search quality and tuning parameters.',
-				),
-			include_text: z
-				.boolean()
-				.optional()
-				.default(false)
-				.describe(
-					'Include chunk text in results (default: false, metadata only)',
-				),
+				.describe('Include per-hit channel explanation'),
 			max_response_size: z
 				.number()
 				.min(1024)
 				.max(MAX_RESPONSE_SIZE)
 				.optional()
 				.default(DEFAULT_MAX_RESPONSE_SIZE)
-				.describe(
-					'Maximum response size in bytes (default: 50KB, max: 100KB). ' +
-						'Reduces result count to fit within limit; does NOT truncate text content.',
-				),
+				.describe('Cap response size in bytes (default: 50KB)'),
 		}),
 		execute: async args => {
 			await ensureInitialized(projectRoot);
 
-			// Convert snake_case filter keys to camelCase
-			const filters: SearchFilters | undefined = args.filters
-				? {
-						pathPrefix: args.filters.path_prefix,
-						pathContains: args.filters.path_contains,
-						pathNotContains: args.filters.path_not_contains,
-						type: args.filters.type,
-						extension: args.filters.extension,
-						isExported: args.filters.is_exported,
-						decoratorContains: args.filters.decorator_contains,
-						hasDocstring: args.filters.has_docstring,
-					}
-				: undefined;
+			const trySearch = async (explain: boolean, k: number) => {
+				const result = await client.search(args.query, {
+					intent: args.intent,
+					scope: args.scope,
+					k,
+					explain,
+				});
+				return result;
+			};
 
-			// Determine if debug info should be returned
-			const returnDebug =
-				args.return_debug ??
-				(args.mode === 'hybrid' || args.mode === undefined);
+			let explain = args.explain;
+			let k = args.k;
+			let result = await trySearch(explain, k);
 
-			// Search via daemon client
-			const results = await client.search(args.query, {
-				mode: args.mode,
-				limit: args.limit,
-				minScore: args.min_score,
-				filters: filters as Record<string, unknown> | undefined,
-				codeSnippet: args.code_snippet,
-				symbolName: args.symbol_name,
-				bm25Weight: args.bm25_weight,
-				autoBoost: args.auto_boost,
-				autoBoostThreshold: args.auto_boost_threshold,
-				returnDebug,
-			});
+			// Best-effort trimming strategy: drop explain, then reduce k.
+			while (estimateJsonSize(result) > args.max_response_size) {
+				if (explain) {
+					explain = false;
+					result = await trySearch(explain, k);
+					continue;
+				}
+				if (k <= 1) break;
+				k = Math.max(1, Math.floor(k / 2));
+				result = await trySearch(explain, k);
+			}
 
-			return formatSearchResults(
-				results,
-				returnDebug,
-				args.max_response_size,
-				args.include_text,
-			);
+			return JSON.stringify(result);
 		},
 	});
 
-	// Tool: viberag_index
+	// Tool: open_span
 	server.addTool({
-		name: 'viberag_index',
+		name: 'open_span',
 		description:
-			'Index the codebase for semantic search. Uses incremental indexing by default ' +
-			'(only processes changed files based on Merkle tree diff). ' +
-			'Use force=true for full reindex after config changes. ' +
-			'NOTE: Indexing can take time for large codebases. Consider running in a background ' +
-			'agent or delegating to a sub-agent if your platform supports it.',
+			'Read an exact span from disk by file path + line range. Useful for expanding context precisely.',
+		parameters: z.object({
+			file_path: z
+				.string()
+				.describe('Project-relative path (e.g., "src/app.ts")'),
+			start_line: z.number().min(1).describe('1-indexed start line'),
+			end_line: z.number().min(1).describe('1-indexed end line'),
+			max_lines: z
+				.number()
+				.min(1)
+				.max(500)
+				.optional()
+				.default(200)
+				.describe('Clamp returned line range to avoid huge responses'),
+		}),
+		execute: async args => {
+			const absolutePath = safeResolveProjectPath(projectRoot, args.file_path);
+			const content = await fs.readFile(absolutePath, 'utf-8');
+			const lines = content.split('\n');
+
+			const {start, end, truncated} = clampLineRange({
+				start_line: args.start_line,
+				end_line: args.end_line,
+				max_lines: args.max_lines,
+			});
+
+			const slice = lines.slice(start - 1, end).join('\n');
+			return JSON.stringify({
+				file_path: args.file_path,
+				start_line: start,
+				end_line: end,
+				truncated,
+				text: slice,
+			});
+		},
+	});
+
+	// Tool: get_symbol
+	server.addTool({
+		name: 'get_symbol',
+		description:
+			'Fetch a symbol definition and deterministic metadata by symbol_id.',
+		parameters: z.object({
+			symbol_id: z.string().describe('Symbol ID from search() results'),
+			include_code: z
+				.boolean()
+				.optional()
+				.default(true)
+				.describe('Include code_text in response (default: true)'),
+			max_code_chars: z
+				.number()
+				.min(256)
+				.max(100_000)
+				.optional()
+				.default(20_000)
+				.describe('Clamp returned code_text length'),
+		}),
+		execute: async args => {
+			await ensureInitialized(projectRoot);
+			const symbol = await client.getSymbol(args.symbol_id);
+			if (!symbol) {
+				return JSON.stringify({
+					found: false,
+					symbol_id: args.symbol_id,
+					message: 'Symbol not found. Re-run search or reindex.',
+				});
+			}
+
+			const out: Record<string, unknown> = {...symbol, found: true};
+
+			if (!args.include_code) {
+				delete out['code_text'];
+			} else if (typeof out['code_text'] === 'string') {
+				const {text, truncated} = truncateString(
+					out['code_text'],
+					args.max_code_chars,
+				);
+				out['code_text'] = text;
+				if (truncated) {
+					out['code_truncated'] = true;
+				}
+			}
+
+			return JSON.stringify(out);
+		},
+	});
+
+	// Tool: find_usages
+	server.addTool({
+		name: 'find_usages',
+		description:
+			'Find usage occurrences (refs) for a symbol name or symbol_id. Returns refs grouped by file with stable ref_ids for follow-up actions.',
+		parameters: z
+			.object({
+				symbol_id: z
+					.string()
+					.optional()
+					.describe('Symbol ID from search() results (preferred)'),
+				symbol_name: z
+					.string()
+					.optional()
+					.describe('Raw symbol name (e.g., "HttpClient")'),
+				scope: scopeSchema.describe('Transparent path/extension filters'),
+				k: z
+					.number()
+					.min(1)
+					.max(2000)
+					.optional()
+					.default(200)
+					.describe('Max refs returned (best-effort)'),
+				max_response_size: z
+					.number()
+					.min(1024)
+					.max(MAX_RESPONSE_SIZE)
+					.optional()
+					.default(DEFAULT_MAX_RESPONSE_SIZE)
+					.describe('Cap response size in bytes (default: 50KB)'),
+			})
+			.refine(v => v.symbol_id || v.symbol_name, {
+				message: 'symbol_id or symbol_name is required',
+			}),
+		execute: async args => {
+			await ensureInitialized(projectRoot);
+
+			const tryFind = async (k: number) => {
+				return client.findUsages({
+					symbol_id: args.symbol_id,
+					symbol_name: args.symbol_name,
+					scope: args.scope,
+					k,
+				});
+			};
+
+			let k = args.k;
+			let result = await tryFind(k);
+
+			while (estimateJsonSize(result) > args.max_response_size) {
+				if (k <= 1) break;
+				k = Math.max(1, Math.floor(k / 2));
+				result = await tryFind(k);
+			}
+
+			return JSON.stringify(result);
+		},
+	});
+
+	// Tool: expand_context
+	server.addTool({
+		name: 'expand_context',
+		description:
+			'Given a hit (symbols/chunks/files), return neighbors: adjacent symbols, owned chunks, and related metadata.',
+		parameters: z.object({
+			table: z.enum(['symbols', 'chunks', 'files']),
+			id: z.string().describe('Entity ID from search() results'),
+			limit: z
+				.number()
+				.min(1)
+				.max(200)
+				.optional()
+				.default(25)
+				.describe('Max neighbors per section'),
+			max_code_chars: z
+				.number()
+				.min(256)
+				.max(100_000)
+				.optional()
+				.default(20_000)
+				.describe('Clamp code_text fields in the response'),
+		}),
+		execute: async args => {
+			await ensureInitialized(projectRoot);
+			const expanded = await client.expandContext({
+				table: args.table,
+				id: args.id,
+				limit: args.limit,
+			});
+
+			// Best-effort clamp of large code_text blobs.
+			const maxChars = args.max_code_chars;
+			const visit = (value: unknown): unknown => {
+				if (typeof value === 'string') {
+					return value.length > maxChars
+						? truncateString(value, maxChars).text
+						: value;
+				}
+				if (Array.isArray(value)) {
+					return value.map(v => visit(v));
+				}
+				if (value && typeof value === 'object') {
+					const obj = value as Record<string, unknown>;
+					const out: Record<string, unknown> = {};
+					for (const [k, v] of Object.entries(obj)) {
+						out[k] =
+							k === 'code_text' && typeof v === 'string'
+								? truncateString(v, maxChars).text
+								: visit(v);
+					}
+					return out;
+				}
+				return value;
+			};
+
+			return JSON.stringify(visit(expanded));
+		},
+	});
+
+	// Tool: index
+	server.addTool({
+		name: 'index',
+		description:
+			'Build or update the v2 index (symbols/chunks/files). Uses incremental indexing by default.',
 		parameters: z.object({
 			force: z
 				.boolean()
 				.optional()
 				.default(false)
 				.describe(
-					'Force full reindex, ignoring change detection (default: false)',
+					'Force full rebuild of v2 entity tables (keeps embedding cache)',
 				),
 		}),
 		execute: async args => {
 			await ensureInitialized(projectRoot);
-
-			// Index via daemon client (handles dimension sync internally)
 			const stats = await client.index({force: args.force});
-			return formatIndexStats(stats);
+			return JSON.stringify(stats);
 		},
 	});
 
-	// Tool: viberag_cancel
+	// Tool: cancel
 	server.addTool({
-		name: 'viberag_cancel',
+		name: 'cancel',
 		description:
-			'Cancel the current daemon activity (indexing or warmup) without shutting down the daemon. ' +
-			'Use this to recover from stuck or long-running operations. ' +
-			'After cancelling, re-run viberag_index or /index if needed.',
+			'Cancel the current daemon activity (indexing or warmup) without shutting down the daemon.',
 		parameters: z.object({
-			target: z
-				.enum(['indexing', 'warmup', 'all'])
-				.optional()
-				.default('all')
-				.describe('Which activity to cancel (default: all)'),
-			reason: z
-				.string()
-				.optional()
-				.describe('Optional reason for cancellation (logged for debugging)'),
+			target: z.enum(['indexing', 'warmup', 'all']).optional().default('all'),
+			reason: z.string().optional(),
 		}),
 		execute: async args => {
 			if (!(await client.isRunning())) {
@@ -843,122 +456,10 @@ Production code: { path_not_contains: ["test", "mock", "fixture"], is_exported: 
 		},
 	});
 
-	// Tool: viberag_status
+	// Tool: watch_status
 	server.addTool({
-		name: 'viberag_status',
-		description:
-			'Get index and daemon status including file count, chunk count, embedding provider, schema version, ' +
-			'and indexing progress (phase, stage, last progress time, throttling). ' +
-			'If schema version is outdated, run viberag_index with force=true to reindex. ' +
-			'TIP: Check status before delegating exploration to sub-agents to ensure the index is current. ' +
-			'This tool also works when the project is not initialized, providing guidance on how to set up.',
-		parameters: z.object({}),
-		execute: async () => {
-			// Check if project is initialized (don't throw, return helpful status)
-			if (!(await configExists(projectRoot))) {
-				const response: Record<string, unknown> = {
-					status: 'not_initialized',
-					message: 'VibeRAG is not initialized in this project.',
-					projectRoot,
-					instructions: {
-						step1: 'Run "npx viberag" in a terminal in this project directory',
-						step2: 'Use the /init command to configure an embedding provider',
-						providers:
-							'Choose from: Gemini (free tier), OpenAI, Mistral, or Local (no API key)',
-						note: 'After initialization, run viberag_index to create the search index',
-					},
-				};
-				if (await client.isRunning()) {
-					try {
-						const daemonStatus = await client.status();
-						response['daemon'] = formatDaemonStatusSummary(daemonStatus);
-					} catch {
-						response['daemon'] = {status: 'unavailable'};
-					}
-				} else {
-					response['daemon'] = {status: 'not_running'};
-				}
-				return JSON.stringify(response);
-			}
-
-			if (!(await manifestExists(projectRoot))) {
-				const response: Record<string, unknown> = {
-					status: 'not_indexed',
-					message: 'No index found. Run viberag_index to create one.',
-				};
-				if (await client.isRunning()) {
-					try {
-						const daemonStatus = await client.status();
-						response['daemon'] = formatDaemonStatusSummary(daemonStatus);
-					} catch {
-						response['daemon'] = {status: 'unavailable'};
-					}
-				} else {
-					response['daemon'] = {status: 'not_running'};
-				}
-				return JSON.stringify(response);
-			}
-
-			const manifest = await loadManifest(projectRoot);
-			const config = await loadConfig(projectRoot);
-			const schemaInfo = getSchemaVersionInfo(manifest);
-
-			const response: Record<string, unknown> = {
-				status: 'indexed',
-				version: manifest.version,
-				schemaVersion: schemaInfo.current,
-				createdAt: manifest.createdAt,
-				updatedAt: manifest.updatedAt,
-				totalFiles: manifest.stats.totalFiles,
-				totalChunks: manifest.stats.totalChunks,
-				embeddingProvider: config.embeddingProvider,
-				embeddingModel: config.embeddingModel,
-				embeddingDimensions: config.embeddingDimensions,
-			};
-
-			// Warn if schema version is outdated
-			if (schemaInfo.needsReindex) {
-				response['warning'] =
-					`Schema version ${schemaInfo.current} is outdated (current: ${schemaInfo.required}). ` +
-					`Run viberag_index with force=true to reindex and enable new features.`;
-			}
-
-			// Add warmup state from daemon status
-			try {
-				const daemonStatus = await client.status();
-				response['warmup'] = {
-					status: daemonStatus.warmupStatus,
-					elapsedMs: daemonStatus.warmupElapsedMs,
-				};
-				response['daemon'] = formatDaemonStatusSummary(daemonStatus);
-			} catch (error) {
-				// Log unexpected errors (expected: daemon not running)
-				const message = error instanceof Error ? error.message : String(error);
-				const isExpected =
-					message.includes('ENOENT') || message.includes('ECONNREFUSED');
-				if (!isExpected) {
-					// Log to both stderr and debug.log - pass Error object for full stack
-					console.error('[mcp] Failed to get daemon warmup status:', error);
-					getLogger().error(
-						'MCP',
-						'Failed to get daemon warmup status',
-						error instanceof Error ? error : new Error(message),
-					);
-				}
-				response['warmup'] = {status: 'unknown'};
-				response['daemon'] = {status: 'unavailable'};
-			}
-
-			return JSON.stringify(response);
-		},
-	});
-
-	// Tool: viberag_watch_status
-	server.addTool({
-		name: 'viberag_watch_status',
-		description:
-			'Get file watcher status. Shows if auto-indexing is active, ' +
-			'how many files are being watched, pending changes, and last update time.',
+		name: 'watch_status',
+		description: 'Get watcher status (auto-indexing).',
 		parameters: z.object({}),
 		execute: async () => {
 			const status = await client.watchStatus();
@@ -966,347 +467,82 @@ Production code: { path_not_contains: ["test", "mock", "fixture"], is_exported: 
 		},
 	});
 
-	// Tool: codebase_parallel_search
+	// Tool: status
 	server.addTool({
-		name: 'codebase_parallel_search',
-		description: `
-Codebase Parallel Search: run multiple semantic search, keyword search, and hybrid searches in parallel and compare results.
-Use this when you need to run multiple searches at once to find code that matches semantic meaning and keyword patterns.
-This tool helps you perform comprehensive searches of the codebase and get the best
-context and understanding when exploring and searching the codebase, docs, etc.
-
-NOTE: This is for narrower sets of queries. Parallel searches may return a large number of results,
-it is best to keep search filters narrow and specific. For separate broader searches, use codebase_search one at a time.
-
-DEFAULT OUTPUT:
-- Returns metadata-only results by default (no chunk text).
-- Use include_text=true to include chunk text in merged results.
-- Use include_individual=true to include per-search result lists.
-
-USE FOR CODEBASE EXPLORATION:
-- Finds related code that grep/glob/read would miss. 
-- Semantic codebase search will find more relevant files.
-
-EXAMPLE: "How are embeddings configured?"
-- codebase_search: Found 8 results (embedding provider files)
-- codebase_parallel_search with 3 strategies: Found 24 unique results including:
-  * Provider implementations (what single search found)
-  * ADR docs explaining why certain providers were chosen
-  * Init wizard showing user-facing configuration
-  * Type definitions and interfaces
-  * Error handling and validation
-
-WHEN TO USE:
-- Need to test several search strategies at once
-- Exploring a feature or system (not just looking up one thing)
-- You want comprehensive coverage without multiple round-trips
-- The topic has multiple related concepts (auth → session, JWT, tokens, login)
-- You're not sure which search mode will work best
-
-MODE SELECTION:
-- 'hybrid' (default): Combined semantic + keyword. Start here for most queries.
-- 'semantic': Pure meaning-based search. Best for conceptual queries.
-- 'exact': Pure keyword/BM25. Best for symbol names, specific strings.
-- 'definition': Direct symbol lookup. Fastest for "where is X defined?"
-- 'similar': Find code similar to a snippet. Pass code_snippet parameter.
-
-WEIGHT TUNING (hybrid mode):
-The bm25_weight parameter (0-1) balances keyword vs semantic matching:
-- 0.2-0.3: Favor semantic (conceptual queries like "how does X work")
-- 0.5: Balanced (documentation, prose, mixed content)
-- 0.7-0.9: Favor keywords (symbol names, exact strings, specific terms)
-
-AUTO-BOOST:
-By default, auto_boost=true increases keyword weight when semantic scores are low.
-This helps find content that doesn't match code embeddings (docs, comments, prose).
-Set auto_boost=false for precise control or comparative searches.
-
-PARALLEL SEARCH STRATEGIES:
-1. Mode comparison: [{mode:'semantic'}, {mode:'exact'}, {mode:'hybrid'}]
-2. Related concepts: [{query:'auth'}, {query:'session'}, {query:'login'}]
-3. Weight tuning: [{bm25_weight:0.2}, {bm25_weight:0.5}, {bm25_weight:0.8}]
-
-USE CASES:
-- Compare semantic vs keyword results for the same query
-- Run same query with different weights to find optimal settings
-- Search multiple related queries and aggregate results
-- Implement multi-phase search strategies
-
-RESULT INTERPRETATION:
-- score: Combined relevance (higher = better)
-- vectorScore: Semantic similarity (0-1, may be missing for exact mode)
-- ftsScore: Keyword match strength (BM25 score)
-- debug.searchQuality: 'high', 'medium', or 'low' based on vector scores
-- debug.suggestion: Hints when different settings might work better
-
-FILTERS (transparent, you control what's excluded):
-Path filters:
-- recommendation: use sparingly - only exclude what you absolutely do not want included.
-- path_prefix: Scope to directory (e.g., "src/api/") (usually avoid this, prefer unscoped wider searches)
-- path_contains: Path must contain ALL strings (AND logic)
-- path_not_contains: Exclude if path contains ANY string (OR logic)
-
-Code filters:
-- type: Match ANY of ["function", "class", "method", "module"]
-- extension: Match ANY extension (e.g., [".ts", ".py"])
-
-Metadata filters:
-- is_exported: Only public/exported symbols
-- has_docstring: Only code with documentation comments
-- decorator_contains: Has decorator/attribute matching string
-`,
-		parameters: z.object({
-			searches: z
-				.array(
-					z.object({
-						query: z.string().describe('Search query'),
-						mode: z
-							.enum(['semantic', 'exact', 'hybrid', 'definition', 'similar'])
-							.optional()
-							.describe('Search mode'),
-						bm25_weight: z
-							.number()
-							.min(0)
-							.max(1)
-							.optional()
-							.describe('BM25 weight for hybrid mode'),
-						auto_boost: z.boolean().optional().describe('Enable auto-boost'),
-						limit: z
-							.number()
-							.min(1)
-							.max(50)
-							.optional()
-							.default(10)
-							.describe('Max results per search'),
-						filters: filtersSchema,
-					}),
-				)
-				.min(1)
-				.max(5)
-				.describe('Array of search configurations (1-5)'),
-			merge_results: z
-				.boolean()
-				.optional()
-				.default(true)
-				.describe('Combine and dedupe results across all searches'),
-			merge_strategy: z
-				.enum(['rrf', 'dedupe'])
-				.optional()
-				.default('rrf')
-				.describe(
-					'How to merge: "rrf" - Reciprocal Rank Fusion (results in multiple searches rank higher), ' +
-						'"dedupe" - Simple deduplication (keep highest score)',
-				),
-			merged_limit: z
-				.number()
-				.min(1)
-				.max(100)
-				.optional()
-				.default(20)
-				.describe('Max results in merged output'),
-			include_text: z
-				.boolean()
-				.optional()
-				.default(false)
-				.describe(
-					'Include chunk text in merged results (default: false, metadata only)',
-				),
-			include_individual: z
-				.boolean()
-				.optional()
-				.default(false)
-				.describe(
-					'Include per-search result lists (default: false, summary only)',
-				),
-			include_debug: z
-				.boolean()
-				.optional()
-				.default(false)
-				.describe(
-					'Include per-search debug info (default: false, use for tuning)',
-				),
-			max_response_size: z
-				.number()
-				.min(1024)
-				.max(MAX_RESPONSE_SIZE)
-				.optional()
-				.default(DEFAULT_MAX_RESPONSE_SIZE)
-				.describe(
-					'Maximum response size in bytes (default: 50KB, max: 100KB). ' +
-						'Drops debug/individual results and reduces merged results to fit; does NOT truncate text.',
-				),
-		}),
-		execute: async args => {
-			await ensureInitialized(projectRoot);
-
-			// Run all searches in parallel via daemon client
-			const searchPromises = args.searches.map(async (config, index) => {
-				const filters: SearchFilters | undefined = config.filters
-					? {
-							pathPrefix: config.filters.path_prefix,
-							pathContains: config.filters.path_contains,
-							pathNotContains: config.filters.path_not_contains,
-							type: config.filters.type,
-							extension: config.filters.extension,
-							isExported: config.filters.is_exported,
-							decoratorContains: config.filters.decorator_contains,
-							hasDocstring: config.filters.has_docstring,
-						}
-					: undefined;
-
-				const results = await client.search(config.query, {
-					mode: config.mode,
-					limit: config.limit,
-					filters: filters as Record<string, unknown> | undefined,
-					bm25Weight: config.bm25_weight,
-					autoBoost: config.auto_boost,
-					returnDebug: true,
-				});
-
-				return {
-					index,
-					config: {
-						query: config.query,
-						mode: config.mode ?? 'hybrid',
-						bm25Weight: config.bm25_weight,
+		name: 'status',
+		description:
+			'Get v2 index status and daemon status summary. Works even when the project is not initialized.',
+		parameters: z.object({}),
+		execute: async () => {
+			const initialized = await configExists(projectRoot);
+			if (!initialized) {
+				return JSON.stringify({
+					status: 'not_initialized',
+					projectRoot,
+					message: 'VibeRAG is not initialized in this project.',
+					instructions: {
+						step1: 'Run "npx viberag" in a terminal in this project directory',
+						step2: 'Use the /init command to configure an embedding provider',
+						note: 'After initialization, run the index tool to create the search index',
 					},
-					results,
-				};
-			});
-
-			const searchResults = await Promise.all(searchPromises);
-
-			// Build individual results (summary by default)
-			const individual = searchResults.map(sr => ({
-				searchIndex: sr.index,
-				config: sr.config,
-				resultCount: sr.results.results.length,
-				...(args.include_individual
-					? {
-							results: sr.results.results.map(r => ({
-								id: r.id,
-								type: r.type,
-								name: r.name || '(anonymous)',
-								filepath: r.filepath,
-								startLine: r.startLine,
-								endLine: r.endLine,
-								score: Number(r.score.toFixed(4)),
-							})),
-						}
-					: {}),
-				...(args.include_debug ? {debug: sr.results.debug} : {}),
-			}));
-
-			// Build merged results if requested
-			let merged: ParallelMergedResults | undefined;
-
-			if (args.merge_results) {
-				// Collect all results with their sources
-				const allResults: Array<{
-					result: (typeof searchResults)[0]['results']['results'][0];
-					sources: number[];
-					ranks: number[];
-				}> = [];
-
-				// Group results by ID
-				const resultMap = new Map<
-					string,
-					{
-						result: (typeof searchResults)[0]['results']['results'][0];
-						sources: number[];
-						ranks: number[];
-					}
-				>();
-
-				for (const sr of searchResults) {
-					sr.results.results.forEach((result, rank) => {
-						const existing = resultMap.get(result.id);
-						if (existing) {
-							existing.sources.push(sr.index);
-							existing.ranks.push(rank);
-							// Keep highest score
-							if (result.score > existing.result.score) {
-								existing.result = result;
-							}
-						} else {
-							resultMap.set(result.id, {
-								result,
-								sources: [sr.index],
-								ranks: [rank],
-							});
-						}
-					});
-				}
-
-				// Convert to array for sorting
-				for (const [, value] of resultMap) {
-					allResults.push(value);
-				}
-
-				// Sort by merge strategy
-				if (args.merge_strategy === 'rrf') {
-					// RRF: Sum of 1/(rank+k) across all sources
-					const k = 60; // RRF constant
-					allResults.sort((a, b) => {
-						const rrfA = a.ranks.reduce((sum, r) => sum + 1 / (r + k), 0);
-						const rrfB = b.ranks.reduce((sum, r) => sum + 1 / (r + k), 0);
-						return rrfB - rrfA; // Higher RRF score first
-					});
-				} else {
-					// Dedupe: Sort by score, then by number of sources
-					allResults.sort((a, b) => {
-						if (b.sources.length !== a.sources.length) {
-							return b.sources.length - a.sources.length;
-						}
-						return b.result.score - a.result.score;
-					});
-				}
-
-				// Take top merged_limit results
-				const mergedResults = allResults
-					.slice(0, args.merged_limit)
-					.map(item => ({
-						id: item.result.id,
-						type: item.result.type,
-						name: item.result.name || '(anonymous)',
-						filepath: item.result.filepath,
-						startLine: item.result.startLine,
-						endLine: item.result.endLine,
-						score: Number(item.result.score.toFixed(4)),
-						sources: item.sources,
-						...(args.include_text ? {text: item.result.text} : {}),
-					}));
-
-				// Calculate overlap statistics
-				const uniqueToSearch = args.searches.map(
-					(_, i) =>
-						allResults.filter(r => r.sources.length === 1 && r.sources[0] === i)
-							.length,
-				);
-				const overlapping = allResults.filter(r => r.sources.length > 1).length;
-
-				merged = {
-					strategy: args.merge_strategy,
-					totalUnique: allResults.length,
-					resultCount: mergedResults.length,
-					overlap: overlapping,
-					uniquePerSearch: uniqueToSearch,
-					results: mergedResults,
-				};
+					daemon: {
+						status: (await client.isRunning()) ? 'running' : 'not_running',
+					},
+				});
 			}
 
-			const response: ParallelSearchResponse = {
-				searchCount: args.searches.length,
-				individual,
-				merged,
+			const indexed = await v2ManifestExists(projectRoot);
+			if (!indexed) {
+				return JSON.stringify({
+					status: 'not_indexed',
+					message: 'No index found. Run the index tool to create one.',
+					daemon: {
+						status: (await client.isRunning()) ? 'running' : 'not_running',
+					},
+				});
+			}
+
+			const config = await loadConfig(projectRoot);
+			const manifest = await loadV2Manifest(projectRoot, {
+				repoId: 'unknown',
+				revision: 'working',
+			});
+
+			const response: Record<string, unknown> = {
+				status: 'indexed',
+				version: manifest.version,
+				createdAt: manifest.createdAt,
+				updatedAt: manifest.updatedAt,
+				totalFiles: manifest.stats.totalFiles,
+				totalSymbols: manifest.stats.totalSymbols,
+				totalChunks: manifest.stats.totalChunks,
+				totalRefs: manifest.stats.totalRefs,
+				embeddingProvider: config.embeddingProvider,
+				embeddingModel: config.embeddingModel,
+				embeddingDimensions: config.embeddingDimensions,
 			};
 
-			const trimmed = trimParallelSearchResponse(
-				response,
-				args.max_response_size,
-			);
+			// Add daemon status summary (best effort)
+			if (await client.isRunning()) {
+				try {
+					const daemonStatus = await client.status();
+					response['daemon'] = formatDaemonStatusSummary(daemonStatus);
+				} catch (error) {
+					const message =
+						error instanceof Error ? error.message : String(error);
+					console.error('[mcp] Failed to get daemon status:', error);
+					getLogger().error(
+						'MCP',
+						'Failed to get daemon status',
+						error instanceof Error ? error : new Error(message),
+					);
+					response['daemon'] = {status: 'unavailable'};
+				}
+			} else {
+				response['daemon'] = {status: 'not_running'};
+			}
 
-			return JSON.stringify(trimmed);
+			return JSON.stringify(response);
 		},
 	});
 
@@ -1314,7 +550,6 @@ Metadata filters:
 		server,
 		client,
 		connectDaemon: async () => {
-			// Only connect if project is initialized
 			if (await configExists(projectRoot)) {
 				try {
 					await client.connect();
@@ -1330,5 +565,21 @@ Metadata filters:
 		disconnectDaemon: async () => {
 			await client.disconnect();
 		},
+	};
+}
+
+function formatDaemonStatusSummary(
+	status: DaemonStatusResponse,
+): Record<string, unknown> {
+	return {
+		warmup: {
+			status: status.warmupStatus,
+			elapsedMs: status.warmupElapsedMs,
+			cancelRequestedAt: status.warmupCancelRequestedAt,
+			cancelledAt: status.warmupCancelledAt,
+			cancelReason: status.warmupCancelReason,
+		},
+		indexing: status.indexing,
+		watcher: status.watcherStatus,
 	};
 }

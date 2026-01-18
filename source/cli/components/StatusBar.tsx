@@ -89,8 +89,10 @@ function formatStats(
 	if (daemonStatus) {
 		if (daemonStatus.indexed) {
 			const totalFiles = daemonStatus.totalFiles ?? 0;
+			const totalSymbols = daemonStatus.totalSymbols ?? 0;
 			const totalChunks = daemonStatus.totalChunks ?? 0;
-			return `${totalFiles} files · ${totalChunks} chunks`;
+			const totalRefs = daemonStatus.totalRefs ?? 0;
+			return `${totalFiles} files · ${totalSymbols} symbols · ${totalChunks} chunks · ${totalRefs} refs`;
 		}
 		if (isIndexingActive) {
 			return 'Indexing...';
@@ -103,7 +105,7 @@ function formatStats(
 	if (stats === null) {
 		return 'Not indexed';
 	}
-	return `${stats.totalFiles} files · ${stats.totalChunks} chunks`;
+	return `${stats.totalFiles} files · ${stats.totalSymbols} symbols · ${stats.totalChunks} chunks · ${stats.totalRefs} refs`;
 }
 
 /**

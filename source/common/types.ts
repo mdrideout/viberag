@@ -1,15 +1,34 @@
 /**
- * A single search result item for display.
+ * V2 search explain channel.
  */
-export type SearchResultItem = {
-	type: string;
-	name: string;
-	filepath: string;
-	filename: string;
+export type SearchExplainChannel = {
+	channel: 'fts' | 'vector';
+	source: string;
+	rank: number;
+	rawScore: number;
+};
+
+/**
+ * V2 search explain payload (why a hit matched).
+ */
+export type SearchExplain = {
+	channels: SearchExplainChannel[];
+	priors: Array<{name: string; value: number; note: string}>;
+};
+
+/**
+ * A single search hit for display (v2 grouped search).
+ */
+export type SearchHit = {
+	table: 'symbols' | 'chunks' | 'files' | 'refs';
+	id: string;
+	filePath: string;
 	startLine: number;
 	endLine: number;
+	title: string;
+	snippet: string;
 	score: number;
-	text: string;
+	why?: SearchExplain;
 };
 
 /**
@@ -17,8 +36,29 @@ export type SearchResultItem = {
  */
 export type SearchResultsData = {
 	query: string;
+	intentUsed:
+		| 'definition'
+		| 'usage'
+		| 'concept'
+		| 'exact_text'
+		| 'similar_code';
 	elapsedMs: number;
-	results: SearchResultItem[];
+	filtersApplied: {
+		path_prefix?: string[];
+		path_contains?: string[];
+		path_not_contains?: string[];
+		extension?: string[];
+	};
+	groups: {
+		definitions: SearchHit[];
+		usages: SearchHit[];
+		files: SearchHit[];
+		blocks: SearchHit[];
+	};
+	suggestedNextActions: Array<{
+		tool: 'get_symbol' | 'open_span' | 'expand_context' | 'find_usages';
+		args: Record<string, unknown>;
+	}>;
 };
 
 /**
@@ -61,7 +101,9 @@ export type AppStatus =
  */
 export type IndexDisplayStats = {
 	totalFiles: number;
+	totalSymbols: number;
 	totalChunks: number;
+	totalRefs: number;
 };
 
 /**

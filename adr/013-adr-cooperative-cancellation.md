@@ -31,7 +31,7 @@ Implement cooperative cancellation using `AbortController`/`AbortSignal`, the st
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                         Cancel Request                          │
-│  CLI: /cancel [target]    MCP: viberag_cancel                   │
+│  CLI: /cancel [target]    MCP: cancel                           │
 └─────────────────────────────────────────────────────────────────┘
                                 │
                                 ▼
@@ -202,7 +202,7 @@ This helps users and agents identify when to cancel.
 ### MCP
 
 ```typescript
-// viberag_cancel tool
+// cancel tool
 {
   target: 'indexing' | 'warmup' | 'all',  // default: 'all'
   reason?: string                          // optional, logged for debugging
@@ -215,7 +215,11 @@ This helps users and agents identify when to cancel.
 /status output:
   Watcher: watching · 1234 files · 0 pending · auto-index paused 25s (cancel requested)
 
-viberag_status response:
-  "stalled": true,
-  "secondsSinceProgress": 65
+status tool response (includes daemon summary when running):
+  "daemon": {
+    "indexing": {
+      "status": "indexing",
+      "secondsSinceProgress": 65
+    }
+  }
 ```
