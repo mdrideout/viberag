@@ -31,13 +31,6 @@ export function getConfigPath(projectRoot: string): string {
 }
 
 /**
- * Get the path to the manifest file.
- */
-export function getManifestPath(projectRoot: string): string {
-	return path.join(getViberagDir(projectRoot), 'manifest.json');
-}
-
-/**
  * Get the path to the LanceDB database directory.
  */
 export function getLanceDbPath(projectRoot: string): string {
@@ -94,26 +87,6 @@ export function getServiceLogPath(
 	const filename = `${year}-${month}-${day}-${hour}.log`;
 	return path.join(getServiceLogsDir(projectRoot, service), filename);
 }
-
-// ============================================================================
-// LanceDB Configuration
-// ============================================================================
-
-/**
- * LanceDB table names.
- */
-export const TABLE_NAMES = {
-	CODE_CHUNKS: 'code_chunks',
-	EMBEDDING_CACHE: 'embedding_cache',
-} as const;
-
-/**
- * Current schema version. Increment when schema changes require reindex.
- *
- * This is defined here instead of storage/schema.ts to avoid importing
- * apache-arrow (10MB package) when only the version number is needed.
- */
-export const SCHEMA_VERSION = 3;
 
 // ============================================================================
 // Language Configuration

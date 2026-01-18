@@ -20,8 +20,8 @@ AI agents rely on our search results to understand codebases. **Silent false neg
 | Query Type        | Example                           | Ideal Approach                   |
 | ----------------- | --------------------------------- | -------------------------------- |
 | Conceptual        | "How does authentication work?"   | Semantic (vector) search         |
-| Exact symbol      | "Find handlePaymentWebhook"       | Keyword (BM25) search            |
-| Definition lookup | "Where is UserService defined?"   | Metadata filter                  |
+| Exact symbol      | "Find handlePaymentWebhook"       | Keyword (FTS) search             |
+| Definition lookup | "Where is UserService defined?"   | Symbol definition search         |
 | Exhaustive        | "Find ALL uses of deprecated API" | Full scan with keyword match     |
 | Scoped            | "Auth code, not tests"            | Filtered search                  |
 | Similar code      | "Find code like this pattern"     | Vector search with code as query |
@@ -46,7 +46,7 @@ filepath: "src/api/auth/handlers.ts"
 extension: ".ts"
 type: "function"
 name: "handleLogin"
-decorator_names: "Get,Auth"
+decorator_names: ["Get", "Auth"]
 is_exported: true
 ```
 
@@ -160,7 +160,7 @@ The AI has domain knowledge we don't. It can handle framework variations, custom
 ### Neutral
 
 1. **Multi-stage search pattern** — Neither better nor worse, just different. AI chains calls instead of one complex query.
-2. **Decorator-based filtering** — Partially replaces endpoint detection. `decorator_contains: "Get"` finds route handlers without understanding the framework.
+2. **Decorator-based search** — Decorator names are stored as deterministic facts; agents can search for decorator tokens or inspect them via `get_symbol`.
 
 ## Alternatives Considered
 
@@ -250,7 +250,7 @@ function bar() {} // is_exported = false
 @Validate(UserSchema)
 async getUsers() {}
 
-// decorator_names = "Get,Auth,Validate"
+// decorator_names = ["Get", "Auth", "Validate"]
 ```
 
 ### Filter Implementation
@@ -264,19 +264,21 @@ Path filters map directly to LanceDB WHERE clauses in v2:
 | `path_not_contains: ["test"]` | `file_path NOT LIKE '%test%'` |
 | `extension: [".ts"]`          | `extension IN ('.ts')`        |
 
-### Symbol Index (Phase 3)
+### Refs Table (v2)
 
-The symbol index is a separate table tracking definitions vs usages:
+Search v2 stores deterministic occurrences as refs (usages) without attempting
+full cross-language resolution:
 
 ```
-| name | role | filepath | line |
-|------|------|----------|------|
-| UserService | definition | src/services/user.ts | 15 |
-| UserService | import | src/api/auth.ts | 3 |
-| UserService | usage | src/api/auth.ts | 45 |
+| ref_kind       | token_text   | filepath        | line |
+|----------------|--------------|-----------------|------|
+| import         | UserService  | src/api/auth.ts | 3    |
+| identifier     | UserService  | src/api/auth.ts | 45   |
+| string_literal | Invalid ID   | src/api/auth.ts | 12   |
 ```
 
-This is **deterministic** — a definition is a definition, an import is an import. No heuristics involved.
+These are **facts** (observations), not interpretations. Agents can group refs,
+expand context, and combine them with definition search.
 
 ## References
 

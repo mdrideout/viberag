@@ -6,9 +6,9 @@
 
 VibeRAG is fully local, offline capable MCP server for local codebase search.
 
-- Semantic codebase search
-- Keyword codebase search (BM25)
-- Hybrid codebase search (with tunable parameters)
+- Intent-routed codebase search (definitions/files/blocks/usages)
+- Hybrid retrieval (full-text + vector search)
+- Explainable results with stable follow-ups (open spans, get symbols, find usages)
 
 VibeRAG automatically indexes your codebase into a local container-free vector database ([lancedb](https://lancedb.com/)). Every time you make a change, the indexes are automatically updated.
 
@@ -48,11 +48,11 @@ When using a coding agent like [Claude Code](https://claude.ai/code), add `use v
 ## Features
 
 - **CLI based setup** - CLI commands and wizards for setup, editor integration, and configuration
-- **Semantic code search** - Find code by meaning, not just keywords
+- **Agent-first search** - Find definitions, entry files, and relevant blocks (not just “chunks”)
 - **Flexible embeddings** - Local model (offline, free) or cloud providers (Gemini, Mistral, OpenAI)
 - **MCP server** - Works with Claude Code, Cursor, VS Code Copilot, and more
 - **Automatic incremental indexing** - Watches for file changes (respects `.gitignore`) and reindexes only what has changed in real time
-- **Resilient indexing** - Retries embedding errors, reports failed batches in `/status`, and supports `/cancel`
+- **Cancelable indexing** - Supports `/cancel` and clear status reporting via `/status`
 - **Multi-language support** - TypeScript, JavaScript, Python, Go, Rust, and more
 - **Blazing fast** - The data storage and search functionality is local on your machine, meaning the full power of your machine can churn through massive amounts of data and execute complex search queries in milliseconds.
 
@@ -452,123 +452,45 @@ args = ["-y", "viberag-mcp"]
 
 ## Exposed MCP Tools
 
-| Tool                       | Description                                        |
-| -------------------------- | -------------------------------------------------- |
-| `codebase_search`          | Semantic, keyword, or hybrid search for code       |
-| `codebase_parallel_search` | Run multiple search strategies in parallel         |
-| `viberag_index`            | Index the codebase (incremental by default)        |
-| `viberag_cancel`           | Cancel indexing or warmup without stopping daemon  |
-| `viberag_status`           | Get index status, progress, and embedding provider |
-| `viberag_watch_status`     | Get file watcher status for auto-indexing          |
+Search v2 exposes a small set of agent-centric tools. Backward compatibility
+with legacy tool names is not provided.
 
-#### `codebase_search`
+| Tool             | Description                                                           |
+| ---------------- | --------------------------------------------------------------------- |
+| `search`         | Intent-routed search with grouped results + stable IDs for follow-ups |
+| `open_span`      | Read an exact line range from disk                                    |
+| `get_symbol`     | Fetch a symbol definition + deterministic metadata by `symbol_id`     |
+| `find_usages`    | Find usage occurrences (refs) for a symbol name or `symbol_id`        |
+| `expand_context` | Expand a hit into neighbors (symbols/chunks) and related metadata     |
+| `index`          | Build/update the v2 index (incremental by default)                    |
+| `status`         | Get v2 index status and daemon status summary                         |
+| `watch_status`   | Get watcher status (auto-indexing)                                    |
+| `cancel`         | Cancel indexing or warmup without shutting down the daemon            |
 
-The primary search tool. Finds code by meaning, not just keywords.
-By default this returns metadata only (no chunk text). Set `include_text=true` to include text.
+### `search`
 
-**Search Modes:**
+Single entry point with intent routing. Use `scope` for transparent filters.
 
-| Mode         | Best For                                     |
-| ------------ | -------------------------------------------- |
-| `hybrid`     | Most queries (default) - combines both       |
-| `semantic`   | Conceptual queries ("how does auth work?")   |
-| `exact`      | Symbol names, specific strings               |
-| `definition` | Direct symbol lookup ("where is X defined?") |
-| `similar`    | Find code similar to a snippet               |
+- `intent`: `auto|definition|usage|concept|exact_text|similar_code`
+- `scope`: `path_prefix`, `path_contains`, `path_not_contains`, `extension`
+- `explain`: include per-hit channels + ranking priors
 
-**Key Parameters:**
-
-- `query` - Natural language search query
-- `mode` - Search mode (default: `hybrid`)
-- `limit` - Max results (default: 10, max: 100)
-- `include_text` - Include chunk text in results (default: false)
-- `bm25_weight` - Balance keyword vs semantic (0-1, default: 0.3)
-- `filters` - Path, type, and metadata filters
-
-**Example:**
+Example:
 
 ```json
 {
-	"query": "authentication middleware",
-	"mode": "hybrid",
-	"limit": 15,
-	"filters": {
-		"path_not_contains": ["test", "mock"],
-		"is_exported": true
-	}
+	"query": "how does authentication work",
+	"intent": "concept",
+	"scope": {
+		"path_prefix": ["src/"],
+		"path_not_contains": ["test", "__tests__", ".spec.", ".test."]
+	},
+	"k": 20,
+	"explain": true
 }
 ```
 
-#### `codebase_parallel_search`
-
-Run multiple search strategies simultaneously and merge results. Best for comprehensive exploration.
-
-By default this tool returns metadata only (no chunk text). Set `include_text=true` to include text
-in merged results, and `include_individual=true` to include per-search result lists.
-
-**Use Cases:**
-
-- Compare semantic vs keyword results
-- Search related concepts together
-- Test different weight settings
-
-**Example:**
-
-```json
-{
-	"searches": [
-		{"query": "authentication", "mode": "semantic", "limit": 10},
-		{"query": "auth login JWT", "mode": "exact", "limit": 10},
-		{"query": "user session", "mode": "hybrid", "bm25_weight": 0.5, "limit": 10}
-	],
-	"merge_results": true,
-	"merge_strategy": "rrf",
-	"merged_limit": 20,
-	"include_text": false,
-	"include_individual": false
-}
-```
-
-#### `viberag_index`
-
-Manually trigger indexing. Normally not needed as file watching handles updates automatically.
-
-**Parameters:**
-
-- `force` - Full reindex ignoring cache (default: `false`)
-
-#### `viberag_cancel`
-
-Cancel the current daemon activity (indexing or warmup) without shutting down the daemon.
-
-**Parameters:**
-
-- `target` - `indexing`, `warmup`, or `all` (default: `all`)
-- `reason` - Optional cancellation reason (for logs)
-
-#### `viberag_status`
-
-Check index health, daemon state, and configuration.
-
-**Returns:**
-
-- File count, chunk count
-- Embedding provider and dimensions
-- Schema version
-- Last update timestamp
-- Warmup status (ready, initializing, etc.)
-- Indexing progress and last progress timestamp
-
-#### `viberag_watch_status`
-
-Check the file watcher for auto-indexing.
-
-**Returns:**
-
-- Whether watching is active
-- Number of files being watched
-- Pending changes count
-- Last update timestamp
+Follow-ups: `get_symbol`, `open_span`, `expand_context`, `find_usages`.
 
 ## CLI Commands
 
@@ -664,7 +586,7 @@ Add to your `CLAUDE.md`:
 
 ```markdown
 When exploring the codebase, use Task(subagent_type='Explore') and instruct it
-to use codebase_search or codebase_parallel_search. This keeps the main context clean.
+to use the viberag `search` tool (and follow-ups like `get_symbol` / `open_span`). This keeps the main context clean.
 ```
 
 #### VS Code Copilot
@@ -717,31 +639,37 @@ to use codebase_search or codebase_parallel_search. This keeps the main context 
 
 ### Quick Lookup vs Exploration
 
-| Task Type                       | Recommended Approach                            |
-| ------------------------------- | ----------------------------------------------- |
-| "Where is function X defined?"  | Direct `codebase_search` with mode='definition' |
-| "What file handles Y?"          | Direct `codebase_search` - single query         |
-| "How does authentication work?" | **Sub-agent** - needs multiple searches         |
-| "Find all API endpoints"        | **Sub-agent** or `codebase_parallel_search`     |
-| "Understand the data flow"      | **Sub-agent** - iterative exploration           |
+| Task Type                       | Recommended Approach                                 |
+| ------------------------------- | ---------------------------------------------------- |
+| "Where is function X defined?"  | `search` with `intent="definition"`                  |
+| "What file handles Y?"          | `search` with `intent="concept"` (check `files`)     |
+| "How does authentication work?" | **Sub-agent** - needs multi-step search + follow-ups |
+| "Find all API endpoints"        | **Sub-agent** - iterative search + scope filters     |
+| "Understand the data flow"      | **Sub-agent** - iterative exploration                |
 
 ### For Platforms Without Sub-Agents
 
-Use `codebase_parallel_search` to run multiple search strategies in a single call:
+Use a few targeted `search` calls with different intents, then follow up with
+`get_symbol`, `open_span`, `expand_context`, and `find_usages` as needed.
+
+Example sequence:
+
+```json
+{"query": "authentication", "intent": "concept", "k": 20}
+```
 
 ```json
 {
-	"searches": [
-		{"query": "authentication", "mode": "semantic"},
-		{"query": "auth login", "mode": "exact"},
-		{"query": "user session", "mode": "hybrid", "bm25_weight": 0.5}
-	],
-	"merge_results": true,
-	"merge_strategy": "rrf"
+	"query": "login",
+	"intent": "definition",
+	"k": 20,
+	"scope": {"path_prefix": ["src/"]}
 }
 ```
 
-This provides comprehensive coverage without multiple round-trips.
+```json
+{"symbol_name": "login", "k": 200}
+```
 
 ## Troubleshooting
 
@@ -756,8 +684,8 @@ Large repos can exceed OS watch limits. The watcher now honors `.gitignore`, but
 
 ### Index failures (network/API errors)
 
-Embedding batches retry up to 10 attempts. If failures persist:
+If indexing fails due to transient network/API issues:
 
-- Run `/status` to see failed batch counts.
-- Re-run `/index` to retry failed files once connectivity is stable.
-- Use `/cancel` to stop a stuck indexing run, then `/reindex` if needed.
+- Run `/status` to confirm daemon/index state.
+- Re-run `/index` after connectivity is stable.
+- Use `/cancel` to stop a stuck run, then `/reindex` if you need a clean rebuild.

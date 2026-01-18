@@ -253,7 +253,7 @@ export class SearchEngineV2 {
 			.toArray();
 		if (rows.length === 0) return null;
 		const row = rows[0] as Record<string, unknown>;
-		return row;
+		return normalizeJsonRecord(row);
 	}
 
 	async expandContext(args: {
@@ -489,7 +489,7 @@ export class SearchEngineV2 {
 			.limit(1)
 			.toArray();
 		if (rows.length === 0) return null;
-		return rows[0] as Record<string, unknown>;
+		return normalizeJsonRecord(rows[0] as Record<string, unknown>);
 	}
 
 	async getSymbolsInFile(file_path: string, limit: number): Promise<unknown[]> {
@@ -790,17 +790,26 @@ export class SearchEngineV2 {
 		filterClause: string | undefined,
 		explain: boolean,
 	): Promise<V2HitBase[]> {
-		const table = await this.getChunksTable();
 		const oversample = Math.min(200, Math.max(k * 6, 30));
-		const vecHits = await this.vectorCandidatesChunks(
-			table,
-			queryVector,
-			oversample,
-			filterClause,
-			'chunks.vec_code',
-		);
+		const [chunkHits, symbolHits] = await Promise.all([
+			this.vectorCandidatesChunks(
+				await this.getChunksTable(),
+				queryVector,
+				oversample,
+				filterClause,
+				'chunks.vec_code',
+			),
+			this.vectorCandidatesSymbols(
+				await this.getSymbolsTable(),
+				queryVector,
+				oversample,
+				filterClause,
+				'symbols.vec_summary',
+			),
+		]);
 
-		const reranked = rerankCandidates(vecHits, {
+		const candidates = mergeCandidates([chunkHits, symbolHits]);
+		const reranked = rerankCandidates(candidates, {
 			intent: 'similar_code',
 			explain,
 			applyExportBoost: false,
@@ -1563,4 +1572,54 @@ function escapeForEquality(str: string): string {
 
 function escapeForLike(str: string): string {
 	return str.replace(/'/g, "''").replace(/%/g, '\\%').replace(/_/g, '\\_');
+}
+
+function normalizeJsonRecord(
+	record: Record<string, unknown>,
+): Record<string, unknown> {
+	const out: Record<string, unknown> = {};
+	for (const [k, v] of Object.entries(record)) {
+		out[k] = normalizeJsonValue(v);
+	}
+	return out;
+}
+
+function normalizeJsonValue(value: unknown): unknown {
+	if (value == null) return value;
+
+	if (Array.isArray(value)) {
+		return value.map(v => normalizeJsonValue(v));
+	}
+
+	if (ArrayBuffer.isView(value)) {
+		const iterable = value as unknown as {
+			[Symbol.iterator]?: () => Iterator<unknown>;
+		};
+		if (typeof iterable[Symbol.iterator] === 'function') {
+			return Array.from(iterable as Iterable<unknown>, v => Number(v));
+		}
+		return null;
+	}
+
+	if (typeof value === 'object') {
+		const maybe = value as {toArray?: () => unknown; toJSON?: () => unknown};
+		if (typeof maybe.toArray === 'function') {
+			return normalizeJsonValue(maybe.toArray());
+		}
+		if (typeof maybe.toJSON === 'function') {
+			try {
+				return maybe.toJSON();
+			} catch {
+				// fall through
+			}
+		}
+
+		const out: Record<string, unknown> = {};
+		for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+			out[k] = normalizeJsonValue(v);
+		}
+		return out;
+	}
+
+	return value;
 }

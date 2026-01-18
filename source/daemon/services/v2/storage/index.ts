@@ -352,7 +352,9 @@ export class StorageV2 {
 			.where(`input_hash IN (${escaped})`)
 			.toArray();
 		for (const row of rows as unknown as V2EmbeddingCacheRow[]) {
-			cache.set(row.input_hash, row.vector);
+			const normalized = normalizeVector(row.vector);
+			if (!normalized) continue;
+			cache.set(row.input_hash, normalized);
 		}
 		return cache;
 	}
@@ -369,4 +371,27 @@ export class StorageV2 {
 
 function escapeString(value: string): string {
 	return value.replace(/'/g, "''");
+}
+
+function normalizeVector(value: unknown): number[] | null {
+	if (!value) return null;
+	if (Array.isArray(value)) {
+		return value.map(v => Number(v));
+	}
+	if (ArrayBuffer.isView(value)) {
+		const iterable = value as unknown as {
+			[Symbol.iterator]?: () => Iterator<unknown>;
+		};
+		if (typeof iterable[Symbol.iterator] === 'function') {
+			return Array.from(iterable as Iterable<unknown>, v => Number(v));
+		}
+		return null;
+	}
+	if (typeof value === 'object') {
+		const v = value as {toArray?: () => unknown};
+		if (typeof v.toArray === 'function') {
+			return normalizeVector(v.toArray());
+		}
+	}
+	return null;
 }

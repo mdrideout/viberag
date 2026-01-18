@@ -318,7 +318,7 @@ const results = await client.search(query);
 
 ### What Changes for CLI
 
-Current CLI commands call `Indexer`, `SearchEngine` directly.
+Previous CLI commands called `Indexer` and `SearchEngine` directly (before migrating CLI to daemon IPC).
 
 New CLI commands:
 

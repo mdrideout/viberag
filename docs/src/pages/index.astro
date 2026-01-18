@@ -12,11 +12,15 @@ const EDITORS = [
 ];
 
 const TOOLS = [
-  { name: "codebase_search", desc: "Semantic, keyword, or hybrid search." },
-  { name: "codebase_parallel_search", desc: "Run multiple search strategies simultaneously." },
-  { name: "viberag_index", desc: "Manually trigger indexing (usually automatic)." },
-  { name: "viberag_status", desc: "Get index health and stats." },
-  { name: "viberag_watch_status", desc: "Check file watcher status." },
+  { name: "search", desc: "Intent-routed search with grouped results + stable IDs." },
+  { name: "open_span", desc: "Read exact file spans by line range." },
+  { name: "get_symbol", desc: "Fetch symbol definition + deterministic metadata." },
+  { name: "find_usages", desc: "Find usage refs grouped by file." },
+  { name: "expand_context", desc: "Expand a hit into neighbors and related chunks." },
+  { name: "index", desc: "Build/update the v2 index (incremental by default)." },
+  { name: "status", desc: "Index + daemon status summary." },
+  { name: "watch_status", desc: "Watcher status (auto-indexing)." },
+  { name: "cancel", desc: "Cancel indexing or warmup." },
 ];
 
 const LANGUAGES = [
@@ -107,7 +111,7 @@ const LANGUAGES = [
     ╚═══╝  ╚═╝╚═════╝ ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝   </pre>
 
             <p class="text-lg md:text-2xl text-slate-400 mb-12 max-w-2xl leading-relaxed font-light">
-              VibeRAG is a free, open-source MCP server for semantic and hybrid search for your codebase.
+              VibeRAG is a free, open-source MCP server for agent-first code search over your local codebase.
               <span class="block mt-2 text-slate-300">Faster, Exhaustive, Exploratory Search for Coding Agents.</span>
             </p>
 
@@ -427,9 +431,9 @@ const LANGUAGES = [
                           <svg class="w-10 h-10 text-slate-300 group-hover:text-white transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
                            <div class="absolute -top-3 -right-3 w-8 h-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-xs font-bold text-slate-400">3</div>
                       </div>
-                      <h3 class="text-xl font-bold text-white mb-3 group-hover:text-white transition-colors">Fast Hybrid Search</h3>
+                      <h3 class="text-xl font-bold text-white mb-3 group-hover:text-white transition-colors">Fast Hybrid Retrieval</h3>
                       <p class="text-slate-400 text-sm leading-relaxed max-w-xs">
-                           VibeRAG performs blazing fast hybrid search (Dense Vector + BM25 Keyword) on your local machine, and returns the most relevant code in milliseconds.
+                           VibeRAG combines full-text search and vector search locally (LanceDB) and returns agent-friendly results with stable follow-up handles.
                       </p>
                   </div>
               </div>
@@ -448,12 +452,8 @@ const LANGUAGES = [
                   <div class="bg-[#0f1117] border border-slate-800 p-6 rounded-xl hover:border-[#9D4EDD]/40 transition-all group">
                       <div class="flex items-center gap-3 mb-3">
                           <div class="p-2 rounded bg-slate-900 group-hover:bg-slate-800 transition-colors">
-                              <svg class={`w-5 h-5 ${idx === 0 ? 'text-[#00D9FF]' : idx === 1 ? 'text-[#9D4EDD]' : idx === 2 ? 'text-[#9D4EDD]' : idx === 3 ? 'text-yellow-400' : 'text-green-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  {idx === 0 && <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>}
-                                  {idx === 1 && <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>}
-                                  {idx === 2 && <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"></path>}
-                                  {idx === 3 && <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>}
-                                  {idx === 4 && <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>}
+                              <svg class="w-5 h-5 text-[#00D9FF]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path>
                               </svg>
                           </div>
                           <h3 class="font-mono text-lg text-slate-200 font-bold">{tool.name}</h3>

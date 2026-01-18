@@ -48,8 +48,8 @@ source/
 Always use `.js` extension:
 
 ```typescript
-import {SearchEngine} from './search/index.js'; // correct
-import {SearchEngine} from './search/index'; // breaks at runtime
+import {SearchEngineV2} from './services/v2/search/engine.js'; // correct
+import {SearchEngineV2} from './services/v2/search/engine'; // breaks at runtime
 ```
 
 ## Import Patterns
@@ -69,11 +69,11 @@ Barrels cause:
 
 ```typescript
 // ❌ FORBIDDEN - barrel imports:
-import {SearchEngine, Storage} from '../daemon/services/index.js';
+import {SearchEngineV2, StorageV2} from '../daemon/services/v2/index.js';
 
 // ✅ REQUIRED - direct imports:
-import {SearchEngine} from '../daemon/services/search/index.js';
-import {Storage} from '../daemon/services/storage/index.js';
+import {SearchEngineV2} from '../daemon/services/v2/search/engine.js';
+import {StorageV2} from '../daemon/services/v2/storage/index.js';
 
 // ❌ FORBIDDEN - barrel exports in index.ts:
 export * from './types.js';

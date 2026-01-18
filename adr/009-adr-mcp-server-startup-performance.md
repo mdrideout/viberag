@@ -37,21 +37,24 @@ mcp/server.ts imports from barrel file
 
 ## Decision
 
-### 1. Direct Imports for Lightweight Modules
+### 1. Keep MCP Imports Lightweight
 
-Import directly from submodules, not barrel files:
+The MCP server should only import lightweight modules on startup. Avoid
+importing daemon internals from `source/daemon/services/v2/*` in MCP startup
+paths because they pull in native/WASM dependencies.
 
 ```typescript
-// ❌ Anti-pattern (loads ALL modules via barrel):
-import {SearchEngine, Storage} from '../daemon/services/index.js';
+// ❌ Anti-pattern (pulls in @lancedb/lancedb, web-tree-sitter, apache-arrow):
+import {SearchEngineV2} from '../daemon/services/v2/search/engine.js';
+import {IndexingServiceV2} from '../daemon/services/v2/indexing.js';
 
-// ✅ Correct (loads only what's needed):
+// ✅ Correct (lightweight startup deps):
 import {configExists} from '../daemon/lib/config.js';
 ```
 
 ### 2. Lazy Loading for Heavy Modules
 
-Create a lazy loader service for modules with native dependencies:
+Create a lazy loader service for modules with heavy/native dependencies:
 
 ```typescript
 // Lazy loading pattern for heavy modules
@@ -75,15 +78,13 @@ const results = await client.search(query);
 
 ### 3. Break Transitive Dependencies
 
-Move shared constants to avoid pulling in heavy dependencies:
+Avoid importing heavy modules just to access a constant or small helper. In
+particular, `apache-arrow` is large and is only needed when defining LanceDB
+Arrow schemas.
 
-```typescript
-// ❌ manifest/index.ts importing from storage/schema.ts
-// This pulls in apache-arrow (10MB) just for SCHEMA_VERSION
-
-// ✅ Move SCHEMA_VERSION to constants.ts
-// Both manifest and storage import from constants
-```
+If a constant is needed in multiple places, keep it in a lightweight module
+(one that does not import `apache-arrow`, `web-tree-sitter`, or `@lancedb/lancedb`)
+so it can be safely imported in MCP startup paths.
 
 ## Module Classification
 

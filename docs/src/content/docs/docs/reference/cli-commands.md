@@ -14,6 +14,7 @@ description: Slash commands available in the VibeRAG CLI.
 | `/index`          | Index the codebase                |
 | `/reindex`        | Force full reindex                |
 | `/search <query>` | Search the codebase               |
+| `/eval`           | Run evaluation harness (v2)       |
 | `/status`         | Show daemon and index status      |
 | `/cancel`         | Cancel indexing or warmup         |
 | `/mcp-setup`      | Configure MCP server for AI tools |

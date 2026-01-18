@@ -1,173 +1,96 @@
 /**
- * Tests for search modes: definition and similar.
+ * Tests for v2 search intents.
  *
- * Tests the new search modes added in Phase 2:
- * - definition: Direct metadata lookup by symbol name
- * - similar: Vector search with code snippet as query
+ * V2 removes v1 "modes" in favor of intent routing:
+ * - definition: symbol lookup (lexical + vector fallback)
+ * - similar_code: vector search over code blocks
+ * - usage: refs lookup (find where a token is used)
  */
 
 import {describe, it, expect, beforeAll, afterAll} from 'vitest';
-import {IndexingService} from '../services/indexing.js';
-import {SearchEngine} from '../services/search/index.js';
+import {IndexingServiceV2} from '../services/v2/indexing.js';
+import {SearchEngineV2} from '../services/v2/search/engine.js';
 import {copyFixtureToTemp, type TestContext} from './helpers.js';
 
-describe('Search Modes', () => {
+describe('V2 Search Intents', () => {
 	let ctx: TestContext;
-	let search: SearchEngine;
+	let search: SearchEngineV2;
 
 	beforeAll(async () => {
-		// Setup once for all tests - index the codebase
 		ctx = await copyFixtureToTemp('codebase');
-		const indexer = new IndexingService(ctx.projectRoot);
+		const indexer = new IndexingServiceV2(ctx.projectRoot);
 		await indexer.index();
 		indexer.close();
-		search = new SearchEngine(ctx.projectRoot);
-	}, 120_000);
+		search = new SearchEngineV2(ctx.projectRoot);
+	}, 180_000);
 
 	afterAll(async () => {
 		search.close();
 		await ctx.cleanup();
 	});
 
-	describe('definition mode', () => {
-		it('finds function definition by exact name', async () => {
-			const results = await search.search('getUser', {
-				mode: 'definition',
-				symbolName: 'getUser',
-			});
+	it('definition intent finds function definitions by name', async () => {
+		const results = await search.search('getUser', {
+			intent: 'definition',
+			k: 20,
+			explain: false,
+		});
 
-			expect(results.results.length).toBeGreaterThan(0);
-			expect(results.searchType).toBe('definition');
-			// Should find the function in endpoints.ts
-			expect(
-				results.results.some(r => r.filepath.includes('endpoints.ts')),
-			).toBe(true);
-		}, 60_000);
-
-		it('finds class definition by name', async () => {
-			// Use semantic search to find class - limited to TypeScript
-			// (PHP/Kotlin have interfaces that are also typed as 'class')
-			const results = await search.search('UserService class', {
-				mode: 'semantic',
-				filters: {type: ['class'], extension: ['.ts']},
-			});
-
-			// Should find the class in exported.ts
-			if (results.results.length > 0) {
-				expect(
-					results.results.some(r => r.filepath.includes('exported.ts')),
-				).toBe(true);
-			}
-		}, 60_000);
-
-		it('finds method definition by name', async () => {
-			// Use semantic search for method lookup
-			const results = await search.search('fetchData method http', {
-				mode: 'semantic',
-				filters: {type: ['method']},
-			});
-
-			// Should find the method in http_client.ts
-			if (results.results.length > 0) {
-				expect(
-					results.results.some(r => r.filepath.includes('http_client.ts')),
-				).toBe(true);
-			}
-		}, 60_000);
-
-		it('returns empty for non-existent symbol', async () => {
-			const results = await search.search('nonExistentSymbolXYZ123', {
-				mode: 'definition',
-				symbolName: 'nonExistentSymbolXYZ123',
-			});
-
-			expect(results.results.length).toBe(0);
-		}, 60_000);
-
-		it('can filter definitions by type', async () => {
-			const results = await search.search('add', {
-				mode: 'definition',
-				symbolName: 'add_two_numbers',
-				filters: {type: ['function']},
-			});
-
-			if (results.results.length > 0) {
-				expect(results.results.every(r => r.type === 'function')).toBe(true);
-			}
-		}, 60_000);
+		expect(results.intent_used).toBe('definition');
+		expect(
+			results.groups.definitions.some(
+				r =>
+					r.file_path === 'src/api/endpoints.ts' && r.title.includes('getUser'),
+			),
+		).toBe(true);
 	});
 
-	describe('similar mode', () => {
-		it('finds similar code by snippet', async () => {
-			// Search for code similar to an async fetch function
-			const snippet = `async function fetchData(url) {
-				const response = await fetch(url);
-				return response.json();
-			}`;
-
-			const results = await search.search(snippet, {
-				mode: 'similar',
-				codeSnippet: snippet,
-			});
-
-			expect(results.results.length).toBeGreaterThan(0);
-			expect(results.searchType).toBe('similar');
-			// Should find http_client.ts which has similar fetch logic
-			expect(
-				results.results.some(r => r.filepath.includes('http_client.ts')),
-			).toBe(true);
-		}, 60_000);
-
-		it('finds similar Python code', async () => {
-			const snippet = `def calculate(a, b):
-				return a + b`;
-
-			const results = await search.search(snippet, {
-				mode: 'similar',
-				codeSnippet: snippet,
-			});
-
-			expect(results.results.length).toBeGreaterThan(0);
-			// Should find math.py which has similar arithmetic functions
-			expect(results.results.some(r => r.filepath.includes('math.py'))).toBe(
-				true,
-			);
-		}, 60_000);
-
-		it('respects limit parameter', async () => {
-			const snippet = `function helper() { return true; }`;
-
-			const results = await search.search(snippet, {
-				mode: 'similar',
-				codeSnippet: snippet,
-				limit: 3,
-			});
-
-			expect(results.results.length).toBeLessThanOrEqual(3);
-		}, 60_000);
+	it('does not return an exact match for a non-existent symbol', async () => {
+		const query = 'nonExistentSymbolXYZ123';
+		const results = await search.search(query, {
+			intent: 'definition',
+			k: 10,
+			explain: false,
+		});
+		const needle = query.toLowerCase();
+		expect(
+			results.groups.definitions.some(r =>
+				r.title.toLowerCase().includes(needle),
+			),
+		).toBe(false);
 	});
 
-	describe('mode selection', () => {
-		it('defaults to hybrid mode', async () => {
-			const results = await search.search('function');
+	it('similar_code intent finds similar code by snippet', async () => {
+		const snippet = `async function fetchData(url) {
+  const response = await fetch(url);
+  return response.json();
+}`;
 
-			expect(results.searchType).toBe('hybrid');
-		}, 60_000);
+		const results = await search.search(snippet, {
+			intent: 'similar_code',
+			k: 10,
+			explain: false,
+		});
 
-		it('semantic mode returns semantic type', async () => {
-			const results = await search.search('how does authentication work', {
-				mode: 'semantic',
-			});
+		expect(results.intent_used).toBe('similar_code');
+		expect(
+			results.groups.blocks.some(r => r.file_path.includes('http_client.ts')),
+		).toBe(true);
+	});
 
-			expect(results.searchType).toBe('semantic');
-		}, 60_000);
+	it('auto routes usage-shaped queries to usage intent', async () => {
+		const results = await search.search('where is login used', {
+			intent: 'auto',
+			k: 50,
+			explain: false,
+		});
 
-		it('exact mode returns exact type', async () => {
-			const results = await search.search('fetchData', {
-				mode: 'exact',
-			});
-
-			expect(results.searchType).toBe('exact');
-		}, 60_000);
+		expect(results.intent_used).toBe('usage');
+		expect(results.groups.usages.length).toBeGreaterThan(0);
+		expect(
+			results.groups.usages.some(r =>
+				r.file_path.includes('src/services/auth.ts'),
+			),
+		).toBe(true);
 	});
 });

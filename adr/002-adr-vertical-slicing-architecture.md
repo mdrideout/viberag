@@ -93,7 +93,7 @@ import {useCtrlC} from '../common/hooks/useCtrlC.js';
 import {SearchEngineV2} from '../daemon/services/v2/search/engine.js';
 
 // ❌ FORBIDDEN - barrel imports
-import {SearchEngine, Storage} from '../daemon/services/index.js';
+import {SearchEngineV2, StorageV2} from '../daemon/services/v2/index.js';
 ```
 
 #### 4. Interface-Specific Components

@@ -1,32 +1,62 @@
 ---
 title: MCP Tools
-description: MCP tools exposed by the VibeRAG server.
+description: MCP tools exposed by the VibeRAG server (Search v2).
 ---
 
 ## Tool List
 
-| Tool                       | Description                                       |
-| -------------------------- | ------------------------------------------------- |
-| `codebase_search`          | Semantic, keyword, or hybrid search for code      |
-| `codebase_parallel_search` | Run multiple search strategies in parallel        |
-| `viberag_index`            | Index the codebase (incremental by default)       |
-| `viberag_status`           | Index status plus daemon progress and warmup      |
-| `viberag_cancel`           | Cancel indexing or warmup without stopping daemon |
-| `viberag_watch_status`     | File watcher status for auto-indexing             |
+| Tool             | Description                                                             |
+| ---------------- | ----------------------------------------------------------------------- |
+| `search`         | Intent-routed search with grouped results and stable IDs for follow-ups |
+| `open_span`      | Read an exact line range from disk                                      |
+| `get_symbol`     | Fetch a symbol definition + deterministic metadata by `symbol_id`       |
+| `find_usages`    | Find usage occurrences (refs) for a symbol name or `symbol_id`          |
+| `expand_context` | Expand a hit into neighbors (symbols/chunks) and related metadata       |
+| `index`          | Build/update the v2 index (incremental by default)                      |
+| `status`         | Get v2 index status and daemon status summary                           |
+| `watch_status`   | Get watcher status (auto-indexing)                                      |
+| `cancel`         | Cancel indexing or warmup without shutting down the daemon              |
 
-## Status and Cancellation
+## `search`
 
-- Use `viberag_status` to check indexing progress, last progress time, and failures.
-- Use `viberag_cancel` to stop long-running or stuck indexing runs, then re-run
-  `viberag_index` if you need a clean index.
+Search is intent-routed and returns grouped results.
 
-## Search Output
+Input:
 
-`codebase_search` returns metadata-only results by default to keep payloads small.
-Set `include_text=true` to include chunk text in each result.
+```json
+{
+	"query": "string",
+	"intent": "auto|definition|usage|concept|exact_text|similar_code",
+	"scope": {
+		"path_prefix": ["src/"],
+		"path_contains": ["auth"],
+		"path_not_contains": ["test", "__tests__", ".spec.", ".test."],
+		"extension": [".ts", ".py"]
+	},
+	"k": 20,
+	"explain": true
+}
+```
 
-## Parallel Search Output
+Output shape:
 
-`codebase_parallel_search` returns metadata-only results by default to keep payloads small.
-Set `include_text=true` to include chunk text in merged results, and
-`include_individual=true` to include per-search result lists.
+```json
+{
+	"intent_used": "definition",
+	"filters_applied": {},
+	"groups": {
+		"definitions": [],
+		"usages": [],
+		"files": [],
+		"blocks": []
+	},
+	"suggested_next_actions": []
+}
+```
+
+Follow-ups:
+
+- Use `get_symbol` to fetch full definition text + metadata for a `symbol_id`.
+- Use `open_span` to fetch a precise span from disk by `file_path` + line range.
+- Use `expand_context` to fetch neighbor symbols/chunks around a hit.
+- Use `find_usages` for “where is X used?” style navigation.
