@@ -202,7 +202,7 @@ This helps users and agents identify when to cancel.
 ### MCP
 
 ```typescript
-// cancel tool
+// cancel_operation tool
 {
   target: 'indexing' | 'warmup' | 'all',  // default: 'all'
   reason?: string                          // optional, logged for debugging
@@ -215,7 +215,7 @@ This helps users and agents identify when to cancel.
 /status output:
   Watcher: watching · 1234 files · 0 pending · auto-index paused 25s (cancel requested)
 
-status tool response (includes daemon summary when running):
+get_status tool response (includes daemon summary when running):
   "daemon": {
     "indexing": {
       "status": "indexing",

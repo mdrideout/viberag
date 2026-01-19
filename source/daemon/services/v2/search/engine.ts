@@ -20,6 +20,11 @@ import {MistralEmbeddingProvider} from '../../../providers/mistral.js';
 import {OpenAIEmbeddingProvider} from '../../../providers/openai.js';
 import type {EmbeddingProvider} from '../../../providers/types.js';
 import {StorageV2} from '../storage/index.js';
+import {
+	checkV2IndexCompatibility,
+	V2ReindexRequiredError,
+	V2_SCHEMA_VERSION,
+} from '../manifest.js';
 import type {
 	V2SearchIntent,
 	V2SearchOptions,
@@ -121,6 +126,7 @@ export class SearchEngineV2 {
 		const scope = options.scope ?? {};
 
 		await this.ensureInitialized();
+		await this.ensureIndexCompatible();
 		const filterClause = buildScopeFilter(scope);
 
 		const warnings: V2SearchWarning[] = [];
@@ -258,6 +264,7 @@ export class SearchEngineV2 {
 
 	async getSymbol(symbol_id: string): Promise<Record<string, unknown> | null> {
 		await this.ensureInitialized();
+		await this.ensureIndexCompatible();
 		const table = await this.getSymbolsTable();
 		const rows = await table
 			.query()
@@ -301,6 +308,7 @@ export class SearchEngineV2 {
 		limit?: number;
 	}): Promise<Record<string, unknown>> {
 		await this.ensureInitialized();
+		await this.ensureIndexCompatible();
 		const limit = args.limit ?? 25;
 
 		if (args.table === 'symbols') {
@@ -397,6 +405,7 @@ export class SearchEngineV2 {
 		options: V2FindUsagesOptions,
 	): Promise<V2FindUsagesResponse> {
 		await this.ensureInitialized();
+		await this.ensureIndexCompatible();
 		const k = options.k ?? 200;
 		const scope = options.scope ?? {};
 		const filterClause = buildScopeFilter(scope);
@@ -489,7 +498,7 @@ export class SearchEngineV2 {
 		const first = grouped[0]?.refs[0];
 		if (first) {
 			suggested_next_actions.push({
-				tool: 'open_span',
+				tool: 'read_file_lines',
 				args: {
 					file_path: first.file_path,
 					start_line: first.start_line,
@@ -623,6 +632,7 @@ export class SearchEngineV2 {
 		explain: boolean,
 	): Promise<V2HitBase[]> {
 		const table = await this.getSymbolsTable();
+		const fuzzyPlan = buildDefinitionFuzzyPlan(query);
 		await ensureFtsIndex(table, 'symbol_name', {
 			baseTokenizer: 'ngram',
 			ngramMinLength: 2,
@@ -661,9 +671,40 @@ export class SearchEngineV2 {
 			maxTokenLength: 256,
 			withPosition: false,
 		});
+		if (fuzzyPlan) {
+			await ensureFtsIndex(table, 'symbol_name_fuzzy', {
+				baseTokenizer: 'whitespace',
+				lowercase: true,
+				stem: false,
+				removeStopWords: false,
+				maxTokenLength: 128,
+				withPosition: false,
+			});
+			await ensureFtsIndex(table, 'qualname_fuzzy', {
+				baseTokenizer: 'whitespace',
+				lowercase: true,
+				stem: false,
+				removeStopWords: false,
+				maxTokenLength: 256,
+				withPosition: false,
+			});
+		}
 
 		const oversample = Math.min(200, Math.max(k * 6, 30));
-		const [nameHits, qualHits, identHits, vecHits] = await Promise.all([
+		const fuzzySymbolToken = fuzzyPlan
+			? fuzzyPlan.symbolToken.toLowerCase()
+			: '';
+		const fuzzyQualToken = fuzzyPlan?.qualToken
+			? fuzzyPlan.qualToken.toLowerCase()
+			: null;
+		const [
+			nameHits,
+			qualHits,
+			nameFuzzyHits,
+			qualFuzzyHits,
+			identHits,
+			vecHits,
+		] = await Promise.all([
 			this.ftsCandidatesSymbols(
 				table,
 				query,
@@ -680,6 +721,32 @@ export class SearchEngineV2 {
 				filterClause,
 				'symbols.qualname',
 			),
+			fuzzyPlan
+				? this.ftsCandidatesSymbolsFullTextQuery(
+						table,
+						new lancedb.MatchQuery(fuzzySymbolToken, 'symbol_name_fuzzy', {
+							fuzziness: fuzzyPlan.fuzziness,
+							maxExpansions: fuzzyPlan.maxExpansions,
+							prefixLength: fuzzyPlan.prefixLength,
+						}),
+						oversample,
+						filterClause,
+						'symbols.name_fuzzy',
+					)
+				: Promise.resolve([]),
+			fuzzyPlan && fuzzyQualToken
+				? this.ftsCandidatesSymbolsFullTextQuery(
+						table,
+						new lancedb.MatchQuery(fuzzyQualToken, 'qualname_fuzzy', {
+							fuzziness: fuzzyPlan.fuzziness,
+							maxExpansions: fuzzyPlan.maxExpansions,
+							prefixLength: fuzzyPlan.prefixLength,
+						}),
+						oversample,
+						filterClause,
+						'symbols.qualname_fuzzy',
+					)
+				: Promise.resolve([]),
 			this.ftsCandidatesSymbols(
 				table,
 				query,
@@ -702,6 +769,8 @@ export class SearchEngineV2 {
 		const candidates = mergeCandidates([
 			nameHits,
 			qualHits,
+			nameFuzzyHits,
+			qualFuzzyHits,
 			identHits,
 			vecHits,
 		]);
@@ -1096,6 +1165,41 @@ export class SearchEngineV2 {
 		});
 	}
 
+	private async ftsCandidatesSymbolsFullTextQuery(
+		table: Table,
+		query: lancedb.FullTextQuery,
+		limit: number,
+		filterClause: string | undefined,
+		source: string,
+	): Promise<Candidate[]> {
+		let q = table.search(query, 'fts').limit(limit);
+		if (filterClause) q = q.where(filterClause);
+		const rows = await q.toArray();
+		return rows.map((row, index) => {
+			const r = row as Record<string, unknown> & {_score?: number};
+			return {
+				table: 'symbols',
+				id: String(r['symbol_id']),
+				file_path: String(r['file_path']),
+				start_line: Number(r['start_line']),
+				end_line: Number(r['end_line']),
+				title: String(r['qualname'] ?? r['symbol_name'] ?? r['symbol_id']),
+				snippet:
+					String(r['signature'] ?? '').trim() ||
+					String(r['code_text'] ?? '').slice(0, 200),
+				is_exported: Boolean(r['is_exported']),
+				channels: [
+					{
+						channel: 'fts',
+						source,
+						rank: index,
+						rawScore: typeof r._score === 'number' ? r._score : 0,
+					},
+				],
+			};
+		});
+	}
+
 	private async ftsCandidatesChunks(
 		table: Table,
 		query: string,
@@ -1295,6 +1399,29 @@ export class SearchEngineV2 {
 		return this.initPromise;
 	}
 
+	private async ensureIndexCompatible(): Promise<void> {
+		const compatibility = await checkV2IndexCompatibility(this.projectRoot);
+		if (
+			compatibility.status !== 'needs_reindex' &&
+			compatibility.status !== 'corrupt_manifest'
+		) {
+			return;
+		}
+
+		throw new V2ReindexRequiredError({
+			requiredSchemaVersion: V2_SCHEMA_VERSION,
+			manifestSchemaVersion: compatibility.manifestSchemaVersion,
+			manifestPath: compatibility.manifestPath,
+			reason:
+				compatibility.status === 'needs_reindex'
+					? 'schema_mismatch'
+					: 'corrupt_manifest',
+			message:
+				compatibility.message ??
+				'Index is incompatible. Run a full reindex (CLI: /reindex, MCP: build_index {force:true}).',
+		});
+	}
+
 	private async doInitialize(signal?: AbortSignal): Promise<void> {
 		try {
 			throwIfAborted(signal, 'Warmup cancelled');
@@ -1492,6 +1619,102 @@ function routeIntent(query: string): Exclude<V2SearchIntent, 'auto'> {
 	}
 
 	return 'concept';
+}
+
+type DefinitionFuzzyPlan = {
+	symbolToken: string;
+	qualToken: string | null;
+	fuzziness: number;
+	maxExpansions: number;
+	prefixLength: number;
+};
+
+function buildDefinitionFuzzyPlan(query: string): DefinitionFuzzyPlan | null {
+	const normalized = normalizeDefinitionFuzzyQuery(query);
+	if (!normalized) return null;
+
+	const {rawToken, symbolToken, hasQualifier} = normalized;
+	if (symbolToken.length < 4) return null;
+
+	const fuzziness = autoFuzziness(symbolToken);
+	if (fuzziness <= 0) return null;
+
+	const prefixLength =
+		symbolToken.length >= 10 ? 2 : symbolToken.length >= 6 ? 1 : 0;
+	const maxExpansions = 50;
+
+	return {
+		symbolToken,
+		qualToken: hasQualifier ? rawToken : null,
+		fuzziness,
+		maxExpansions,
+		prefixLength,
+	};
+}
+
+function normalizeDefinitionFuzzyQuery(query: string): {
+	rawToken: string;
+	symbolToken: string;
+	hasQualifier: boolean;
+} | null {
+	let q = query.trim();
+	if (!q) return null;
+
+	q = stripWrappingQuotes(q);
+	q = q.replace(/^@+/, '');
+
+	// Strip common callsite punctuation.
+	q = q.replace(/\(\)\s*$/, '');
+	q = q.replace(/\(\s*$/, '');
+	q = q.replace(/\)\s*$/, '');
+	q = q.replace(/[;,:]+$/, '');
+
+	if (!q || /\s/.test(q)) return null;
+
+	// identifier or qualified identifier chain (Foo.Bar::Baz)
+	if (
+		!/^[A-Za-z_$][A-Za-z0-9_$]*(?:(?:\.|::|#)[A-Za-z_$][A-Za-z0-9_$]*)*$/.test(
+			q,
+		)
+	) {
+		return null;
+	}
+
+	const rawToken = q;
+	const hasQualifier =
+		rawToken.includes('.') || rawToken.includes('::') || rawToken.includes('#');
+
+	// Extract the last segment for symbol_name matching.
+	const lastNs = rawToken.includes('::')
+		? rawToken.split('::').pop()!
+		: rawToken;
+	const symbolToken = lastNs.split(/[.#]/).pop()!.trim();
+	if (!symbolToken || !/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(symbolToken))
+		return null;
+
+	return {rawToken, symbolToken, hasQualifier};
+}
+
+function stripWrappingQuotes(value: string): string {
+	const v = value.trim();
+	if (v.length >= 2) {
+		const first = v[0];
+		const last = v[v.length - 1];
+		if (
+			(first === '"' && last === '"') ||
+			(first === "'" && last === "'") ||
+			(first === '`' && last === '`')
+		) {
+			return v.slice(1, -1).trim();
+		}
+	}
+	return v;
+}
+
+function autoFuzziness(token: string): number {
+	if (token.length <= 2) return 0;
+	if (token.length <= 5) return 1;
+	return 2;
 }
 
 const USAGE_TOKEN_STOP_WORDS = new Set([
@@ -1821,6 +2044,8 @@ function channelRrfWeight(
 		case 'definition': {
 			if (s === 'symbols.name') return 1.35;
 			if (s === 'symbols.qualname') return 1.25;
+			if (s === 'symbols.name_fuzzy') return 1.2;
+			if (s === 'symbols.qualname_fuzzy') return 1.15;
 			if (s === 'symbols.identifiers') return 1.05;
 			if (s === 'symbols.vec_summary') return 1.0;
 			if (s === 'symbols.search_text') return 0.95;
@@ -1985,28 +2210,52 @@ function buildNextActions(groups: {
 	usages: V2HitBase[];
 }): V2NextAction[] {
 	const actions: V2NextAction[] = [];
+	const seen = new Set<string>();
+
+	const push = (action: V2NextAction) => {
+		const key = `${action.tool}:${JSON.stringify(action.args)}`;
+		if (seen.has(key)) return;
+		seen.add(key);
+		actions.push(action);
+	};
+
 	const firstDef = groups.definitions[0];
 	if (firstDef && firstDef.table === 'symbols') {
-		actions.push({tool: 'get_symbol', args: {symbol_id: firstDef.id}});
-		actions.push({tool: 'find_usages', args: {symbol_id: firstDef.id}});
-		actions.push({
-			tool: 'open_span',
+		push({tool: 'get_symbol_details', args: {symbol_id: firstDef.id}});
+		push({tool: 'find_references', args: {symbol_id: firstDef.id}});
+		push({
+			tool: 'read_file_lines',
 			args: {
 				file_path: firstDef.file_path,
 				start_line: firstDef.start_line,
 				end_line: firstDef.end_line,
 			},
 		});
-		actions.push({
-			tool: 'expand_context',
+	}
+
+	const firstFile = groups.files[0];
+	if (firstFile && firstFile.table === 'files') {
+		push({
+			tool: 'read_file_lines',
+			args: {file_path: firstFile.file_path, start_line: 1, end_line: 200},
+		});
+		push({
+			tool: 'get_surrounding_code',
+			args: {table: 'files', id: firstFile.id},
+		});
+	}
+
+	if (firstDef && firstDef.table === 'symbols') {
+		push({
+			tool: 'get_surrounding_code',
 			args: {table: 'symbols', id: firstDef.id},
 		});
 	}
 
 	const firstUsage = groups.usages[0];
 	if (firstUsage) {
-		actions.push({
-			tool: 'open_span',
+		push({
+			tool: 'read_file_lines',
 			args: {
 				file_path: firstUsage.file_path,
 				start_line: firstUsage.start_line,
@@ -2017,16 +2266,16 @@ function buildNextActions(groups: {
 
 	const firstBlock = groups.blocks[0];
 	if (firstBlock) {
-		actions.push({
-			tool: 'open_span',
+		push({
+			tool: 'read_file_lines',
 			args: {
 				file_path: firstBlock.file_path,
 				start_line: firstBlock.start_line,
 				end_line: firstBlock.end_line,
 			},
 		});
-		actions.push({
-			tool: 'expand_context',
+		push({
+			tool: 'get_surrounding_code',
 			args: {table: firstBlock.table, id: firstBlock.id},
 		});
 	}

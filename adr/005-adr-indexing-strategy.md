@@ -160,7 +160,7 @@ The AI has domain knowledge we don't. It can handle framework variations, custom
 ### Neutral
 
 1. **Multi-stage search pattern** — Neither better nor worse, just different. AI chains calls instead of one complex query.
-2. **Decorator-based search** — Decorator names are stored as deterministic facts; agents can search for decorator tokens or inspect them via `get_symbol`.
+2. **Decorator-based search** — Decorator names are stored as deterministic facts; agents can search for decorator tokens or inspect them via `get_symbol_details`.
 
 ## Alternatives Considered
 

@@ -46,7 +46,7 @@ async function runStartupTasks(): Promise<void> {
 			'[viberag-mcp] Run "npx viberag" in this directory and use /init to configure.',
 		);
 		console.error(
-			'[viberag-mcp] Use status tool for details on how to initialize.',
+			'[viberag-mcp] Use get_status tool for details on how to initialize.',
 		);
 		// For uninitialized projects, we're done
 		return;

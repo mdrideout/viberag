@@ -44,7 +44,7 @@ Search v2 returns stable IDs and locations for follow-ups:
 - `symbol_id` identifies a definition row in `v2_symbols`
 - `chunk_id` identifies a block row in `v2_chunks`
 - `file_id` identifies a file row in `v2_files`
-- `file_path` + `start_line/end_line` are always included for `open_span`
+- `file_path` + `start_line/end_line` are always included for `read_file_lines`
 
 ### 3) Indexing Pipeline: Deterministic Facts + Cached Embeddings
 
@@ -90,12 +90,13 @@ Operational robustness:
 
 Expose a small set of composable tools that return stable handles:
 
-- `search` (intent routed, grouped results + optional explain payload)
-- `open_span` (read exact file line ranges from disk)
-- `get_symbol` (fetch a symbol row by `symbol_id`)
-- `find_usages` (fetch usage refs grouped by file)
-- `expand_context` (neighbors/chunks for a hit)
-- `index`, `status`, `watch_status`, `cancel`
+- `codebase_search` (intent routed, grouped results + optional explain payload)
+- `help` (tool usage guide + how search works)
+- `read_file_lines` (read exact file line ranges from disk)
+- `get_symbol_details` (fetch a symbol row by `symbol_id`)
+- `find_references` (fetch usage refs grouped by file)
+- `get_surrounding_code` (neighbors/chunks for a hit)
+- `build_index`, `get_status`, `get_watcher_status`, `cancel_operation`
 
 ### 6) Evaluation Harness (Shipped with v2)
 

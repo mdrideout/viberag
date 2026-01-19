@@ -369,6 +369,10 @@ describe('MCP Server', () => {
 		let statusBeforeIndex: {
 			status: string;
 			message?: string;
+			startup_checks?: {
+				npm_update?: {status?: string};
+				index?: {status?: string; message?: string | null};
+			};
 		} | null = null;
 		let statusAfterIndex: {
 			status: string;
@@ -379,6 +383,10 @@ describe('MCP Server', () => {
 			embeddingProvider?: string;
 			embeddingDimensions?: number;
 			daemon?: {warmup?: {status?: string}};
+			startup_checks?: {
+				npm_update?: {status?: string};
+				index?: {status?: string; message?: string | null};
+			};
 		} | null = null;
 		let indexStats: {
 			filesScanned: number;
@@ -417,20 +425,20 @@ describe('MCP Server', () => {
 			}
 
 			const statusBeforeResult = await harness.client.callTool({
-				name: 'status',
+				name: 'get_status',
 				arguments: {},
 			});
 			statusBeforeIndex =
 				parseToolJson<typeof statusBeforeIndex>(statusBeforeResult).data;
 
 			const indexResult = await harness.client.callTool({
-				name: 'index',
+				name: 'build_index',
 				arguments: {force: false},
 			});
 			indexStats = parseToolJson<typeof indexStats>(indexResult).data;
 
 			const statusAfterResult = await harness.client.callTool({
-				name: 'status',
+				name: 'get_status',
 				arguments: {},
 			});
 			statusAfterIndex =
@@ -467,15 +475,33 @@ describe('MCP Server', () => {
 
 			// Verify expected tools are registered
 			const toolNames = result.tools.map(t => t.name);
-			expect(toolNames).toContain('search');
-			expect(toolNames).toContain('get_symbol');
-			expect(toolNames).toContain('find_usages');
-			expect(toolNames).toContain('expand_context');
-			expect(toolNames).toContain('open_span');
-			expect(toolNames).toContain('index');
-			expect(toolNames).toContain('status');
-			expect(toolNames).toContain('cancel');
-			expect(toolNames).toContain('watch_status');
+			expect(toolNames).toContain('help');
+			expect(toolNames).toContain('codebase_search');
+			expect(toolNames).toContain('get_symbol_details');
+			expect(toolNames).toContain('find_references');
+			expect(toolNames).toContain('get_surrounding_code');
+			expect(toolNames).toContain('read_file_lines');
+			expect(toolNames).toContain('build_index');
+			expect(toolNames).toContain('get_status');
+			expect(toolNames).toContain('cancel_operation');
+			expect(toolNames).toContain('get_watcher_status');
+		});
+
+		it('help tool returns a tool guide', async ({skip}) => {
+			if (setupError) {
+				skip();
+				return;
+			}
+			const result = await harness!.client.callTool({
+				name: 'help',
+				arguments: {},
+			});
+			const {data, isError} = parseToolJson<{tools?: Record<string, unknown>}>(
+				result,
+			);
+			expect(isError).toBeFalsy();
+			expect(data.tools).toBeDefined();
+			expect(data.tools).toHaveProperty('codebase_search');
 		});
 
 		it('reports not_indexed before indexing', async ({skip}) => {
@@ -516,13 +542,69 @@ describe('MCP Server', () => {
 			expect(statusAfterIndex?.daemon?.warmup?.status).toBeDefined();
 		});
 
+		it('includes startup_checks in status payload', async ({skip}) => {
+			if (setupError) {
+				skip();
+				return;
+			}
+
+			expect(statusBeforeIndex?.startup_checks?.index?.status).toBe(
+				'not_indexed',
+			);
+			expect(statusAfterIndex?.startup_checks?.index?.status).toBe(
+				'compatible',
+			);
+
+			// Update check is disabled under NODE_ENV=test for integration tests.
+			const npmStatus = statusBeforeIndex?.startup_checks?.npm_update?.status;
+			expect(npmStatus).toBe('skipped');
+		});
+
+		it('reports needs_reindex when manifest schemaVersion mismatches', async ({
+			skip,
+		}) => {
+			if (setupError) {
+				skip();
+				return;
+			}
+
+			const manifestPath = path.join(
+				harness!.project.projectRoot,
+				'.viberag',
+				'manifest-v2.json',
+			);
+			const original = await fs.readFile(manifestPath, 'utf-8');
+
+			try {
+				const parsed = JSON.parse(original) as Record<string, unknown>;
+				const schemaVersion = Number(parsed['schemaVersion'] ?? 0);
+				parsed['schemaVersion'] = Math.max(0, schemaVersion - 1);
+				await fs.writeFile(
+					manifestPath,
+					JSON.stringify(parsed, null, 2) + '\n',
+				);
+
+				const statusResult = await harness!.client.callTool({
+					name: 'get_status',
+					arguments: {},
+				});
+				const data = parseToolJson<Record<string, unknown>>(statusResult).data;
+				const v2Index = (
+					data['startup_checks'] as Record<string, unknown> | null
+				)?.['index'] as Record<string, unknown> | null;
+				expect(v2Index?.['status']).toBe('needs_reindex');
+			} finally {
+				await fs.writeFile(manifestPath, original);
+			}
+		});
+
 		it('search finds HttpClient definition', async ({skip}) => {
 			if (setupError) {
 				skip();
 				return;
 			}
 			const result = await harness!.client.callTool({
-				name: 'search',
+				name: 'codebase_search',
 				arguments: {
 					query: 'HttpClient',
 					intent: 'definition',
@@ -545,7 +627,7 @@ describe('MCP Server', () => {
 				return;
 			}
 			const result = await harness!.client.callTool({
-				name: 'search',
+				name: 'codebase_search',
 				arguments: {
 					query: 'HttpClient',
 					intent: 'definition',
@@ -560,7 +642,7 @@ describe('MCP Server', () => {
 			expect(first).toBeDefined();
 
 			const symbolResult = await harness!.client.callTool({
-				name: 'get_symbol',
+				name: 'get_symbol_details',
 				arguments: {symbol_id: first!.id, include_code: true},
 			});
 			const {data} = parseToolJson<{
@@ -581,7 +663,7 @@ describe('MCP Server', () => {
 			}
 
 			const searchResult = await harness!.client.callTool({
-				name: 'search',
+				name: 'codebase_search',
 				arguments: {query: 'HttpClient', intent: 'definition', k: 5},
 			});
 			const search = parseToolJson<{
@@ -591,7 +673,7 @@ describe('MCP Server', () => {
 			expect(first).toBeDefined();
 
 			const result = await harness!.client.callTool({
-				name: 'find_usages',
+				name: 'find_references',
 				arguments: {symbol_id: first!.id, k: 50},
 			});
 			const {data} = parseToolJson<{
@@ -615,7 +697,7 @@ describe('MCP Server', () => {
 				return;
 			}
 			const searchResult = await harness!.client.callTool({
-				name: 'search',
+				name: 'codebase_search',
 				arguments: {query: 'HttpClient', intent: 'definition', k: 5},
 			});
 			const search = parseToolJson<{
@@ -625,7 +707,7 @@ describe('MCP Server', () => {
 			expect(first).toBeDefined();
 
 			const expandedResult = await harness!.client.callTool({
-				name: 'expand_context',
+				name: 'get_surrounding_code',
 				arguments: {table: 'symbols', id: first!.id, limit: 10},
 			});
 			const {data} = parseToolJson<{
@@ -643,7 +725,7 @@ describe('MCP Server', () => {
 				return;
 			}
 			const result = await harness!.client.callTool({
-				name: 'search',
+				name: 'codebase_search',
 				arguments: {
 					query: 'lorem',
 					intent: 'exact_text',
@@ -667,7 +749,7 @@ describe('MCP Server', () => {
 
 			try {
 				result = (await harness!.client.callTool({
-					name: 'search',
+					name: 'codebase_search',
 					arguments: {
 						query: 'HttpClient',
 						k: 101,
@@ -720,7 +802,7 @@ describe('MCP Server', () => {
 			const status = await waitForStatus(
 				async () => {
 					const result = await harness!.client.callTool({
-						name: 'watch_status',
+						name: 'get_watcher_status',
 						arguments: {},
 					});
 					return parseToolJson<{
@@ -741,7 +823,7 @@ describe('MCP Server', () => {
 			const updated = await waitForStatus(
 				async () => {
 					const result = await harness!.client.callTool({
-						name: 'watch_status',
+						name: 'get_watcher_status',
 						arguments: {},
 					});
 					return parseToolJson<{
@@ -822,7 +904,7 @@ describe('MCP Server', () => {
 
 		it('status returns not_initialized with instructions', async () => {
 			const result = await client.callTool({
-				name: 'status',
+				name: 'get_status',
 				arguments: {},
 			});
 
@@ -851,7 +933,7 @@ describe('MCP Server', () => {
 
 			try {
 				result = (await client.callTool({
-					name: 'search',
+					name: 'codebase_search',
 					arguments: {
 						query: 'test query',
 						intent: 'concept',

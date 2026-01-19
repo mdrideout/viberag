@@ -16,8 +16,10 @@ import {
 import {getViberagDir} from '../../daemon/lib/constants.js';
 import {
 	loadV2Manifest,
+	checkV2IndexCompatibility,
 	v2ManifestExists,
 } from '../../daemon/services/v2/manifest.js';
+import {checkNpmForUpdate} from '../../daemon/lib/update-check.js';
 import type {
 	DaemonStatusResponse,
 	IndexStats,
@@ -406,6 +408,18 @@ function toSearchResultsData(
  * Get index status.
  */
 export async function getStatus(projectRoot: string): Promise<string> {
+	const shouldSkipUpdateCheck =
+		process.env['VIBERAG_SKIP_UPDATE_CHECK'] === '1' ||
+		process.env['VIBERAG_SKIP_UPDATE_CHECK'] === 'true' ||
+		process.env['NODE_ENV'] === 'test';
+
+	const updatePromise = shouldSkipUpdateCheck
+		? Promise.resolve(null)
+		: checkNpmForUpdate({timeoutMs: 3000}).catch(() => null);
+	const compatibilityPromise = checkV2IndexCompatibility(projectRoot).catch(
+		() => null,
+	);
+
 	const client = new DaemonClient({
 		projectRoot,
 		autoStart: false,
@@ -426,14 +440,28 @@ export async function getStatus(projectRoot: string): Promise<string> {
 	}
 
 	if (daemonStatus) {
-		return formatDaemonStatus(daemonStatus);
+		const [update, compatibility] = await Promise.all([
+			updatePromise,
+			compatibilityPromise,
+		]);
+		return formatStatusWithStartupChecks(formatDaemonStatus(daemonStatus), {
+			update,
+			compatibility,
+		});
 	}
 
 	const manifestStatus = await formatManifestStatus(projectRoot);
+	const [update, compatibility] = await Promise.all([
+		updatePromise,
+		compatibilityPromise,
+	]);
 	if (daemonError) {
-		return `${manifestStatus}\nDaemon status unavailable: ${daemonError}`;
+		return formatStatusWithStartupChecks(
+			`${manifestStatus}\nDaemon status unavailable: ${daemonError}`,
+			{update, compatibility},
+		);
 	}
-	return manifestStatus;
+	return formatStatusWithStartupChecks(manifestStatus, {update, compatibility});
 }
 
 async function formatManifestStatus(projectRoot: string): Promise<string> {
@@ -457,6 +485,41 @@ async function formatManifestStatus(projectRoot: string): Promise<string> {
 	];
 
 	return lines.join('\n');
+}
+
+function formatStatusWithStartupChecks(
+	body: string,
+	args: {
+		update: Awaited<ReturnType<typeof checkNpmForUpdate>> | null;
+		compatibility: Awaited<ReturnType<typeof checkV2IndexCompatibility>> | null;
+	},
+): string {
+	const lines: string[] = [];
+
+	if (args.compatibility) {
+		if (
+			args.compatibility.status === 'needs_reindex' ||
+			args.compatibility.status === 'corrupt_manifest'
+		) {
+			lines.push('⚠ Reindex required:');
+			if (args.compatibility.message) {
+				lines.push(`  ${args.compatibility.message}`);
+			}
+			lines.push('');
+		}
+	}
+
+	if (args.update?.status === 'update_available' && args.update.message) {
+		lines.push('Update available:');
+		lines.push(`  ${args.update.message}`);
+		lines.push('');
+	}
+
+	if (lines.length === 0) {
+		return body;
+	}
+
+	return `${lines.join('\n')}${body}`;
 }
 
 function formatDaemonStatus(status: DaemonStatusResponse): string {
@@ -679,14 +742,15 @@ This registers VibeRAG as an MCP server. After adding:
 
 1. Restart Claude Code (or run: claude mcp restart viberag)
 2. The following tools will be available:
-   - search                    Intent-routed codebase search (definitions/files/blocks)
-   - get_symbol                Fetch a symbol definition by symbol_id
-   - expand_context            Expand context around a hit (neighbors/blocks)
-   - open_span                 Read an exact span from disk
-   - index                     Build/update the v2 index
-   - status                    Get index + daemon status
-   - cancel                    Cancel indexing or warmup
-   - watch_status              Get watcher status (auto-indexing)
+   - codebase_search           Semantic codebase search (definitions/files/blocks)
+   - get_symbol_details        Fetch full symbol details by symbol_id
+   - get_surrounding_code      Get neighboring code around a hit
+   - read_file_lines           Read exact source lines from disk
+   - find_references           Find all references to a symbol
+   - build_index               Build/update the search index
+   - get_status                Get index + daemon status
+   - cancel_operation          Cancel indexing or warmup
+   - get_watcher_status        Get watcher status (auto-indexing)
 
 Note: The project must be initialized first (run /init in the CLI).
 The MCP server uses the current working directory as the project root.`;

@@ -8,7 +8,44 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {getViberagDir} from '../../lib/constants.js';
 
-export const V2_SCHEMA_VERSION = 2;
+export const V2_SCHEMA_VERSION = 3;
+
+export type V2IndexCompatibilityStatus =
+	| 'not_indexed'
+	| 'compatible'
+	| 'needs_reindex'
+	| 'corrupt_manifest';
+
+export type V2IndexCompatibility = {
+	status: V2IndexCompatibilityStatus;
+	requiredSchemaVersion: number;
+	manifestSchemaVersion: number | null;
+	manifestPath: string;
+	checkedAt: string;
+	message: string | null;
+};
+
+export class V2ReindexRequiredError extends Error {
+	readonly requiredSchemaVersion: number;
+	readonly manifestSchemaVersion: number | null;
+	readonly manifestPath: string;
+	readonly reason: 'schema_mismatch' | 'corrupt_manifest';
+
+	constructor(args: {
+		requiredSchemaVersion: number;
+		manifestSchemaVersion: number | null;
+		manifestPath: string;
+		reason: 'schema_mismatch' | 'corrupt_manifest';
+		message: string;
+	}) {
+		super(args.message);
+		this.name = 'V2ReindexRequiredError';
+		this.requiredSchemaVersion = args.requiredSchemaVersion;
+		this.manifestSchemaVersion = args.manifestSchemaVersion;
+		this.manifestPath = args.manifestPath;
+		this.reason = args.reason;
+	}
+}
 
 export type V2ManifestStats = {
 	totalFiles: number;
@@ -30,6 +67,78 @@ export type V2Manifest = {
 
 export function getV2ManifestPath(projectRoot: string): string {
 	return path.join(getViberagDir(projectRoot), 'manifest-v2.json');
+}
+
+export async function checkV2IndexCompatibility(
+	projectRoot: string,
+): Promise<V2IndexCompatibility> {
+	const manifestPath = getV2ManifestPath(projectRoot);
+	const checkedAt = new Date().toISOString();
+
+	try {
+		await fs.access(manifestPath);
+	} catch {
+		return {
+			status: 'not_indexed',
+			requiredSchemaVersion: V2_SCHEMA_VERSION,
+			manifestSchemaVersion: null,
+			manifestPath,
+			checkedAt,
+			message: null,
+		};
+	}
+
+	try {
+		const raw = await fs.readFile(manifestPath, 'utf-8');
+		const parsed = JSON.parse(raw) as Partial<V2Manifest>;
+		const manifestSchemaVersion =
+			typeof parsed.schemaVersion === 'number' ? parsed.schemaVersion : null;
+
+		if (manifestSchemaVersion === null) {
+			return {
+				status: 'corrupt_manifest',
+				requiredSchemaVersion: V2_SCHEMA_VERSION,
+				manifestSchemaVersion: null,
+				manifestPath,
+				checkedAt,
+				message:
+					'Index manifest is missing schemaVersion. Run a full reindex (CLI: /reindex, MCP: build_index {force:true}).',
+			};
+		}
+
+		if (manifestSchemaVersion !== V2_SCHEMA_VERSION) {
+			return {
+				status: 'needs_reindex',
+				requiredSchemaVersion: V2_SCHEMA_VERSION,
+				manifestSchemaVersion,
+				manifestPath,
+				checkedAt,
+				message:
+					`Index schemaVersion ${manifestSchemaVersion} is incompatible with this ` +
+					`VibeRAG version (requires ${V2_SCHEMA_VERSION}). ` +
+					'Run a full reindex (CLI: /reindex, MCP: build_index {force:true}).',
+			};
+		}
+
+		return {
+			status: 'compatible',
+			requiredSchemaVersion: V2_SCHEMA_VERSION,
+			manifestSchemaVersion,
+			manifestPath,
+			checkedAt,
+			message: null,
+		};
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		return {
+			status: 'corrupt_manifest',
+			requiredSchemaVersion: V2_SCHEMA_VERSION,
+			manifestSchemaVersion: null,
+			manifestPath,
+			checkedAt,
+			message: `Index manifest is unreadable (${message}). Run a full reindex (CLI: /reindex, MCP: build_index {force:true}).`,
+		};
+	}
 }
 
 export function createEmptyV2Manifest(args: {

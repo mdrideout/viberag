@@ -58,7 +58,11 @@ export type V2SearchGroups = {
 };
 
 export type V2NextAction = {
-	tool: 'get_symbol' | 'open_span' | 'expand_context' | 'find_usages';
+	tool:
+		| 'get_symbol_details'
+		| 'read_file_lines'
+		| 'get_surrounding_code'
+		| 'find_references';
 	args: Record<string, unknown>;
 };
 

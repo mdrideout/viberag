@@ -48,6 +48,8 @@ export function createV2SymbolsSchema(dimensions: number): Schema {
 		),
 
 		// Search surfaces
+		new Field('symbol_name_fuzzy', new Utf8(), false),
+		new Field('qualname_fuzzy', new Utf8(), false),
 		new Field('context_header', new Utf8(), false),
 		new Field('code_text', new Utf8(), false),
 		new Field('search_text', new Utf8(), false),

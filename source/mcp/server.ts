@@ -1,17 +1,19 @@
 /**
- * MCP Server for VibeRAG (v2).
+ * MCP Server for VibeRAG.
  *
  * Exposes agent-centric search + navigation tools over MCP, backed by the daemon.
  *
  * Tools:
- * - search: intent-routed retrieval (symbols/files/blocks)
- * - get_symbol: fetch a symbol definition + metadata
- * - expand_context: fetch neighbors for a hit (symbols/chunks/files)
- * - open_span: read an exact code span from disk
- * - index: build/update the v2 index
- * - status: initialization + index status
- * - watch_status: watcher status (auto-indexing)
- * - cancel: cancel warmup/indexing
+ * - codebase_search: semantic search with intent routing (symbols/files/blocks)
+ * - help: usage guide for MCP tools + search behavior
+ * - get_symbol_details: fetch full symbol definition + metadata
+ * - get_surrounding_code: fetch neighbors for a search hit
+ * - read_file_lines: read exact source lines from disk
+ * - find_references: find all references to a symbol
+ * - build_index: build/update the search index
+ * - get_status: initialization + index status
+ * - get_watcher_status: watcher status (auto-indexing)
+ * - cancel_operation: cancel warmup/indexing
  */
 
 import fs from 'node:fs/promises';
@@ -21,6 +23,11 @@ import {FastMCP} from 'fastmcp';
 import {z} from 'zod';
 import {configExists, loadConfig} from '../daemon/lib/config.js';
 import {
+	checkNpmForUpdate,
+	type NpmUpdateCheckResult,
+} from '../daemon/lib/update-check.js';
+import {
+	checkV2IndexCompatibility,
 	loadV2Manifest,
 	v2ManifestExists,
 } from '../daemon/services/v2/manifest.js';
@@ -30,6 +37,7 @@ import {createServiceLogger, type Logger} from '../daemon/lib/logger.js';
 
 const require = createRequire(import.meta.url);
 const pkg = require('../../package.json') as {
+	name: string;
 	version: `${number}.${number}.${number}`;
 };
 
@@ -62,7 +70,9 @@ function safeResolveProjectPath(projectRoot: string, filePath: string): string {
 	const resolved = path.resolve(projectRoot, normalized);
 	const rootResolved = path.resolve(projectRoot);
 	if (resolved === rootResolved) {
-		throw new Error('open_span requires a file path, not the project root.');
+		throw new Error(
+			'read_file_lines requires a file path, not the project root.',
+		);
 	}
 	if (!resolved.startsWith(rootResolved + path.sep)) {
 		throw new Error(`Refusing to read outside project root: ${filePath}`);
@@ -108,6 +118,66 @@ export function createMcpServer(projectRoot: string): McpServerWithDaemon {
 
 	const client = new DaemonClient(projectRoot);
 
+	const updateTimeoutMs = 3000;
+	const updateCheckDisabled =
+		process.env['VIBERAG_SKIP_UPDATE_CHECK'] === '1' ||
+		process.env['VIBERAG_SKIP_UPDATE_CHECK'] === 'true' ||
+		process.env['NODE_ENV'] === 'test';
+	let npmUpdate:
+		| ({status: 'pending'; startedAt: string; timeoutMs: number} & {
+				packageName: string;
+				currentVersion: string;
+		  })
+		| NpmUpdateCheckResult = updateCheckDisabled
+		? {
+				packageName: pkg.name,
+				currentVersion: pkg.version,
+				latestVersion: null,
+				status: 'skipped',
+				checkedAt: new Date().toISOString(),
+				timeoutMs: updateTimeoutMs,
+				error: null,
+				upgradeCommand: `npm install -g ${pkg.name}`,
+				message: null,
+			}
+		: {
+				status: 'pending',
+				startedAt: new Date().toISOString(),
+				timeoutMs: updateTimeoutMs,
+				packageName: pkg.name,
+				currentVersion: pkg.version,
+			};
+
+	let npmUpdateStarted = updateCheckDisabled;
+	server.on('connect', () => {
+		if (updateCheckDisabled) return;
+		if (npmUpdateStarted) return;
+		npmUpdateStarted = true;
+
+		checkNpmForUpdate({
+			packageName: pkg.name,
+			currentVersion: pkg.version,
+			timeoutMs: updateTimeoutMs,
+		})
+			.then(result => {
+				npmUpdate = result;
+			})
+			.catch(error => {
+				const message = error instanceof Error ? error.message : String(error);
+				npmUpdate = {
+					packageName: pkg.name,
+					currentVersion: pkg.version,
+					latestVersion: null,
+					status: 'error',
+					checkedAt: new Date().toISOString(),
+					timeoutMs: updateTimeoutMs,
+					error: message,
+					upgradeCommand: `npm install -g ${pkg.name}`,
+					message: null,
+				};
+			});
+	});
+
 	let logger: Logger | null = null;
 	const getLogger = (): Logger => {
 		if (!logger) {
@@ -125,13 +195,186 @@ export function createMcpServer(projectRoot: string): McpServerWithDaemon {
 		})
 		.optional();
 
-	// Tool: search
+	// Tool: help
 	server.addTool({
-		name: 'search',
-		description:
-			'Intent-routed codebase search. Returns grouped results (definitions/files/blocks) with optional explanations and stable IDs for follow-ups.',
+		name: 'help',
+		description: `Get usage guide for VibeRAG tools and search behavior.
+
+WHEN TO USE:
+- Learn how intent routing works
+- See examples for each tool
+- Understand the search channels (FTS, vector, hybrid)
+
+INPUT: Optional tool name for specific help.
+RETURNS: Detailed guide with examples and workflow suggestions.`,
 		parameters: z.object({
-			query: z.string().describe('Natural language, symbol, or code query'),
+			tool: z
+				.enum([
+					'codebase_search',
+					'read_file_lines',
+					'get_symbol_details',
+					'find_references',
+					'get_surrounding_code',
+					'build_index',
+					'get_status',
+					'get_watcher_status',
+					'cancel_operation',
+				])
+				.optional()
+				.describe('Get help for a specific tool'),
+		}),
+		execute: async args => {
+			const all = {
+				how_search_works: {
+					intent_routing:
+						'codebase_search routes queries into definition/usage/concept/exact_text/similar_code. Override with intent param.',
+					channels: [
+						{
+							channel: 'fts',
+							kind: 'Full-text (BM25)',
+							notes:
+								'Indexes symbol names, qualnames, identifiers, and code text.',
+						},
+						{
+							channel: 'fts_fuzzy',
+							kind: 'Full-text fuzzy (Levenshtein)',
+							notes:
+								'Tolerates typos in symbol name lookups (definition intent).',
+						},
+						{
+							channel: 'vector',
+							kind: 'Semantic vector search',
+							notes:
+								'Embeddings-based similarity for concept queries and similar-code.',
+						},
+						{
+							channel: 'hybrid',
+							kind: 'Hybrid rerank',
+							notes:
+								'Combines FTS + vector using Reciprocal Rank Fusion (RRF).',
+						},
+					],
+				},
+				tools: {
+					codebase_search: {
+						when_to_use:
+							'Start here. Symbol lookups, concept questions, error strings, code patterns.',
+						key_inputs: [
+							'query (required)',
+							'intent: auto|definition|usage|concept|exact_text|similar_code',
+							'scope filters (path_prefix/path_contains/path_not_contains/extension)',
+						],
+						output:
+							'Grouped hits (definitions/files/blocks/usages) + stable IDs.',
+						next_steps: [
+							'get_symbol_details(symbol_id) → full code',
+							'find_references(symbol_id) → all usages',
+							'get_surrounding_code(table, id) → neighbors',
+						],
+						examples: [
+							{query: 'HttpClient', intent: 'definition'},
+							{query: 'how does authentication work', intent: 'concept'},
+							{query: 'ECONNRESET', intent: 'exact_text'},
+							{query: 'where is login used', intent: 'usage'},
+						],
+					},
+					get_symbol_details: {
+						when_to_use:
+							'After codebase_search returns a definition. Get full code + metadata.',
+						key_inputs: ['symbol_id (required)'],
+						output:
+							'Full code_text, signature, docstring, decorators, location.',
+						next_steps: [
+							'find_references(symbol_id) → where used',
+							'get_surrounding_code("symbols", symbol_id) → neighbors',
+						],
+					},
+					read_file_lines: {
+						when_to_use:
+							'Read raw source lines when search snippet is truncated or need more context.',
+						key_inputs: ['file_path, start_line, end_line'],
+						output: 'Exact text for the line range.',
+					},
+					get_surrounding_code: {
+						when_to_use:
+							'Navigate from a search hit to neighbors: other methods in class, related chunks, file structure.',
+						key_inputs: ['table (symbols|chunks|files), id (required)'],
+						output: 'Neighboring entities to continue exploration.',
+					},
+					find_references: {
+						when_to_use:
+							'Find all references to a symbol (calls, imports, type annotations).',
+						key_inputs: ['symbol_id (preferred) or symbol_name'],
+						output: 'Refs grouped by file with context snippets.',
+					},
+					build_index: {
+						when_to_use:
+							'First setup, after config changes (force=true), or manual reindex.',
+						key_inputs: ['force (optional)'],
+						output: 'Indexing stats.',
+					},
+					get_status: {
+						when_to_use:
+							'Check if VibeRAG is ready. Shows init status, index health, update availability.',
+						key_inputs: [],
+						output: 'Status + instructions if not ready.',
+					},
+					get_watcher_status: {
+						when_to_use: 'Check if auto-indexing is active.',
+						key_inputs: [],
+						output: 'Watcher status.',
+					},
+					cancel_operation: {
+						when_to_use: 'Cancel in-progress indexing or warmup.',
+						key_inputs: ['target (optional), reason (optional)'],
+						output: 'Cancellation result.',
+					},
+				},
+			};
+
+			if (args.tool) {
+				const tool = args.tool;
+				const entry = (all.tools as Record<string, unknown>)[tool];
+				return JSON.stringify(
+					entry
+						? {tool, ...(entry as Record<string, unknown>)}
+						: {tool, message: 'Unknown tool'},
+				);
+			}
+
+			return JSON.stringify(all);
+		},
+	});
+
+	// Tool: codebase_search
+	server.addTool({
+		name: 'codebase_search',
+		description: `Semantic codebase search - your starting point for code exploration.
+
+WHEN TO USE:
+- Understanding features: "how does authentication work"
+- Finding symbols: class names, function names, types
+- Tracing errors: exact error messages or log strings
+- Finding patterns: code snippets you want to match
+
+INTENT (auto-detected, or override):
+- concept: Natural language questions ("how does X work")
+- definition: Symbol lookups (CamelCase names, function())
+- usage: "where is X used/called/imported"
+- exact_text: Literal strings, error messages, log output
+- similar_code: Code snippets to find similar patterns
+
+RETURNS: Grouped results (definitions/files/blocks/usages) with stable IDs.
+
+NEXT STEPS:
+- get_symbol_details(symbol_id) → full code + metadata
+- find_references(symbol_id) → all call sites and imports
+- get_surrounding_code(table, id) → neighboring symbols/chunks
+- read_file_lines(file_path, start, end) → exact source lines`,
+		parameters: z.object({
+			query: z
+				.string()
+				.describe('Natural language, symbol name, or code snippet'),
 			intent: z
 				.enum([
 					'auto',
@@ -143,27 +386,31 @@ export function createMcpServer(projectRoot: string): McpServerWithDaemon {
 				])
 				.optional()
 				.default('auto')
-				.describe('Intent routing (default: auto)'),
-			scope: scopeSchema.describe('Transparent path/extension filters'),
+				.describe(
+					'Search strategy: auto (detect from query), concept (how does X work), definition (symbol lookup), usage (where is X used), exact_text (literal strings), similar_code (code patterns)',
+				),
+			scope: scopeSchema.describe(
+				'Path/extension filters: path_prefix, path_contains, path_not_contains, extension',
+			),
 			k: z
 				.number()
 				.min(1)
 				.max(100)
 				.optional()
 				.default(20)
-				.describe('Max results per group (best-effort)'),
+				.describe('Max results per group'),
 			explain: z
 				.boolean()
 				.optional()
 				.default(true)
-				.describe('Include per-hit channel explanation'),
+				.describe('Include match explanations (which search channels matched)'),
 			max_response_size: z
 				.number()
 				.min(1024)
 				.max(MAX_RESPONSE_SIZE)
 				.optional()
 				.default(DEFAULT_MAX_RESPONSE_SIZE)
-				.describe('Cap response size in bytes (default: 50KB)'),
+				.describe('Max response size in bytes (default: 50KB)'),
 		}),
 		execute: async args => {
 			await ensureInitialized(projectRoot);
@@ -198,24 +445,33 @@ export function createMcpServer(projectRoot: string): McpServerWithDaemon {
 		},
 	});
 
-	// Tool: open_span
+	// Tool: read_file_lines
 	server.addTool({
-		name: 'open_span',
-		description:
-			'Read an exact span from disk by file path + line range. Useful for expanding context precisely.',
+		name: 'read_file_lines',
+		description: `Read exact source code lines from a file.
+
+WHEN TO USE:
+- Search result snippet is truncated
+- Need more context around a specific location
+- Want raw code at known line numbers
+
+INPUT: file_path (project-relative), start_line, end_line
+RETURNS: Exact text for the requested line range.
+
+NOTE: Use after search results give you a file_path and line numbers.`,
 		parameters: z.object({
 			file_path: z
 				.string()
-				.describe('Project-relative path (e.g., "src/app.ts")'),
-			start_line: z.number().min(1).describe('1-indexed start line'),
-			end_line: z.number().min(1).describe('1-indexed end line'),
+				.describe('Project-relative path (e.g., "src/api/auth.ts")'),
+			start_line: z.number().min(1).describe('First line to read (1-indexed)'),
+			end_line: z.number().min(1).describe('Last line to read (1-indexed)'),
 			max_lines: z
 				.number()
 				.min(1)
 				.max(500)
 				.optional()
 				.default(200)
-				.describe('Clamp returned line range to avoid huge responses'),
+				.describe('Safety limit on returned lines (default: 200)'),
 		}),
 		execute: async args => {
 			const absolutePath = safeResolveProjectPath(projectRoot, args.file_path);
@@ -239,25 +495,36 @@ export function createMcpServer(projectRoot: string): McpServerWithDaemon {
 		},
 	});
 
-	// Tool: get_symbol
+	// Tool: get_symbol_details
 	server.addTool({
-		name: 'get_symbol',
-		description:
-			'Fetch a symbol definition and deterministic metadata by symbol_id.',
+		name: 'get_symbol_details',
+		description: `Fetch full details for a symbol by ID.
+
+WHEN TO USE:
+- After codebase_search returns a definition you want to inspect
+- Need the complete code, signature, docstring, or decorators
+- Want deterministic metadata (not search-ranked)
+
+INPUT: symbol_id from codebase_search results
+RETURNS: Full code_text, signature, docstring, decorators, location, export status.
+
+NEXT STEPS:
+- find_references(symbol_id) → where this symbol is used
+- get_surrounding_code("symbols", symbol_id) → other symbols in same file`,
 		parameters: z.object({
-			symbol_id: z.string().describe('Symbol ID from search() results'),
+			symbol_id: z.string().describe('Symbol ID from codebase_search results'),
 			include_code: z
 				.boolean()
 				.optional()
 				.default(true)
-				.describe('Include code_text in response (default: true)'),
+				.describe('Include full code_text in response'),
 			max_code_chars: z
 				.number()
 				.min(256)
 				.max(100_000)
 				.optional()
 				.default(20_000)
-				.describe('Clamp returned code_text length'),
+				.describe('Truncate code_text to this length'),
 		}),
 		execute: async args => {
 			await ensureInitialized(projectRoot);
@@ -289,39 +556,51 @@ export function createMcpServer(projectRoot: string): McpServerWithDaemon {
 		},
 	});
 
-	// Tool: find_usages
+	// Tool: find_references
 	server.addTool({
-		name: 'find_usages',
-		description:
-			'Find usage occurrences (refs) for a symbol name or symbol_id. Returns refs grouped by file with stable ref_ids for follow-up actions.',
+		name: 'find_references',
+		description: `Find all references to a symbol across the codebase.
+
+WHEN TO USE:
+- Trace how widely a function/class is used
+- Find all call sites before refactoring
+- Understand import/export relationships
+- See where a symbol appears in the codebase
+
+INPUT: symbol_id (preferred, from codebase_search) or symbol_name as fallback
+RETURNS: References grouped by file, with line numbers and context snippets.
+
+EXAMPLES:
+- find_references(symbol_id: "abc123") → precise results for that symbol
+- find_references(symbol_name: "HttpClient") → all refs to any HttpClient`,
 		parameters: z
 			.object({
 				symbol_id: z
 					.string()
 					.optional()
-					.describe('Symbol ID from search() results (preferred)'),
+					.describe('Symbol ID from codebase_search (preferred for precision)'),
 				symbol_name: z
 					.string()
 					.optional()
-					.describe('Raw symbol name (e.g., "HttpClient")'),
-				scope: scopeSchema.describe('Transparent path/extension filters'),
+					.describe('Symbol name as fallback (e.g., "HttpClient", "login")'),
+				scope: scopeSchema.describe('Path/extension filters to narrow results'),
 				k: z
 					.number()
 					.min(1)
 					.max(2000)
 					.optional()
 					.default(200)
-					.describe('Max refs returned (best-effort)'),
+					.describe('Max references to return'),
 				max_response_size: z
 					.number()
 					.min(1024)
 					.max(MAX_RESPONSE_SIZE)
 					.optional()
 					.default(DEFAULT_MAX_RESPONSE_SIZE)
-					.describe('Cap response size in bytes (default: 50KB)'),
+					.describe('Max response size in bytes (default: 50KB)'),
 			})
 			.refine(v => v.symbol_id || v.symbol_name, {
-				message: 'symbol_id or symbol_name is required',
+				message: 'Provide symbol_id or symbol_name',
 			}),
 		execute: async args => {
 			await ensureInitialized(projectRoot);
@@ -348,28 +627,43 @@ export function createMcpServer(projectRoot: string): McpServerWithDaemon {
 		},
 	});
 
-	// Tool: expand_context
+	// Tool: get_surrounding_code
 	server.addTool({
-		name: 'expand_context',
-		description:
-			'Given a hit (symbols/chunks/files), return neighbors: adjacent symbols, owned chunks, and related metadata.',
+		name: 'get_surrounding_code',
+		description: `Get neighboring code around a search result.
+
+WHEN TO USE:
+- See other methods in the same class
+- Understand file structure around a hit
+- Find related functions near your result
+- Navigate from a chunk to its parent symbol
+
+INPUT: table ("symbols" | "chunks" | "files") + id from codebase_search results
+RETURNS: Neighboring entities - adjacent symbols, related chunks, or file metadata.
+
+EXAMPLES:
+- get_surrounding_code("symbols", id) → other symbols in same file, child methods
+- get_surrounding_code("chunks", id) → nearby code blocks, parent symbol
+- get_surrounding_code("files", id) → file-level exports, imports, summary`,
 		parameters: z.object({
-			table: z.enum(['symbols', 'chunks', 'files']),
-			id: z.string().describe('Entity ID from search() results'),
+			table: z
+				.enum(['symbols', 'chunks', 'files'])
+				.describe('Which table the ID came from'),
+			id: z.string().describe('Entity ID from codebase_search results'),
 			limit: z
 				.number()
 				.min(1)
 				.max(200)
 				.optional()
 				.default(25)
-				.describe('Max neighbors per section'),
+				.describe('Max neighbors to return per section'),
 			max_code_chars: z
 				.number()
 				.min(256)
 				.max(100_000)
 				.optional()
 				.default(20_000)
-				.describe('Clamp code_text fields in the response'),
+				.describe('Truncate code_text fields to this length'),
 		}),
 		execute: async args => {
 			await ensureInitialized(projectRoot);
@@ -408,18 +702,28 @@ export function createMcpServer(projectRoot: string): McpServerWithDaemon {
 		},
 	});
 
-	// Tool: index
+	// Tool: build_index
 	server.addTool({
-		name: 'index',
-		description:
-			'Build or update the v2 index (symbols/chunks/files). Uses incremental indexing by default.',
+		name: 'build_index',
+		description: `Build or update the semantic search index.
+
+WHEN TO USE:
+- First time setup after initialization
+- After changing configuration (use force=true)
+- Manually trigger reindex after code changes
+- Fix "reindex required" errors (use force=true)
+
+INPUT: force=false (incremental, default) or force=true (full rebuild)
+RETURNS: Indexing stats - files processed, symbols/chunks created, embeddings computed.
+
+NOTE: Usually automatic via file watcher. Only call manually if needed.`,
 		parameters: z.object({
 			force: z
 				.boolean()
 				.optional()
 				.default(false)
 				.describe(
-					'Force full rebuild of v2 entity tables (keeps embedding cache)',
+					'Force full rebuild (use after upgrades or to fix corruption)',
 				),
 		}),
 		execute: async args => {
@@ -429,14 +733,28 @@ export function createMcpServer(projectRoot: string): McpServerWithDaemon {
 		},
 	});
 
-	// Tool: cancel
+	// Tool: cancel_operation
 	server.addTool({
-		name: 'cancel',
-		description:
-			'Cancel the current daemon activity (indexing or warmup) without shutting down the daemon.',
+		name: 'cancel_operation',
+		description: `Cancel ongoing indexing or warmup operations.
+
+WHEN TO USE:
+- Indexing is taking too long
+- Need to stop warmup to free resources
+- Want to restart with different options
+
+INPUT: target ("indexing" | "warmup" | "all"), optional reason
+RETURNS: What was cancelled and current state.`,
 		parameters: z.object({
-			target: z.enum(['indexing', 'warmup', 'all']).optional().default('all'),
-			reason: z.string().optional(),
+			target: z
+				.enum(['indexing', 'warmup', 'all'])
+				.optional()
+				.default('all')
+				.describe('What to cancel'),
+			reason: z
+				.string()
+				.optional()
+				.describe('Optional reason for cancellation'),
 		}),
 		execute: async args => {
 			if (!(await client.isRunning())) {
@@ -456,10 +774,17 @@ export function createMcpServer(projectRoot: string): McpServerWithDaemon {
 		},
 	});
 
-	// Tool: watch_status
+	// Tool: get_watcher_status
 	server.addTool({
-		name: 'watch_status',
-		description: 'Get watcher status (auto-indexing).',
+		name: 'get_watcher_status',
+		description: `Check file watcher status for automatic index updates.
+
+WHEN TO USE:
+- Verify auto-indexing is active
+- Debug why index seems stale
+- Check pending file changes
+
+RETURNS: Watcher state, watched file count, pending changes.`,
 		parameters: z.object({}),
 		execute: async () => {
 			const status = await client.watchStatus();
@@ -467,23 +792,41 @@ export function createMcpServer(projectRoot: string): McpServerWithDaemon {
 		},
 	});
 
-	// Tool: status
+	// Tool: get_status
 	server.addTool({
-		name: 'status',
-		description:
-			'Get v2 index status and daemon status summary. Works even when the project is not initialized.',
+		name: 'get_status',
+		description: `Check VibeRAG status - works even before initialization.
+
+WHEN TO USE:
+- First call to verify VibeRAG is ready
+- Check if reindex is required after upgrade
+- See index stats (files, symbols, chunks)
+- Check for available updates
+
+RETURNS:
+- Initialization status and setup instructions (if not initialized)
+- Index compatibility (may indicate reindex needed)
+- Index stats: file/symbol/chunk counts
+- Daemon status: running, warmup progress, indexing state
+
+CALL THIS FIRST if unsure whether VibeRAG is ready to use.`,
 		parameters: z.object({}),
 		execute: async () => {
+			const v2IndexCompatibility = await checkV2IndexCompatibility(projectRoot);
 			const initialized = await configExists(projectRoot);
 			if (!initialized) {
 				return JSON.stringify({
 					status: 'not_initialized',
 					projectRoot,
+					startup_checks: {
+						npm_update: npmUpdate,
+						index: v2IndexCompatibility,
+					},
 					message: 'VibeRAG is not initialized in this project.',
 					instructions: {
 						step1: 'Run "npx viberag" in a terminal in this project directory',
 						step2: 'Use the /init command to configure an embedding provider',
-						note: 'After initialization, run the index tool to create the search index',
+						note: 'After initialization, run the build_index tool to create the search index',
 					},
 					daemon: {
 						status: (await client.isRunning()) ? 'running' : 'not_running',
@@ -495,7 +838,11 @@ export function createMcpServer(projectRoot: string): McpServerWithDaemon {
 			if (!indexed) {
 				return JSON.stringify({
 					status: 'not_indexed',
-					message: 'No index found. Run the index tool to create one.',
+					startup_checks: {
+						npm_update: npmUpdate,
+						index: v2IndexCompatibility,
+					},
+					message: 'No index found. Run the build_index tool to create one.',
 					daemon: {
 						status: (await client.isRunning()) ? 'running' : 'not_running',
 					},
@@ -511,6 +858,7 @@ export function createMcpServer(projectRoot: string): McpServerWithDaemon {
 			const response: Record<string, unknown> = {
 				status: 'indexed',
 				version: manifest.version,
+				schemaVersion: manifest.schemaVersion,
 				createdAt: manifest.createdAt,
 				updatedAt: manifest.updatedAt,
 				totalFiles: manifest.stats.totalFiles,
@@ -520,6 +868,10 @@ export function createMcpServer(projectRoot: string): McpServerWithDaemon {
 				embeddingProvider: config.embeddingProvider,
 				embeddingModel: config.embeddingModel,
 				embeddingDimensions: config.embeddingDimensions,
+				startup_checks: {
+					npm_update: npmUpdate,
+					index: v2IndexCompatibility,
+				},
 			};
 
 			// Add daemon status summary (best effort)

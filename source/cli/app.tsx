@@ -56,6 +56,8 @@ import {
 } from './commands/handlers.js';
 import {getViberagDir} from '../daemon/lib/constants.js';
 import {loadConfig} from '../daemon/lib/config.js';
+import {checkNpmForUpdate} from '../daemon/lib/update-check.js';
+import {checkV2IndexCompatibility} from '../daemon/services/v2/manifest.js';
 import type {SearchResultsData} from '../common/types.js';
 
 const require = createRequire(import.meta.url);
@@ -134,10 +136,6 @@ function AppContent() {
 		);
 	}, [projectRoot, dispatch]);
 
-	// Command history
-	const {addToHistory, navigateUp, navigateDown, resetIndex} =
-		useCommandHistory();
-
 	const addOutput = useCallback(
 		(type: 'user' | 'system', content: string) => {
 			dispatch(AppActions.addOutput({type, content}));
@@ -151,6 +149,40 @@ function AppContent() {
 		},
 		[dispatch],
 	);
+
+	// Startup checks: updates + index compatibility (best-effort, non-blocking)
+	useEffect(() => {
+		const disabled =
+			process.env['VIBERAG_SKIP_UPDATE_CHECK'] === '1' ||
+			process.env['VIBERAG_SKIP_UPDATE_CHECK'] === 'true' ||
+			process.env['NODE_ENV'] === 'test';
+
+		if (!disabled) {
+			checkNpmForUpdate({timeoutMs: 3000})
+				.then(result => {
+					if (result.status === 'update_available' && result.message) {
+						addOutput('system', result.message);
+					}
+				})
+				.catch(() => {});
+		}
+
+		checkV2IndexCompatibility(projectRoot)
+			.then(result => {
+				if (
+					(result.status === 'needs_reindex' ||
+						result.status === 'corrupt_manifest') &&
+					result.message
+				) {
+					addOutput('system', result.message);
+				}
+			})
+			.catch(() => {});
+	}, [projectRoot, addOutput]);
+
+	// Command history
+	const {addToHistory, navigateUp, navigateDown, resetIndex} =
+		useCommandHistory();
 
 	// Start the init wizard
 	const startInitWizard = useCallback(

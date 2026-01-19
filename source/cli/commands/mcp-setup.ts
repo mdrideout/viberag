@@ -146,11 +146,11 @@ export function generateRooCodeViberagConfig(): object {
 		command: 'npx',
 		args: ['-y', 'viberag-mcp'],
 		alwaysAllow: [
-			'search',
-			'get_symbol',
-			'expand_context',
-			'open_span',
-			'status',
+			'codebase_search',
+			'get_symbol_details',
+			'get_surrounding_code',
+			'read_file_lines',
+			'get_status',
 		],
 	};
 }
@@ -533,11 +533,11 @@ export function getManualInstructions(
 			lines.push('    "command": "npx",');
 			lines.push('    "args": ["-y", "viberag-mcp"],');
 			lines.push('    "alwaysAllow": [');
-			lines.push('      "search",');
-			lines.push('      "get_symbol",');
-			lines.push('      "expand_context",');
-			lines.push('      "open_span",');
-			lines.push('      "status"');
+			lines.push('      "codebase_search",');
+			lines.push('      "get_symbol_details",');
+			lines.push('      "get_surrounding_code",');
+			lines.push('      "read_file_lines",');
+			lines.push('      "get_status"');
 			lines.push('    ]');
 			lines.push('  }');
 			lines.push('');

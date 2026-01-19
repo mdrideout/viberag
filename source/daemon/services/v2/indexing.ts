@@ -30,7 +30,13 @@ import {
 	type V2ExtractedArtifacts,
 } from './extract/extract.js';
 import {StorageV2} from './storage/index.js';
-import {loadV2Manifest, saveV2Manifest} from './manifest.js';
+import {
+	checkV2IndexCompatibility,
+	loadV2Manifest,
+	saveV2Manifest,
+	V2ReindexRequiredError,
+	V2_SCHEMA_VERSION,
+} from './manifest.js';
 import {
 	TypedEmitter,
 	type IndexingEvents,
@@ -134,7 +140,7 @@ export class IndexingServiceV2 extends TypedEmitter<V2IndexingServiceEvents> {
 
 	async index(options: V2IndexOptions = {}): Promise<V2IndexStats> {
 		if (globalV2IndexPromise) {
-			this.log('info', 'Waiting for in-progress v2 indexing to complete');
+			this.log('info', 'Waiting for in-progress indexing to complete');
 			return globalV2IndexPromise;
 		}
 
@@ -177,6 +183,26 @@ export class IndexingServiceV2 extends TypedEmitter<V2IndexingServiceEvents> {
 		throwIfAborted(this.abortSignal, 'Indexing cancelled');
 
 		try {
+			const compatibility = await checkV2IndexCompatibility(this.projectRoot);
+			if (
+				(compatibility.status === 'needs_reindex' ||
+					compatibility.status === 'corrupt_manifest') &&
+				!force
+			) {
+				throw new V2ReindexRequiredError({
+					requiredSchemaVersion: V2_SCHEMA_VERSION,
+					manifestSchemaVersion: compatibility.manifestSchemaVersion,
+					manifestPath: compatibility.manifestPath,
+					reason:
+						compatibility.status === 'needs_reindex'
+							? 'schema_mismatch'
+							: 'corrupt_manifest',
+					message:
+						compatibility.message ??
+						'Index is incompatible. Run a full reindex (CLI: /reindex, MCP: build_index {force:true}).',
+				});
+			}
+
 			await this.initialize();
 			throwIfAborted(this.abortSignal, 'Indexing cancelled');
 
@@ -192,15 +218,16 @@ export class IndexingServiceV2 extends TypedEmitter<V2IndexingServiceEvents> {
 			// actual content changes.
 			const revision = 'working';
 
-			this.emitIndexProgress('init', 'Loading v2 manifest', 0, 0, null);
+			this.emitIndexProgress('init', 'Loading manifest', 0, 0, null);
 			let manifest = await loadV2Manifest(this.projectRoot, {
 				repoId,
 				revision,
 			});
 
-			const previousTree = manifest.tree
-				? MerkleTree.fromJSON(manifest.tree as SerializedNode)
-				: MerkleTree.empty();
+			const previousTree =
+				compatibility.status === 'compatible' && manifest.tree
+					? MerkleTree.fromJSON(manifest.tree as SerializedNode)
+					: MerkleTree.empty();
 
 			this.emitIndexProgress('scan', 'Scanning filesystem', 0, 0, null);
 			const currentTree = await MerkleTree.build(
@@ -234,7 +261,7 @@ export class IndexingServiceV2 extends TypedEmitter<V2IndexingServiceEvents> {
 			stats.filesDeleted = diff.deleted.length;
 
 			if (force) {
-				this.emitIndexProgress('persist', 'Resetting v2 tables', 0, 0, null);
+				this.emitIndexProgress('persist', 'Resetting tables', 0, 0, null);
 				await storage.resetEntityTables();
 			}
 
@@ -490,7 +517,7 @@ export class IndexingServiceV2 extends TypedEmitter<V2IndexingServiceEvents> {
 						this.emit('chunk-progress', {chunksProcessed: embeddedSoFar});
 						this.emitIndexProgress(
 							'embed',
-							'Embedding v2 surfaces',
+							'Embedding surfaces',
 							embeddedSoFar,
 							uniqueHashes.length,
 							'chunks',
@@ -500,7 +527,7 @@ export class IndexingServiceV2 extends TypedEmitter<V2IndexingServiceEvents> {
 
 				this.emitIndexProgress(
 					'embed',
-					'Embedding v2 surfaces',
+					'Embedding surfaces',
 					embeddedSoFar,
 					uniqueHashes.length,
 					'chunks',
@@ -512,7 +539,7 @@ export class IndexingServiceV2 extends TypedEmitter<V2IndexingServiceEvents> {
 			throwIfAborted(this.abortSignal, 'Indexing cancelled');
 
 			// Persist (upsert) rows
-			this.emitIndexProgress('persist', 'Writing v2 tables', 0, 0, null);
+			this.emitIndexProgress('persist', 'Writing tables', 0, 0, null);
 
 			const fileRows: Record<string, unknown>[] = [];
 			const symbolRows: Record<string, unknown>[] = [];
@@ -555,6 +582,8 @@ export class IndexingServiceV2 extends TypedEmitter<V2IndexingServiceEvents> {
 						symbol_kind: s.symbol_kind,
 						symbol_name: s.symbol_name,
 						qualname: s.qualname,
+						symbol_name_fuzzy: s.symbol_name_fuzzy,
+						qualname_fuzzy: s.qualname_fuzzy,
 						parent_symbol_id: s.parent_symbol_id,
 						signature: s.signature,
 						docstring: s.docstring,
@@ -650,7 +679,7 @@ export class IndexingServiceV2 extends TypedEmitter<V2IndexingServiceEvents> {
 				},
 			};
 
-			this.emitIndexProgress('finalize', 'Saving v2 manifest', 0, 0, null);
+			this.emitIndexProgress('finalize', 'Saving manifest', 0, 0, null);
 			await saveV2Manifest(this.projectRoot, manifest);
 
 			this.emit('complete', {
@@ -668,14 +697,14 @@ export class IndexingServiceV2 extends TypedEmitter<V2IndexingServiceEvents> {
 			if (isAbortError(error) || this.abortSignal?.aborted) {
 				this.suppressEvents = true;
 				const reason = getAbortReason(this.abortSignal ?? undefined);
-				this.log('info', `V2 indexing cancelled: ${reason}`);
+				this.log('info', `Indexing cancelled: ${reason}`);
 				this.emit('cancelled', {reason});
 				throw error;
 			}
 			this.suppressEvents = true;
 			this.log(
 				'error',
-				'V2 indexing failed',
+				'Indexing failed',
 				error instanceof Error ? error : new Error(String(error)),
 			);
 			this.emit('error', {
@@ -763,15 +792,15 @@ export class IndexingServiceV2 extends TypedEmitter<V2IndexingServiceEvents> {
 	): void {
 		if (this.logger) {
 			if (level === 'error') {
-				this.logger.error('IndexerV2', message, error);
+				this.logger.error('Indexer', message, error);
 			} else if (error) {
-				this.logger[level]('IndexerV2', message, error);
+				this.logger[level]('Indexer', message, error);
 			} else {
-				this.logger[level]('IndexerV2', message);
+				this.logger[level]('Indexer', message);
 			}
 		}
 		if (level === 'error') {
-			console.error(`[IndexerV2] ${message}`);
+			console.error(`[Indexer] ${message}`);
 			if (error) {
 				console.error(error);
 			}

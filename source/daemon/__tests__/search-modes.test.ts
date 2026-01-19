@@ -45,6 +45,26 @@ describe('V2 Search Intents', () => {
 		).toBe(true);
 	});
 
+	it('definition intent tolerates typos via fuzzy name matching', async () => {
+		const results = await search.search('HtppClient', {
+			intent: 'definition',
+			k: 10,
+			explain: true,
+		});
+
+		const hit = results.groups.definitions.find(
+			r => r.file_path === 'http_client.ts' && r.title.includes('HttpClient'),
+		);
+		expect(hit).toBeDefined();
+		expect(
+			hit?.why?.channels.some(
+				ch =>
+					ch.source === 'symbols.name_fuzzy' ||
+					ch.source === 'symbols.qualname_fuzzy',
+			),
+		).toBe(true);
+	});
+
 	it('does not return an exact match for a non-existent symbol', async () => {
 		const query = 'nonExistentSymbolXYZ123';
 		const results = await search.search(query, {

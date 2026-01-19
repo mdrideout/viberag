@@ -56,7 +56,7 @@ export function useCommands({
   /index          - Index the codebase
   /reindex        - Force full reindex
   /search <query> - Search the codebase
-  /eval           - Run evaluation harness (v2)
+  /eval           - Run evaluation harness
   /status         - Show index status
   /cancel [target] - Cancel indexing or warmup (targets: indexing, warmup)
   /mcp-setup      - Configure MCP server for AI coding tools

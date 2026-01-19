@@ -36,6 +36,8 @@ export type V2SymbolRow = {
 	symbol_kind: V2SymbolKind | string;
 	symbol_name: string;
 	qualname: string;
+	symbol_name_fuzzy: string;
+	qualname_fuzzy: string;
 	parent_symbol_id: string | null;
 	signature: string | null;
 	docstring: string | null;

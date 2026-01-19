@@ -26,6 +26,8 @@ export type V2ExtractedSymbol = {
 	symbol_kind: V2SymbolKind | string;
 	symbol_name: string;
 	qualname: string;
+	symbol_name_fuzzy: string;
+	qualname_fuzzy: string;
 	parent_symbol_id: string | null;
 	signature: string | null;
 	docstring: string | null;
@@ -267,6 +269,8 @@ export async function extractV2FromFile(
 			symbol_kind,
 			symbol_name,
 			qualname,
+			symbol_name_fuzzy: symbol_name,
+			qualname_fuzzy: qualname,
 			parent_symbol_id: null,
 			signature: chunk.signature,
 			docstring: chunk.docstring,

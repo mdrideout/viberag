@@ -452,26 +452,28 @@ args = ["-y", "viberag-mcp"]
 
 ## Exposed MCP Tools
 
-Search v2 exposes a small set of agent-centric tools. Backward compatibility
-with legacy tool names is not provided.
+VibeRAG exposes a small set of agent-centric tools. Backward compatibility with
+legacy tool names is not provided.
 
-| Tool             | Description                                                           |
-| ---------------- | --------------------------------------------------------------------- |
-| `search`         | Intent-routed search with grouped results + stable IDs for follow-ups |
-| `open_span`      | Read an exact line range from disk                                    |
-| `get_symbol`     | Fetch a symbol definition + deterministic metadata by `symbol_id`     |
-| `find_usages`    | Find usage occurrences (refs) for a symbol name or `symbol_id`        |
-| `expand_context` | Expand a hit into neighbors (symbols/chunks) and related metadata     |
-| `index`          | Build/update the v2 index (incremental by default)                    |
-| `status`         | Get v2 index status and daemon status summary                         |
-| `watch_status`   | Get watcher status (auto-indexing)                                    |
-| `cancel`         | Cancel indexing or warmup without shutting down the daemon            |
+| Tool                   | Description                                                           |
+| ---------------------- | --------------------------------------------------------------------- |
+| `codebase_search`      | Intent-routed search with grouped results + stable IDs for follow-ups |
+| `help`                 | Usage guide for MCP tools + how search works                          |
+| `read_file_lines`      | Read an exact line range from disk                                    |
+| `get_symbol_details`   | Fetch a symbol definition + deterministic metadata by `symbol_id`     |
+| `find_references`      | Find usage occurrences (refs) for a symbol name or `symbol_id`        |
+| `get_surrounding_code` | Expand a hit into neighbors (symbols/chunks) and related metadata     |
+| `build_index`          | Build/update the index (incremental by default)                       |
+| `get_status`           | Get index + daemon status summary                                     |
+| `get_watcher_status`   | Get watcher status (auto-indexing)                                    |
+| `cancel_operation`     | Cancel indexing or warmup without shutting down the daemon            |
 
-### `search`
+### `codebase_search`
 
 Single entry point with intent routing. Use `scope` for transparent filters.
 
 - `intent`: `auto|definition|usage|concept|exact_text|similar_code`
+- Definition-style symbol lookups tolerate small typos via fuzzy (Levenshtein) name matching.
 - `scope`: `path_prefix`, `path_contains`, `path_not_contains`, `extension`
 - `explain`: include per-hit channels + ranking priors
 
@@ -490,7 +492,7 @@ Example:
 }
 ```
 
-Follow-ups: `get_symbol`, `open_span`, `expand_context`, `find_usages`.
+Follow-ups: `get_symbol_details`, `read_file_lines`, `get_surrounding_code`, `find_references`.
 
 ## CLI Commands
 
@@ -586,7 +588,7 @@ Add to your `CLAUDE.md`:
 
 ```markdown
 When exploring the codebase, use Task(subagent_type='Explore') and instruct it
-to use the viberag `search` tool (and follow-ups like `get_symbol` / `open_span`). This keeps the main context clean.
+to use the viberag `codebase_search` tool (and follow-ups like `get_symbol_details` / `read_file_lines`). This keeps the main context clean.
 ```
 
 #### VS Code Copilot
@@ -639,18 +641,18 @@ to use the viberag `search` tool (and follow-ups like `get_symbol` / `open_span`
 
 ### Quick Lookup vs Exploration
 
-| Task Type                       | Recommended Approach                                 |
-| ------------------------------- | ---------------------------------------------------- |
-| "Where is function X defined?"  | `search` with `intent="definition"`                  |
-| "What file handles Y?"          | `search` with `intent="concept"` (check `files`)     |
-| "How does authentication work?" | **Sub-agent** - needs multi-step search + follow-ups |
-| "Find all API endpoints"        | **Sub-agent** - iterative search + scope filters     |
-| "Understand the data flow"      | **Sub-agent** - iterative exploration                |
+| Task Type                       | Recommended Approach                                      |
+| ------------------------------- | --------------------------------------------------------- |
+| "Where is function X defined?"  | `codebase_search` with `intent="definition"`              |
+| "What file handles Y?"          | `codebase_search` with `intent="concept"` (check `files`) |
+| "How does authentication work?" | **Sub-agent** - needs multi-step search + follow-ups      |
+| "Find all API endpoints"        | **Sub-agent** - iterative search + scope filters          |
+| "Understand the data flow"      | **Sub-agent** - iterative exploration                     |
 
 ### For Platforms Without Sub-Agents
 
-Use a few targeted `search` calls with different intents, then follow up with
-`get_symbol`, `open_span`, `expand_context`, and `find_usages` as needed.
+Use a few targeted `codebase_search` calls with different intents, then follow up with
+`get_symbol_details`, `read_file_lines`, `get_surrounding_code`, and `find_references` as needed.
 
 Example sequence:
 
