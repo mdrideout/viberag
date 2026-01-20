@@ -11,18 +11,27 @@ const EDITORS = [
   "OpenCode", "Roo Code", "VS Code Copilot", "Windsurf", "Zed", "and others..."
 ];
 
-const TOOLS = [
-  { name: "codebase_search", desc: "Intent-routed search with grouped results + stable IDs." },
-  { name: "help", desc: "Tool guide + how search works." },
-  { name: "read_file_lines", desc: "Read exact file spans by line range." },
-  { name: "get_symbol_details", desc: "Fetch symbol definition + deterministic metadata." },
-  { name: "find_references", desc: "Find usage refs grouped by file." },
-  { name: "get_surrounding_code", desc: "Expand a hit into neighbors and related chunks." },
-  { name: "build_index", desc: "Build/update the index (incremental by default)." },
-  { name: "get_status", desc: "Index + daemon status summary." },
-  { name: "get_watcher_status", desc: "Watcher status (auto-indexing)." },
-  { name: "cancel_operation", desc: "Cancel indexing or warmup." },
-];
+const TOOLS = {
+  primary: {
+    name: "codebase_search",
+    desc: "Your starting point for code exploration. Routes queries to the right search strategy.",
+    intents: ["concept", "definition", "usage", "exact_text", "similar_code"],
+    link: "#intent-based-retrieval"
+  },
+  followup: [
+    { name: "get_symbol_details", desc: "Fetch complete code, signature, docstring, and decorators for a symbol." },
+    { name: "find_references", desc: "Find all call sites, imports, and type annotations across the codebase." },
+    { name: "get_surrounding_code", desc: "See neighboring symbols and related chunks around a search result." },
+    { name: "read_file_lines", desc: "Read exact source code at specific line numbers." },
+  ],
+  utility: [
+    { name: "help", desc: "Usage guide for all tools" },
+    { name: "build_index", desc: "Build or update the index" },
+    { name: "get_status", desc: "Check index and daemon status" },
+    { name: "get_watcher_status", desc: "Check auto-indexing status" },
+    { name: "cancel_operation", desc: "Cancel indexing or warmup" },
+  ]
+};
 
 const LANGUAGES = [
   { name: "JavaScript", ext: ".js, .mjs, .cjs", active: true },
@@ -204,7 +213,7 @@ const LANGUAGES = [
     </section>
 
     <!-- Intent-Based Retrieval Section -->
-    <section class="py-24 bg-[#020617] border-b border-slate-900">
+    <section id="intent-based-retrieval" class="py-24 bg-[#020617] border-b border-slate-900">
       <div class="container mx-auto px-6">
           <div class="text-center mb-16 max-w-4xl mx-auto">
               <div class="inline-flex items-center gap-2 text-[#00D9FF] font-bold mb-4 uppercase tracking-wider text-sm">
@@ -624,20 +633,76 @@ const LANGUAGES = [
               <h2 class="text-3xl md:text-4xl font-bold text-white mb-4">Exposed MCP Tools</h2>
               <p class="text-slate-400">Viberag exposes these powerful tools to your connected AI agents.</p>
           </div>
-          <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-6 max-w-6xl mx-auto">
-              {TOOLS.map((tool, idx) => (
-                  <div class="bg-[#0f1117] border border-slate-800 p-6 rounded-xl hover:border-[#9D4EDD]/40 transition-all group">
-                      <div class="flex items-center gap-3 mb-3">
-                          <div class="p-2 rounded bg-slate-900 group-hover:bg-slate-800 transition-colors">
-                              <svg class="w-5 h-5 text-[#00D9FF]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path>
-                              </svg>
+
+          <div class="max-w-5xl mx-auto space-y-10">
+              <!-- Primary Tool: codebase_search Hero Card -->
+              <div class="bg-gradient-to-br from-[#0f1117] to-[#0a0c10] border border-[#9D4EDD]/30 p-8 rounded-2xl relative overflow-hidden group hover:border-[#9D4EDD]/60 transition-all">
+                  <div class="absolute top-0 right-0 w-64 h-64 bg-[#9D4EDD]/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"></div>
+                  <div class="relative z-10">
+                      <div class="flex flex-col md:flex-row md:items-center gap-4 mb-4">
+                          <div class="flex items-center gap-3">
+                              <div class="p-3 rounded-xl bg-[#9D4EDD]/10 border border-[#9D4EDD]/20">
+                                  <svg class="w-6 h-6 text-[#9D4EDD]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                                  </svg>
+                              </div>
+                              <h3 class="font-mono text-2xl text-white font-bold">{TOOLS.primary.name}</h3>
                           </div>
-                          <h3 class="font-mono text-lg text-slate-200 font-bold">{tool.name}</h3>
+                          <span class="text-xs font-bold text-[#9D4EDD] bg-[#9D4EDD]/10 px-3 py-1 rounded-full uppercase tracking-wider self-start md:self-auto">Primary</span>
                       </div>
-                      <p class="text-slate-400 text-sm leading-relaxed">{tool.desc}</p>
+                      <p class="text-slate-300 text-lg mb-6">{TOOLS.primary.desc}</p>
+                      <div class="flex flex-wrap gap-2 mb-6">
+                          {TOOLS.primary.intents.map((intent) => (
+                              <span class="font-mono text-sm px-3 py-1.5 rounded-lg bg-slate-800/50 border border-slate-700 text-slate-300 hover:border-[#9D4EDD]/40 hover:text-white transition-colors">
+                                  {intent}
+                              </span>
+                          ))}
+                      </div>
+                      <a href={TOOLS.primary.link} class="inline-flex items-center gap-2 text-[#9D4EDD] hover:text-[#00D9FF] transition-colors font-medium">
+                          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 10l7-7m0 0l7 7m-7-7v18"></path></svg>
+                          See intent routing in action
+                      </a>
                   </div>
-              ))}
+              </div>
+
+              <!-- Follow-up Tools: 2x2 Grid -->
+              <div>
+                  <h4 class="text-sm font-bold text-slate-500 uppercase tracking-wider mb-4 flex items-center gap-2">
+                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6"></path></svg>
+                      Follow-up Tools
+                  </h4>
+                  <div class="grid md:grid-cols-2 gap-4">
+                      {TOOLS.followup.map((tool) => (
+                          <div class="bg-[#0f1117] border border-slate-800 p-5 rounded-xl hover:border-[#00D9FF]/40 transition-all group">
+                              <div class="flex items-center gap-3 mb-3">
+                                  <div class="p-2 rounded-lg bg-slate-900 group-hover:bg-slate-800 transition-colors">
+                                      <svg class="w-5 h-5 text-[#00D9FF]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path>
+                                      </svg>
+                                  </div>
+                                  <h3 class="font-mono text-base text-slate-200 font-bold">{tool.name}</h3>
+                              </div>
+                              <p class="text-slate-400 text-sm leading-relaxed">{tool.desc}</p>
+                          </div>
+                      ))}
+                  </div>
+              </div>
+
+              <!-- Utility Tools: Compact Cards -->
+              <div>
+                  <h4 class="text-sm font-bold text-slate-500 uppercase tracking-wider mb-4 flex items-center gap-2">
+                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                      Utility Tools
+                  </h4>
+                  <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+                      {TOOLS.utility.map((tool) => (
+                          <div class="bg-slate-900/50 border border-slate-800 px-4 py-3 rounded-lg hover:border-slate-700 transition-colors">
+                              <span class="font-mono text-sm text-slate-300 block mb-1">{tool.name}</span>
+                              <span class="text-xs text-slate-500">{tool.desc}</span>
+                          </div>
+                      ))}
+                  </div>
+              </div>
           </div>
       </div>
     </section>
@@ -697,12 +762,12 @@ const LANGUAGES = [
               </div>
               <h3 class="text-2xl font-bold text-white mb-3">Locally Generated Embeddings</h3>
               <p class="text-slate-400 mb-6 leading-relaxed">
-                  Powered by <strong class="text-white">Qwen 3 0.6B</strong>. High quality local / offline embedding generation.
+                  Powered by <strong class="text-white">Qwen 3 0.6B</strong>. Local / offline embedding generation.
               </p>
               <ul class="space-y-3 mb-8">
                   <li class="flex items-center gap-2 text-sm text-slate-300">
                       <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
-                      Local, Free, No API Keys
+                      Local, Free, No API Keys, (slow)
                   </li>
                   <li class="flex items-center gap-2 text-sm text-slate-300">
                       <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
