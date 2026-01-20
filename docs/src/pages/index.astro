@@ -36,10 +36,8 @@ const LANGUAGES = [
   { name: "Swift", ext: ".swift", active: true },
   { name: "Kotlin", ext: ".kt, .kts", active: true },
   { name: "PHP", ext: ".php", active: true },
-  { name: "Dart", ext: ".dart", active: false, note: "Parser temporarily disabled (tree-sitter WASM version mismatch)." },
+  // { name: "Dart", ext: ".dart", active: true },  // Temporarily disabled (tree-sitter WASM version mismatch)
 ];
-
-const HAS_DISABLED_PARSERS = LANGUAGES.some((lang) => lang.active === false);
 ---
 
 <!DOCTYPE html>
@@ -47,13 +45,13 @@ const HAS_DISABLED_PARSERS = LANGUAGES.some((lang) => lang.active === false);
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>VibeRAG MCP Server | Codebase RAG, Semantic Search for Coding Agents</title>
+    <title>Viberag MCP Server | Codebase RAG, Semantic Search for Coding Agents</title>
     <meta name="description" content="Free, open-source, local MCP server for semantic code search." />
     <meta name="keywords" content="MCP, semantic search, code search, RAG, LanceDB, Claude, Cursor, VS Code" />
     <link rel="canonical" href="https://viberag.ai/" />
 
     <!-- Open Graph -->
-    <meta property="og:title" content="VibeRAG MCP Server | Semantic Search for Coding Agents" />
+    <meta property="og:title" content="Viberag MCP Server | Semantic Search for Coding Agents" />
     <meta property="og:description" content="Free, open-source, local MCP server for semantic code search." />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://viberag.ai/" />
@@ -114,7 +112,7 @@ const HAS_DISABLED_PARSERS = LANGUAGES.some((lang) => lang.active === false);
     ╚═══╝  ╚═╝╚═════╝ ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝   </pre>
 
             <p class="text-lg md:text-2xl text-slate-400 mb-12 max-w-2xl leading-relaxed font-light">
-              VibeRAG is a free, open-source MCP server for coding agent semantic, hybrid, and full-text codebase search.
+              Viberag is a free, open-source MCP server for semantic, hybrid, and full-text codebase search.
               <span class="block mt-2 text-slate-300">Exploratory Search Tools for Coding Agents.</span>
             </p>
 
@@ -198,7 +196,7 @@ const HAS_DISABLED_PARSERS = LANGUAGES.some((lang) => lang.active === false);
                   </div>
                   <h3 class="text-white font-bold text-lg mb-2">Exhaustive Search</h3>
                   <p class="text-slate-400 text-sm">
-                      Prevent missing context. Whether planning a feature or refactoring, viberag ensures your agent sees every relevant reference, catching edge cases that simple keyword searches miss.
+                      Prevent missing context. Whether planning a feature or refactoring, viberag ensures your agent is aware of every relevant and related reference, catching edge cases and "code islands" that simple keyword searches miss.
                   </p>
                </div>
           </div>
@@ -505,7 +503,7 @@ const HAS_DISABLED_PARSERS = LANGUAGES.some((lang) => lang.active === false);
                   </div>
                   <h2 class="text-3xl md:text-5xl font-bold text-white mb-6 mt-1">Automated Setup & Indexing</h2>
                   <p class="text-slate-400 text-lg mb-8 leading-relaxed">
-                      VibeRAG handles the heavy lifting. Run the initialization wizard to configure your preferred embedding model (local or cloud) and let the file watcher keep your index in sync.
+                      Viberag handles the heavy lifting. Run the initialization wizard to configure your preferred embedding model (local or cloud) and let the file watcher keep your index in sync.
                   </p>
 
                   <div class="mb-8">
@@ -534,7 +532,7 @@ const HAS_DISABLED_PARSERS = LANGUAGES.some((lang) => lang.active === false);
                           </div>
                           <div>
                               <h4 class="text-white font-bold text-lg mb-1 mt-1">/mcp-setup</h4>
-                              <p class="text-slate-500 text-sm">Automatically configures Claude Code, Cursor, and VS Code config files to connect to the VibeRAG MCP server.</p>
+                              <p class="text-slate-500 text-sm">Automatically configures Claude Code, Cursor, and VS Code config files to connect to the viberag MCP server.</p>
                           </div>
                       </div>
                        <div class="flex gap-4 items-start">
@@ -543,7 +541,7 @@ const HAS_DISABLED_PARSERS = LANGUAGES.some((lang) => lang.active === false);
                           </div>
                           <div>
                               <h4 class="text-white font-bold text-lg mb-1 mt-1">Agent-Aware Watch Mode</h4>
-                              <p class="text-slate-500 text-sm">Your agent automatically starts VibeRAG's watch mode. It detects code changes and instantly updates the search index, so your agent always has the latest context without manual re-indexing.</p>
+                              <p class="text-slate-500 text-sm">Your agent automatically starts viberag's watch mode. It detects code changes and instantly updates the search index, so your agent always has the latest context without manual re-indexing.</p>
                           </div>
                       </div>
                   </div>
@@ -586,7 +584,7 @@ const HAS_DISABLED_PARSERS = LANGUAGES.some((lang) => lang.active === false);
                       </div>
                       <h3 class="text-xl font-bold text-white mb-3 group-hover:text-[#9D4EDD] transition-colors">Parse & Embed</h3>
                       <p class="text-slate-400 text-sm leading-relaxed max-w-xs">
-                          Tree-sitter parses your code into semantic chunks. Embeddings are generated locally or via API and stored in LanceDB. Everything is stored on your local machine.
+                          Tree-sitter parses your code into semantic chunks. Embeddings are generated locally or via API and stored locally in LanceDB. Everything is stored on your machine for fast, secure, private access.
                       </p>
                   </div>
 
@@ -599,7 +597,7 @@ const HAS_DISABLED_PARSERS = LANGUAGES.some((lang) => lang.active === false);
                       </div>
                       <h3 class="text-xl font-bold text-white mb-3 group-hover:text-brand-cyan transition-colors">Auto-Launch & Watch</h3>
                       <p class="text-slate-400 text-sm leading-relaxed max-w-xs">
-                          The Editor / agent automatically starts viberag which starts watching for file changes. The Agent has access to its search tools and can monitor the indexing status.
+                          The Editor / agent automatically starts viberag which starts watching for file changes. Every change automatically triggers updates to the search index. The Agent has access to its search tools and can monitor the indexing status.
                       </p>
                   </div>
 
@@ -612,7 +610,7 @@ const HAS_DISABLED_PARSERS = LANGUAGES.some((lang) => lang.active === false);
                       </div>
                       <h3 class="text-xl font-bold text-white mb-3 group-hover:text-white transition-colors">Fast Hybrid Retrieval</h3>
                       <p class="text-slate-400 text-sm leading-relaxed max-w-xs">
-                           VibeRAG combines full-text search and vector search locally (LanceDB) and returns agent-friendly results with stable follow-up handles.
+                           Viberag executes local semantic search, full-text search, and even fuzzy keyword matching search, and returns agent-friendly results with stable follow-up handles. 
                       </p>
                   </div>
               </div>
@@ -624,7 +622,7 @@ const HAS_DISABLED_PARSERS = LANGUAGES.some((lang) => lang.active === false);
       <div class="container mx-auto px-6">
           <div class="text-center mb-16">
               <h2 class="text-3xl md:text-4xl font-bold text-white mb-4">Exposed MCP Tools</h2>
-              <p class="text-slate-400">VibeRAG exposes these powerful tools to your connected AI agents.</p>
+              <p class="text-slate-400">Viberag exposes these powerful tools to your connected AI agents.</p>
           </div>
           <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-6 max-w-6xl mx-auto">
               {TOOLS.map((tool, idx) => (
@@ -654,31 +652,26 @@ const HAS_DISABLED_PARSERS = LANGUAGES.some((lang) => lang.active === false);
                 </div>
                 <h2 class="text-3xl md:text-5xl font-bold text-white mb-6">Syntax-Aware Chunking</h2>
                 <p class="text-slate-400 text-lg leading-relaxed max-w-3xl mx-auto">
-                    VibeRAG uses <span class="text-white font-bold">Tree-sitter</span> to parse code into an Abstract Syntax Tree (AST). It creates semantic boundaries—keeping functions, classes, and scopes intact—so the embedding model captures the complete logical unit.
+                    Viberag uses <span class="text-white font-bold">Tree-sitter</span> to parse code into an Abstract Syntax Tree (AST). It creates semantic boundaries—keeping functions, classes, and scopes intact—so the embedding model captures the complete logical unit.
                 </p>
             </div>
 
             <div class="max-w-6xl mx-auto">
 	                <div class="text-center mb-10">
 	                    <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-slate-900 border border-slate-800 text-slate-400 text-xs font-mono uppercase tracking-widest">
-	                        <span class={`w-1.5 h-1.5 rounded-full ${HAS_DISABLED_PARSERS ? 'bg-amber-500' : 'bg-green-500'}`}></span>
-	                        {HAS_DISABLED_PARSERS ? 'Tree-sitter parsers (some disabled)' : 'Tree-sitter parsers active'}
+	                        <span class="w-1.5 h-1.5 rounded-full bg-green-500"></span>
+	                        Tree-sitter parsers active
 	                    </div>
 	                </div>
 
 	                <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 mb-8">
 	                    {LANGUAGES.map((lang) => (
-	                        <div class={`bg-[#0f1117] border border-slate-800 p-4 rounded-lg flex flex-col items-center justify-center text-center transition-colors group ${lang.active ? 'hover:border-slate-700' : 'opacity-60'}`}>
-	                             <div class="text-slate-200 font-bold text-sm mb-1 group-hover:text-white">{lang.active ? lang.name : `${lang.name} (disabled)`}</div>
+	                        <div class="bg-[#0f1117] border border-slate-800 p-4 rounded-lg flex flex-col items-center justify-center text-center transition-colors group hover:border-slate-700">
+	                             <div class="text-slate-200 font-bold text-sm mb-1 group-hover:text-white">{lang.name}</div>
 	                             <div class="text-slate-500 text-[10px] font-mono">{lang.ext}</div>
 	                        </div>
 	                    ))}
 	                </div>
-	                {HAS_DISABLED_PARSERS && (
-	                    <div class="text-center text-slate-500 text-sm">
-	                        Note: Disabled parsers fall back to plain-text indexing (no syntax-derived symbols/usages).
-	                    </div>
-	                )}
 	            </div>
 	        </div>
 	    </section>
@@ -688,7 +681,7 @@ const HAS_DISABLED_PARSERS = LANGUAGES.some((lang) => lang.active === false);
       <div class="container mx-auto px-6 text-center max-w-4xl mx-auto mb-16">
           <h2 class="text-3xl md:text-5xl font-bold text-white mb-6">Flexible Embedding Models</h2>
           <p class="text-slate-400 text-lg">
-              Choose between complete privacy or state-of-the-art cloud performance. VibeRAG adapts to your security requirements.
+              Choose between complete privacy or state-of-the-art cloud performance. Viberag adapts to your security requirements.
           </p>
       </div>
 
