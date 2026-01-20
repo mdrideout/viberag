@@ -96,6 +96,7 @@ const evalParamsSchema = z
 		concept_samples: z.number().min(1).max(500).optional(),
 		exact_text_samples: z.number().min(1).max(500).optional(),
 		similar_code_samples: z.number().min(1).max(500).optional(),
+		usage_samples: z.number().min(1).max(500).optional(),
 		seed: z.number().int().optional(),
 		explain: z.boolean().optional(),
 	})

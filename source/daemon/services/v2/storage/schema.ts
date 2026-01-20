@@ -210,7 +210,11 @@ export function createV2RefsSchema(): Schema {
 		new Field('start_byte', new Int32(), true),
 		new Field('end_byte', new Int32(), true),
 		new Field('ref_kind', new Utf8(), false),
-		new Field('token_text', new Utf8(), false),
+		new Field(
+			'token_texts',
+			new List(new Field('item', new Utf8(), false)),
+			false,
+		),
 		new Field('context_snippet', new Utf8(), false),
 		new Field('module_name', new Utf8(), true),
 		new Field('imported_name', new Utf8(), true),

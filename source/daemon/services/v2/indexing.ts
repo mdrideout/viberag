@@ -644,7 +644,7 @@ export class IndexingServiceV2 extends TypedEmitter<V2IndexingServiceEvents> {
 						start_byte: r.start_byte,
 						end_byte: r.end_byte,
 						ref_kind: r.ref_kind,
-						token_text: r.token_text,
+						token_texts: r.token_texts,
 						context_snippet: r.context_snippet,
 						module_name: r.module_name,
 						imported_name: r.imported_name,

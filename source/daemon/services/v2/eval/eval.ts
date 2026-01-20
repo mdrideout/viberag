@@ -19,6 +19,7 @@ export type V2EvalOptions = {
 	concept_samples?: number;
 	exact_text_samples?: number;
 	similar_code_samples?: number;
+	usage_samples?: number;
 	seed?: number;
 	explain?: boolean;
 	scope?: V2SearchScope;
@@ -42,6 +43,7 @@ export type V2EvalReport = {
 			| 'concept_samples'
 			| 'exact_text_samples'
 			| 'similar_code_samples'
+			| 'usage_samples'
 			| 'seed'
 			| 'explain'
 		>
@@ -51,6 +53,7 @@ export type V2EvalReport = {
 		concept: BucketResult;
 		exact_text: BucketResult;
 		similar_code: BucketResult;
+		usage: BucketResult;
 	};
 };
 
@@ -65,6 +68,7 @@ export async function runV2Eval(args: {
 		concept_samples: args.options?.concept_samples ?? 20,
 		exact_text_samples: args.options?.exact_text_samples ?? 20,
 		similar_code_samples: args.options?.similar_code_samples ?? 15,
+		usage_samples: args.options?.usage_samples ?? 25,
 		seed: args.options?.seed ?? 1337,
 		explain: args.options?.explain ?? false,
 		scope: args.options?.scope ?? {},
@@ -108,6 +112,15 @@ export async function runV2Eval(args: {
 		scope,
 	});
 
+	const usage = await evalUsage({
+		engine: args.engine,
+		storage: args.storage,
+		samples: options.usage_samples,
+		seed: options.seed,
+		explain: options.explain,
+		scope,
+	});
+
 	const finishedAt = new Date();
 
 	return {
@@ -120,6 +133,7 @@ export async function runV2Eval(args: {
 			concept,
 			exact_text: exactText,
 			similar_code: similarCode,
+			usage,
 		},
 	};
 }
@@ -293,30 +307,54 @@ async function evalExactText(args: {
 	const latencies: number[] = [];
 	const failures: Array<Record<string, unknown>> = [];
 
-	const refsRows = (await args.storage
-		.getRefsTable()
-		.query()
-		.where("ref_kind = 'string_literal'")
-		.select(['file_path', 'start_line', 'token_text'])
-		.toArray()) as Array<Record<string, unknown>>;
+	const [chunkRows, symbolRows] = (await Promise.all([
+		args.storage
+			.getChunksTable()
+			.query()
+			.select(['file_path', 'start_line', 'end_line', 'string_literals'])
+			.limit(5000)
+			.toArray(),
+		args.storage
+			.getSymbolsTable()
+			.query()
+			.select(['file_path', 'start_line', 'end_line', 'string_literals'])
+			.limit(5000)
+			.toArray(),
+	])) as [Array<Record<string, unknown>>, Array<Record<string, unknown>>];
 
-	const candidates = refsRows
-		.map(r => ({
-			file_path: String(r['file_path'] ?? ''),
-			start_line: Number(r['start_line'] ?? 0),
-			token_text: String(r['token_text'] ?? ''),
-		}))
-		.filter(
-			r =>
-				r.file_path &&
-				r.start_line > 0 &&
-				r.token_text.length >= 8 &&
-				r.token_text.length <= 160,
-		);
+	const candidates: Array<{
+		file_path: string;
+		start_line: number;
+		end_line: number;
+		token_text: string;
+	}> = [];
+
+	const pushRow = (r: Record<string, unknown>) => {
+		const file_path = String(r['file_path'] ?? '');
+		const start_line = Number(r['start_line'] ?? 0);
+		const end_line = Number(r['end_line'] ?? 0);
+		if (!file_path || start_line <= 0 || end_line <= 0) return;
+
+		const raw = r['string_literals'];
+		const literals = Array.isArray(raw)
+			? raw.map(v => String(v)).filter(Boolean)
+			: [];
+
+		for (const token_text of literals) {
+			if (token_text.length < 8 || token_text.length > 160) continue;
+			candidates.push({file_path, start_line, end_line, token_text});
+		}
+	};
+
+	for (const r of chunkRows) pushRow(r);
+	for (const r of symbolRows) pushRow(r);
 
 	const rng = mulberry32(args.seed ^ 0x53f00d);
 	const sampled = sampleArray(
-		dedupeBy(candidates, r => `${r.file_path}:${r.start_line}:${r.token_text}`),
+		dedupeBy(
+			candidates,
+			r => `${r.file_path}:${r.start_line}:${r.end_line}:${r.token_text}`,
+		),
 		args.samples,
 		rng,
 	);
@@ -336,7 +374,7 @@ async function evalExactText(args: {
 
 		const ok = result.groups.blocks.slice(0, 5).some(hit => {
 			if (hit.file_path !== row.file_path) return false;
-			return hit.start_line <= row.start_line && hit.end_line >= row.start_line;
+			return hit.start_line <= row.end_line && hit.end_line >= row.start_line;
 		});
 
 		if (ok) {
@@ -345,7 +383,7 @@ async function evalExactText(args: {
 			failures.push({
 				query: row.token_text,
 				expected_file_path: row.file_path,
-				expected_line: row.start_line,
+				expected_span: {start_line: row.start_line, end_line: row.end_line},
 				top_blocks: result.groups.blocks.slice(0, 5).map(h => ({
 					file_path: h.file_path,
 					start_line: h.start_line,
@@ -433,6 +471,115 @@ async function evalSimilarCode(args: {
 		},
 		metrics: {
 			mrr_at_10: total > 0 ? Number((mrrSum / total).toFixed(6)) : 0,
+		},
+		failures,
+	};
+}
+
+async function evalUsage(args: {
+	engine: SearchEngineV2;
+	storage: StorageV2;
+	samples: number;
+	seed: number;
+	explain: boolean;
+	scope: V2SearchScope;
+}): Promise<BucketResult> {
+	const latencies: number[] = [];
+	const failures: Array<Record<string, unknown>> = [];
+
+	const refRows = (await args.storage
+		.getRefsTable()
+		.query()
+		.select([
+			'ref_id',
+			'file_path',
+			'start_line',
+			'end_line',
+			'ref_kind',
+			'token_texts',
+		])
+		.limit(8000)
+		.toArray()) as Array<Record<string, unknown>>;
+
+	const candidates = refRows
+		.map(r => ({
+			ref_id: String(r['ref_id'] ?? ''),
+			file_path: String(r['file_path'] ?? ''),
+			start_line: Number(r['start_line'] ?? 0),
+			end_line: Number(r['end_line'] ?? 0),
+			ref_kind: String(r['ref_kind'] ?? 'identifier'),
+			token_text: (() => {
+				const raw = r['token_texts'];
+				const tokenTexts = Array.isArray(raw)
+					? raw.map(v => String(v)).filter(Boolean)
+					: [];
+				if (tokenTexts.length === 0) return '';
+				if (String(r['ref_kind'] ?? '') === 'call') {
+					return tokenTexts.find(t => t.includes('.')) ?? tokenTexts[0]!;
+				}
+				return tokenTexts[0]!;
+			})(),
+		}))
+		.filter(
+			r =>
+				r.ref_id &&
+				r.file_path &&
+				r.start_line > 0 &&
+				r.end_line > 0 &&
+				r.token_text.length >= 2 &&
+				r.token_text.length <= 80 &&
+				(r.ref_kind === 'call' || r.ref_kind === 'import'),
+		);
+
+	const rng = mulberry32(args.seed ^ 0x12ab34cd);
+	const sampled = sampleArray(
+		dedupeBy(candidates, r => `${r.ref_kind}:${r.token_text}:${r.file_path}`),
+		args.samples,
+		rng,
+	);
+
+	let total = 0;
+	let hit20 = 0;
+
+	for (const row of sampled) {
+		total += 1;
+		const query = `where is \`${row.token_text}\` used`;
+		const {result, elapsedMs} = await timedSearch(args.engine, query, {
+			intent: 'usage',
+			k: 20,
+			explain: args.explain,
+			scope: args.scope,
+		});
+		latencies.push(elapsedMs);
+
+		const ok = result.groups.usages
+			.slice(0, 20)
+			.some(hit => hit.id === row.ref_id);
+		if (ok) {
+			hit20 += 1;
+		} else if (failures.length < 10) {
+			failures.push({
+				query,
+				expected_ref_id: row.ref_id,
+				expected_file_path: row.file_path,
+				expected_span: {start_line: row.start_line, end_line: row.end_line},
+				top_usages: result.groups.usages.slice(0, 5).map(h => ({
+					id: h.id,
+					file_path: h.file_path,
+					title: h.title,
+				})),
+			});
+		}
+	}
+
+	return {
+		queries: total,
+		latency_ms: {
+			p50: percentile(latencies, 50),
+			p95: percentile(latencies, 95),
+		},
+		metrics: {
+			hit_at_20: total > 0 ? Number((hit20 / total).toFixed(6)) : 0,
 		},
 		failures,
 	};

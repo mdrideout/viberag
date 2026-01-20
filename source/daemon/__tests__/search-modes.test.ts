@@ -109,7 +109,57 @@ describe('V2 Search Intents', () => {
 		expect(results.groups.usages.length).toBeGreaterThan(0);
 		expect(
 			results.groups.usages.some(r =>
-				r.file_path.includes('src/services/auth.ts'),
+				r.file_path.includes('src/pages/LoginPage.tsx'),
+			),
+		).toBe(true);
+	});
+
+	it('usage supports qualified call tokens (receiver.method) without duplicate hits', async () => {
+		const results = await search.search('where is inner.doThing used', {
+			intent: 'auto',
+			k: 50,
+			explain: true,
+		});
+
+		expect(results.intent_used).toBe('usage');
+		expect(
+			results.groups.usages.some(
+				r =>
+					r.file_path === 'src/utils/qualified_calls.ts' &&
+					r.title.includes('call: inner.doThing'),
+			),
+		).toBe(true);
+		expect(
+			results.groups.usages.some(
+				r =>
+					r.file_path === 'src/utils/qualified_calls.ts' &&
+					r.title.includes('call: doThing'),
+			),
+		).toBe(false);
+		expect(
+			results.groups.usages.some(
+				r =>
+					r.file_path === 'src/utils/qualified_calls.ts' &&
+					r.why?.channels.some(
+						ch => ch.source === 'refs.token_texts_qualified',
+					),
+			),
+		).toBe(true);
+	});
+
+	it('usage supports qualified calls on imported receivers (Namespace.func)', async () => {
+		const results = await search.search('where is Endpoints.getUser used', {
+			intent: 'auto',
+			k: 50,
+			explain: false,
+		});
+
+		expect(results.intent_used).toBe('usage');
+		expect(
+			results.groups.usages.some(
+				r =>
+					r.file_path === 'src/utils/qualified_calls.ts' &&
+					r.title.includes('call: Endpoints.getUser'),
 			),
 		).toBe(true);
 	});

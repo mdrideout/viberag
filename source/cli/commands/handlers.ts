@@ -19,6 +19,7 @@ import {
 	checkV2IndexCompatibility,
 	v2ManifestExists,
 } from '../../daemon/services/v2/manifest.js';
+import {getGrammarSupportSummary} from '../../daemon/lib/chunker/grammars.js';
 import {checkNpmForUpdate} from '../../daemon/lib/update-check.js';
 import type {
 	DaemonStatusResponse,
@@ -302,6 +303,7 @@ export function formatEvalReport(report: EvalReport): string {
 	addBucket('Definition', report.buckets.definition);
 	addBucket('Concept', report.buckets.concept);
 	addBucket('Exact text', report.buckets.exact_text);
+	addBucket('Usage', report.buckets.usage);
 	addBucket('Similar code', report.buckets.similar_code);
 
 	return lines.join('\n');
@@ -484,7 +486,22 @@ async function formatManifestStatus(projectRoot: string): Promise<string> {
 		`  Total refs: ${manifest.stats.totalRefs}`,
 	];
 
+	appendParsingSupport(lines);
 	return lines.join('\n');
+}
+
+function appendParsingSupport(lines: string[]): void {
+	const summary = getGrammarSupportSummary();
+	const enabledNames = summary.enabled.map(g => g.display_name).join(', ');
+	const disabledNames = summary.disabled.map(g => g.display_name).join(', ');
+
+	lines.push(`  Parsers: ${enabledNames || 'none'}`);
+	if (disabledNames) {
+		lines.push(`  Disabled parsers: ${disabledNames}`);
+	}
+	lines.push(
+		'  Note: Markdown/unsupported files are indexed as plain text (no AST symbols/refs/usages).',
+	);
 }
 
 function formatStatusWithStartupChecks(
@@ -540,6 +557,8 @@ function formatDaemonStatus(status: DaemonStatusResponse): string {
 	} else {
 		lines.push('  Index: not indexed');
 	}
+
+	appendParsingSupport(lines);
 
 	const warmupElapsed =
 		status.warmupElapsedMs !== undefined

@@ -111,7 +111,7 @@ export type V2ExtractedRef = {
 	start_byte: number | null;
 	end_byte: number | null;
 	ref_kind: 'import' | 'call' | 'identifier' | 'string_literal';
-	token_text: string;
+	token_texts: string[];
 	context_snippet: string;
 	module_name: string | null;
 	imported_name: string | null;
@@ -143,20 +143,53 @@ export async function extractV2FromFile(
 	const extension = path.extname(filePath);
 	const language_hint = languageHintFromExtension(extension);
 	const file_hash = computeStringHash(content);
+	const contentLines = content.split('\n');
 
-	// Symbol extraction wants canonical, unsplit definition spans. We avoid the
-	// chunker's size-based splitting by using a very large max chunk size.
-	const definitionChunks = chunker.chunkFile(filePath, content, 1_000_000);
+	// Parse once: extract definition spans, size-constrained chunks, and AST refs.
+	const analysis = chunker.analyzeFile(filePath, content, {
+		chunkMaxSize: options.chunkMaxSize,
+		definitionMaxChunkSize: Number.MAX_SAFE_INTEGER,
+		refs: {
+			identifier_mode: 'symbolish',
+			max_occurrences_per_token: 0,
+			include_string_literals: false,
+		},
+	});
 
-	// Chunk extraction uses configured size limits (may split large bodies).
-	const chunks = chunker.chunkFile(filePath, content, options.chunkMaxSize);
+	const definitionChunks = analysis.definition_chunks;
+	const chunks = analysis.chunks;
 
-	const refs = extractRefsFromContent({
-		repoId: options.repoId,
-		revision: options.revision,
-		filePath,
-		extension,
-		content,
+	const refs: V2ExtractedRef[] = analysis.refs.map(r => {
+		const startKey = r.start_byte ?? r.start_line;
+		const endKey = r.end_byte ?? r.end_line;
+		const ref_id = computeStringHash(
+			`${options.repoId}|${options.revision}|${filePath}|${r.ref_kind}|${startKey}|${endKey}|${r.module_name ?? ''}|${r.imported_name ?? ''}`,
+		);
+		const token_texts = uniqueStable(
+			(r.token_texts ?? [])
+				.map(t => (typeof t === 'string' ? t.trim() : ''))
+				.filter(Boolean),
+		);
+		return {
+			ref_id,
+			repo_id: options.repoId,
+			revision: options.revision,
+			file_path: filePath,
+			extension,
+			start_line: r.start_line,
+			end_line: r.end_line,
+			start_byte: r.start_byte,
+			end_byte: r.end_byte,
+			ref_kind: r.ref_kind,
+			token_texts,
+			context_snippet: buildContextSnippetFromPreSplitLines(
+				contentLines,
+				r.start_line,
+				r.end_line,
+			),
+			module_name: r.module_name,
+			imported_name: r.imported_name,
+		};
 	});
 
 	// Build exported symbol list from deterministic extraction
@@ -166,7 +199,13 @@ export async function extractV2FromFile(
 		)
 		.map(c => c.name.trim());
 
-	const imports = extractImports(content, extension);
+	const imports = uniqueStable(
+		analysis.refs
+			.filter(r => r.ref_kind === 'import')
+			.map(r => (typeof r.module_name === 'string' ? r.module_name : ''))
+			.map(m => m.trim())
+			.filter(Boolean),
+	);
 	const top_level_doc = extractTopLevelDoc(content, extension);
 
 	const file_summary_text = buildFileSummaryText({
@@ -560,26 +599,6 @@ function buildSymbolLookupKeyFromChunk(chunk: Chunk): string {
 	return `${chunk.type}|${chunk.name ?? ''}`;
 }
 
-const NON_CALL_NAMES = new Set([
-	'if',
-	'for',
-	'while',
-	'switch',
-	'catch',
-	'function',
-	'return',
-	'await',
-	'new',
-	'throw',
-	'case',
-	'do',
-	'try',
-	'else',
-	'with',
-	'break',
-	'continue',
-]);
-
 function uniqueStable(items: string[]): string[] {
 	const seen = new Set<string>();
 	const out: string[] = [];
@@ -591,676 +610,24 @@ function uniqueStable(items: string[]): string[] {
 	return out;
 }
 
-function extractImports(content: string, extension: string): string[] {
-	const ext = extension.toLowerCase();
-	if (
-		ext === '.ts' ||
-		ext === '.tsx' ||
-		ext === '.js' ||
-		ext === '.mjs' ||
-		ext === '.cjs'
-	) {
-		const modules: string[] = [];
-		const importFrom = /\bimport\s+(?:type\s+)?[^'"]*?from\s+['"]([^'"]+)['"]/g;
-		const importBare = /\bimport\s+['"]([^'"]+)['"]/g;
-		let match: RegExpExecArray | null;
-		while ((match = importFrom.exec(content)) !== null) {
-			modules.push(match[1]!);
-		}
-		while ((match = importBare.exec(content)) !== null) {
-			modules.push(match[1]!);
-		}
-		return uniqueStable(modules);
-	}
-
-	if (ext === '.py') {
-		const modules: string[] = [];
-		const importRe = /^\s*import\s+([A-Za-z0-9_.]+)/gm;
-		const fromRe = /^\s*from\s+([A-Za-z0-9_.]+)\s+import\s+/gm;
-		let match: RegExpExecArray | null;
-		while ((match = importRe.exec(content)) !== null) {
-			modules.push(match[1]!);
-		}
-		while ((match = fromRe.exec(content)) !== null) {
-			modules.push(match[1]!);
-		}
-		return uniqueStable(modules);
-	}
-
-	if (ext === '.go') {
-		const modules: string[] = [];
-		const single = /^\s*import\s+"([^"]+)"\s*$/gm;
-		const block = /^\s*import\s*\(\s*([\s\S]*?)\s*\)\s*$/gm;
-		let match: RegExpExecArray | null;
-		while ((match = single.exec(content)) !== null) {
-			modules.push(match[1]!);
-		}
-		while ((match = block.exec(content)) !== null) {
-			const body = match[1] ?? '';
-			const inner = /"([^"]+)"/g;
-			let innerMatch: RegExpExecArray | null;
-			while ((innerMatch = inner.exec(body)) !== null) {
-				modules.push(innerMatch[1]!);
-			}
-		}
-		return uniqueStable(modules);
-	}
-
-	return [];
-}
-
-type RefMatch = {
-	ref_kind: 'import' | 'call' | 'identifier' | 'string_literal';
-	token_text: string;
-	startIndex: number;
-	endIndex: number;
-	module_name: string | null;
-	imported_name: string | null;
-};
-
-function extractRefsFromContent(args: {
-	repoId: string;
-	revision: string;
-	filePath: string;
-	extension: string;
-	content: string;
-}): V2ExtractedRef[] {
-	const lineStarts = buildLineStarts(args.content);
-	const rawMatches: RefMatch[] = [
-		...extractImportRefMatches(args.content, args.extension),
-		...extractCallRefMatches(args.content),
-		...extractStringLiteralRefMatches(args.content),
-		...extractIdentifierRefMatches(args.content),
-	];
-
-	rawMatches.sort(
-		(a, b) => a.startIndex - b.startIndex || a.endIndex - b.endIndex,
-	);
-
-	const matches = dedupeRefMatches(rawMatches);
-
-	const refs: V2ExtractedRef[] = [];
-	for (const m of matches) {
-		const start_line = lineNumberAtIndex(lineStarts, m.startIndex);
-		const end_line = lineNumberAtIndex(
-			lineStarts,
-			Math.max(m.startIndex, m.endIndex - 1),
-		);
-		const context_snippet = buildContextSnippet(
-			args.content,
-			m.startIndex,
-			m.endIndex,
-		);
-		const ref_id = computeStringHash(
-			`${args.repoId}|${args.revision}|${args.filePath}|${m.ref_kind}|${m.startIndex}|${m.endIndex}|${m.token_text}|${m.module_name ?? ''}|${m.imported_name ?? ''}`,
-		);
-		refs.push({
-			ref_id,
-			repo_id: args.repoId,
-			revision: args.revision,
-			file_path: args.filePath,
-			extension: args.extension,
-			start_line,
-			end_line,
-			start_byte: null,
-			end_byte: null,
-			ref_kind: m.ref_kind,
-			token_text: m.token_text,
-			context_snippet,
-			module_name: m.module_name,
-			imported_name: m.imported_name,
-		});
-	}
-
-	return refs;
-}
-
-function dedupeRefMatches(matches: RefMatch[]): RefMatch[] {
-	const byKey = new Map<
-		string,
-		{
-			match: RefMatch;
-			order: number;
-		}
-	>();
-
-	for (let i = 0; i < matches.length; i++) {
-		const m = matches[i]!;
-		const key = `${m.startIndex}|${m.endIndex}|${m.token_text}`;
-		const existing = byKey.get(key);
-		if (!existing) {
-			byKey.set(key, {match: m, order: i});
-			continue;
-		}
-		if (
-			refKindPriority(m.ref_kind) > refKindPriority(existing.match.ref_kind)
-		) {
-			byKey.set(key, {match: m, order: existing.order});
-		}
-	}
-
-	return [...byKey.values()]
-		.sort((a, b) => a.order - b.order)
-		.map(v => v.match);
-}
-
-function refKindPriority(kind: RefMatch['ref_kind']): number {
-	switch (kind) {
-		case 'import':
-			return 4;
-		case 'call':
-			return 3;
-		case 'identifier':
-			return 2;
-		case 'string_literal':
-			return 1;
-		default:
-			return 0;
-	}
-}
-
-function buildLineStarts(text: string): number[] {
-	const starts = [0];
-	for (let i = 0; i < text.length; i++) {
-		if (text[i] === '\n') {
-			starts.push(i + 1);
-		}
-	}
-	return starts;
-}
-
-function lineNumberAtIndex(starts: number[], index: number): number {
-	if (index <= 0) return 1;
-	let lo = 0;
-	let hi = starts.length - 1;
-	while (lo <= hi) {
-		const mid = (lo + hi) >> 1;
-		const start = starts[mid]!;
-		if (start === index) return mid + 1;
-		if (start < index) lo = mid + 1;
-		else hi = mid - 1;
-	}
-	return Math.max(1, Math.min(starts.length, lo));
-}
-
-function buildContextSnippet(
-	text: string,
-	startIndex: number,
-	endIndex: number,
+function buildContextSnippetFromPreSplitLines(
+	lines: string[],
+	startLine: number,
+	endLine: number,
 ): string {
-	const radius = 80;
-	const start = Math.max(0, startIndex - radius);
-	const end = Math.min(text.length, endIndex + radius);
-	const raw = text.slice(start, end);
-	return raw.replace(/\s+/g, ' ').trim();
-}
+	const totalLines = lines.length;
+	const clampedStart = Math.max(1, Math.min(totalLines, startLine));
+	const clampedEnd = Math.max(clampedStart, Math.min(totalLines, endLine));
 
-const IDENTIFIER_KEYWORDS = new Set([
-	// Common across languages
-	'true',
-	'false',
-	'null',
-	'undefined',
-	// JS/TS keywords
-	'const',
-	'let',
-	'var',
-	'function',
-	'class',
-	'return',
-	'if',
-	'else',
-	'for',
-	'while',
-	'do',
-	'switch',
-	'case',
-	'break',
-	'continue',
-	'try',
-	'catch',
-	'finally',
-	'throw',
-	'new',
-	'import',
-	'export',
-	'from',
-	'as',
-	'await',
-	'async',
-	'extends',
-	'implements',
-	'interface',
-	'type',
-	'enum',
-	'public',
-	'private',
-	'protected',
-	'static',
-	'get',
-	'set',
-	// Python keywords (subset)
-	'def',
-	'lambda',
-	'pass',
-	'raise',
-	'with',
-	'yield',
-	'in',
-	'is',
-	'and',
-	'or',
-	'not',
-	'None',
-]);
+	const radius = 1;
+	const from = Math.max(1, clampedStart - radius);
+	const to = Math.min(totalLines, clampedEnd + radius);
 
-function extractIdentifierRefMatches(text: string): RefMatch[] {
-	const pattern = /[A-Za-z_$][A-Za-z0-9_$]*/g;
-	const matches: RefMatch[] = [];
-	let match: RegExpExecArray | null;
-	while ((match = pattern.exec(text)) !== null) {
-		const token = match[0] ?? '';
-		if (!token) continue;
-		if (IDENTIFIER_KEYWORDS.has(token)) continue;
-		matches.push({
-			ref_kind: 'identifier',
-			token_text: token,
-			startIndex: match.index,
-			endIndex: match.index + token.length,
-			module_name: null,
-			imported_name: null,
-		});
-	}
-	return matches;
-}
-
-function extractCallRefMatches(text: string): RefMatch[] {
-	const pattern =
-		/\b([A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)*)\s*\(/g;
-	const matches: RefMatch[] = [];
-	let match: RegExpExecArray | null;
-	while ((match = pattern.exec(text)) !== null) {
-		const full = match[1] ?? '';
-		if (!full) continue;
-		const last = full.includes('.') ? full.split('.').pop()! : full;
-		if (NON_CALL_NAMES.has(last)) continue;
-		if (isLikelyDefinitionCallMatch(text, match.index)) continue;
-		const localIdx = full.lastIndexOf(last);
-		const startIndex = match.index + localIdx;
-		matches.push({
-			ref_kind: 'call',
-			token_text: last,
-			startIndex,
-			endIndex: startIndex + last.length,
-			module_name: null,
-			imported_name: null,
-		});
-	}
-	return matches;
-}
-
-function isLikelyDefinitionCallMatch(
-	text: string,
-	calleeStartIndex: number,
-): boolean {
-	const lineStart =
-		text.lastIndexOf('\n', Math.max(0, calleeStartIndex - 1)) + 1;
-	const prefix = text.slice(lineStart, calleeStartIndex);
-
-	// JS/TS function declarations: export default async function foo(
-	if (
-		/^\s*(export\s+)?(default\s+)?(declare\s+)?(async\s+)?function\*?\s*$/.test(
-			prefix,
-		)
-	) {
-		return true;
-	}
-
-	// Python defs: async def foo(
-	if (/^\s*(async\s+)?def\s*$/.test(prefix)) {
-		return true;
-	}
-
-	// Rust fns: pub async fn foo(
-	if (/^\s*(pub\s+)?(async\s+)?fn\s*$/.test(prefix)) {
-		return true;
-	}
-
-	// Go funcs: func foo( or func (r *Receiver) Foo(
-	if (/^\s*func(?:\s*\([^)]*\))?\s*$/.test(prefix)) {
-		return true;
-	}
-
-	return false;
-}
-
-function extractStringLiteralRefMatches(text: string): RefMatch[] {
-	const pattern =
-		/("([^"\\\n]|\\.)*")|('([^'\\\n]|\\.)*')|(`([^`\\\n]|\\.)*`)/g;
-	const matches: RefMatch[] = [];
-	let match: RegExpExecArray | null;
-	while ((match = pattern.exec(text)) !== null) {
-		const raw = match[0] ?? '';
-		if (raw.length < 2) continue;
-		const inner = raw.slice(1, -1);
-		if (inner.trim().length === 0) continue;
-		const startIndex = match.index + 1;
-		matches.push({
-			ref_kind: 'string_literal',
-			token_text: inner,
-			startIndex,
-			endIndex: startIndex + inner.length,
-			module_name: null,
-			imported_name: null,
-		});
-	}
-	return matches;
-}
-
-function extractImportRefMatches(text: string, extension: string): RefMatch[] {
-	const ext = extension.toLowerCase();
-	if (
-		ext === '.ts' ||
-		ext === '.tsx' ||
-		ext === '.js' ||
-		ext === '.mjs' ||
-		ext === '.cjs'
-	) {
-		return extractImportRefMatchesJs(text);
-	}
-	if (ext === '.py') {
-		return extractImportRefMatchesPython(text);
-	}
-	if (ext === '.go') {
-		return extractImportRefMatchesGo(text);
-	}
-	return [];
-}
-
-function extractImportRefMatchesJs(text: string): RefMatch[] {
-	const matches: RefMatch[] = [];
-
-	const importFrom =
-		/^\s*import\s+(?:type\s+)?(.+?)\s+from\s+['"]([^'"]+)['"]\s*;?\s*$/gm;
-	const bareImport = /^\s*import\s+['"]([^'"]+)['"]\s*;?\s*$/gm;
-
-	let match: RegExpExecArray | null;
-	while ((match = importFrom.exec(text)) !== null) {
-		const clause = (match[1] ?? '').trim();
-		const moduleName = match[2] ?? '';
-		const full = match[0] ?? '';
-		const base = match.index;
-
-		const imported = parseJsImportClause(clause);
-		for (const entry of imported) {
-			const nameToFind = entry.local;
-			const localIdx = full.indexOf(nameToFind);
-			const startIndex = localIdx >= 0 ? base + localIdx : base;
-			matches.push({
-				ref_kind: 'import',
-				token_text: entry.local,
-				startIndex,
-				endIndex: startIndex + entry.local.length,
-				module_name: moduleName,
-				imported_name: entry.imported,
-			});
-			if (
-				entry.local !== entry.imported &&
-				entry.imported !== 'default' &&
-				entry.imported !== '*' &&
-				/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(entry.imported)
-			) {
-				matches.push({
-					ref_kind: 'import',
-					token_text: entry.imported,
-					startIndex,
-					endIndex: startIndex + entry.imported.length,
-					module_name: moduleName,
-					imported_name: entry.imported,
-				});
-			}
-		}
-	}
-
-	while ((match = bareImport.exec(text)) !== null) {
-		const moduleName = match[1] ?? '';
-		const full = match[0] ?? '';
-		const base = match.index;
-		const localIdx = full.indexOf(moduleName);
-		const startIndex = localIdx >= 0 ? base + localIdx : base;
-		matches.push({
-			ref_kind: 'import',
-			token_text: moduleName,
-			startIndex,
-			endIndex: startIndex + moduleName.length,
-			module_name: moduleName,
-			imported_name: null,
-		});
-	}
-
-	return matches;
-}
-
-function parseJsImportClause(
-	clause: string,
-): Array<{imported: string; local: string}> {
-	const out: Array<{imported: string; local: string}> = [];
-	const trimmed = clause.trim();
-	if (!trimmed) return out;
-
-	// Namespace import: * as ns
-	const ns = trimmed.match(/^\*\s+as\s+([A-Za-z_$][A-Za-z0-9_$]*)$/);
-	if (ns?.[1]) {
-		out.push({imported: '*', local: ns[1]});
-		return out;
-	}
-
-	// Named imports: {a, b as c}
-	const named = trimmed.match(/^\{([\s\S]*)\}$/);
-	if (named) {
-		const inside = named[1] ?? '';
-		for (const part of inside.split(',')) {
-			let p = part.trim();
-			if (!p) continue;
-			if (p.startsWith('type ')) {
-				p = p.slice('type '.length).trim();
-				if (!p) continue;
-			}
-			const asMatch = p.match(
-				/^([A-Za-z_$][A-Za-z0-9_$]*)\s+as\s+([A-Za-z_$][A-Za-z0-9_$]*)$/,
-			);
-			if (asMatch?.[1] && asMatch?.[2]) {
-				out.push({imported: asMatch[1], local: asMatch[2]});
-			} else {
-				out.push({imported: p, local: p});
-			}
-		}
-		return out;
-	}
-
-	// Default + named: defaultName, {a as b}
-	const defaultPlusNamed = trimmed.match(
-		/^([A-Za-z_$][A-Za-z0-9_$]*)\s*,\s*(\{[\s\S]*\})$/,
-	);
-	if (defaultPlusNamed?.[1] && defaultPlusNamed?.[2]) {
-		out.push({imported: 'default', local: defaultPlusNamed[1]});
-		out.push(...parseJsImportClause(defaultPlusNamed[2]));
-		return out;
-	}
-
-	// Default import: defaultName
-	const def = trimmed.match(/^([A-Za-z_$][A-Za-z0-9_$]*)$/);
-	if (def?.[1]) {
-		out.push({imported: 'default', local: def[1]});
-	}
-	return out;
-}
-
-function extractImportRefMatchesPython(text: string): RefMatch[] {
-	const matches: RefMatch[] = [];
-
-	const importRe = /^\s*import\s+(.+)\s*$/gm;
-	const fromRe = /^\s*from\s+([A-Za-z0-9_.]+)\s+import\s+(.+)\s*$/gm;
-
-	let match: RegExpExecArray | null;
-	while ((match = importRe.exec(text)) !== null) {
-		const clause = (match[1] ?? '').trim();
-		const full = match[0] ?? '';
-		const base = match.index;
-		for (const part of clause.split(',')) {
-			const p = part.trim();
-			if (!p) continue;
-			const asMatch = p.match(
-				/^([A-Za-z0-9_.]+)\s+as\s+([A-Za-z_$][A-Za-z0-9_$]*)$/,
-			);
-			if (asMatch?.[1] && asMatch?.[2]) {
-				const moduleName = asMatch[1];
-				const local = asMatch[2];
-				const localIdx = full.indexOf(local);
-				const startIndex = localIdx >= 0 ? base + localIdx : base;
-				matches.push({
-					ref_kind: 'import',
-					token_text: local,
-					startIndex,
-					endIndex: startIndex + local.length,
-					module_name: moduleName,
-					imported_name: null,
-				});
-				matches.push({
-					ref_kind: 'import',
-					token_text: moduleName.split('.').pop() ?? moduleName,
-					startIndex,
-					endIndex:
-						startIndex + (moduleName.split('.').pop() ?? moduleName).length,
-					module_name: moduleName,
-					imported_name: null,
-				});
-			} else {
-				const moduleName = p;
-				const name = moduleName.split('.').pop() ?? moduleName;
-				const localIdx = full.indexOf(name);
-				const startIndex = localIdx >= 0 ? base + localIdx : base;
-				matches.push({
-					ref_kind: 'import',
-					token_text: name,
-					startIndex,
-					endIndex: startIndex + name.length,
-					module_name: moduleName,
-					imported_name: null,
-				});
-			}
-		}
-	}
-
-	while ((match = fromRe.exec(text)) !== null) {
-		const moduleName = match[1] ?? '';
-		const clause = (match[2] ?? '').trim();
-		const full = match[0] ?? '';
-		const base = match.index;
-		const cleaned = clause.replace(/^\(([\s\S]*)\)$/g, '$1');
-		for (const part of cleaned.split(',')) {
-			const p = part.trim();
-			if (!p || p === '*') continue;
-			const asMatch = p.match(
-				/^([A-Za-z_$][A-Za-z0-9_$]*)\s+as\s+([A-Za-z_$][A-Za-z0-9_$]*)$/,
-			);
-			if (asMatch?.[1] && asMatch?.[2]) {
-				const imported = asMatch[1];
-				const local = asMatch[2];
-				const localIdx = full.indexOf(local);
-				const startIndex = localIdx >= 0 ? base + localIdx : base;
-				matches.push({
-					ref_kind: 'import',
-					token_text: local,
-					startIndex,
-					endIndex: startIndex + local.length,
-					module_name: moduleName,
-					imported_name: imported,
-				});
-				matches.push({
-					ref_kind: 'import',
-					token_text: imported,
-					startIndex,
-					endIndex: startIndex + imported.length,
-					module_name: moduleName,
-					imported_name: imported,
-				});
-			} else {
-				const imported = p;
-				const localIdx = full.indexOf(imported);
-				const startIndex = localIdx >= 0 ? base + localIdx : base;
-				matches.push({
-					ref_kind: 'import',
-					token_text: imported,
-					startIndex,
-					endIndex: startIndex + imported.length,
-					module_name: moduleName,
-					imported_name: imported,
-				});
-			}
-		}
-	}
-
-	return matches;
-}
-
-function extractImportRefMatchesGo(text: string): RefMatch[] {
-	const matches: RefMatch[] = [];
-
-	const single = /^\s*import\s+(?:(\w+)\s+)?"([^"]+)"\s*$/gm;
-	const block = /^\s*import\s*\(\s*([\s\S]*?)\s*\)\s*$/gm;
-
-	let match: RegExpExecArray | null;
-	while ((match = single.exec(text)) !== null) {
-		const alias = match[1] ?? null;
-		const moduleName = match[2] ?? '';
-		const full = match[0] ?? '';
-		const base = match.index;
-		const pkg = moduleName.split('/').pop() ?? moduleName;
-		const local = alias ?? pkg;
-		const localIdx = full.indexOf(local);
-		const startIndex = localIdx >= 0 ? base + localIdx : base;
-		matches.push({
-			ref_kind: 'import',
-			token_text: local,
-			startIndex,
-			endIndex: startIndex + local.length,
-			module_name: moduleName,
-			imported_name: pkg,
-		});
-	}
-
-	while ((match = block.exec(text)) !== null) {
-		const body = match[1] ?? '';
-		const base = match.index;
-		const lines = body.split('\n');
-		let offset = 0;
-		for (const line of lines) {
-			const m = line.match(/^\s*(?:(\w+)\s+)?"([^"]+)"\s*$/);
-			if (!m) {
-				offset += line.length + 1;
-				continue;
-			}
-			const alias = m[1] ?? null;
-			const moduleName = m[2] ?? '';
-			const pkg = moduleName.split('/').pop() ?? moduleName;
-			const local = alias ?? pkg;
-			const localIdx = line.indexOf(local);
-			const startIndex =
-				localIdx >= 0 ? base + offset + localIdx : base + offset;
-			matches.push({
-				ref_kind: 'import',
-				token_text: local,
-				startIndex,
-				endIndex: startIndex + local.length,
-				module_name: moduleName,
-				imported_name: pkg,
-			});
-			offset += line.length + 1;
-		}
-	}
-
-	return matches;
+	return lines
+		.slice(from - 1, to)
+		.join('\n')
+		.replace(/\s+/g, ' ')
+		.trim();
 }
 
 function extractTopLevelDoc(content: string, extension: string): string | null {

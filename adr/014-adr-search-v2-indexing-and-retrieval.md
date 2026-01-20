@@ -103,7 +103,7 @@ Expose a small set of composable tools that return stable handles:
 To keep retrieval quality measurable (not “vibes”), ship a v2 eval harness that:
 
 - Generates query sets from the indexed corpus (definitions/docstrings/string literals/chunks)
-- Measures quality metrics (e.g., MRR@10, Recall@50, Hit@5) and latency percentiles (p50/p95)
+- Measures quality metrics (e.g., MRR@10, Recall@50, Hit@5, Hit@20 for usage) and latency percentiles (p50/p95)
 - Is accessible via CLI (`/eval`) and daemon RPC (`eval`)
 
 ## Consequences
@@ -120,6 +120,7 @@ To keep retrieval quality measurable (not “vibes”), ship a v2 eval harness t
 - Breaking changes: v1 schemas and MCP tool names are not preserved.
 - More complex storage schema: multiple tables and surfaces must be maintained.
 - Some extractions are best-effort (notably `refs`), and can be upgraded over time without changing the agent-facing tool surface.
+  - Refs extraction moved from regex scanning to tree-sitter AST facts; see ADR-017.
 
 ## Implementation References
 

@@ -31,6 +31,7 @@ import {
 	loadV2Manifest,
 	v2ManifestExists,
 } from '../daemon/services/v2/manifest.js';
+import {getGrammarSupportSummary} from '../daemon/lib/chunker/grammars.js';
 import {DaemonClient} from '../client/index.js';
 import type {DaemonStatusResponse} from '../client/types.js';
 import {createServiceLogger, type Logger} from '../daemon/lib/logger.js';
@@ -813,11 +814,22 @@ CALL THIS FIRST if unsure whether VibeRAG is ready to use.`,
 		parameters: z.object({}),
 		execute: async () => {
 			const v2IndexCompatibility = await checkV2IndexCompatibility(projectRoot);
+			const grammar = getGrammarSupportSummary();
+			const parsing = {
+				enabled: grammar.enabled.map(g => g.display_name),
+				disabled: grammar.disabled.map(g => ({
+					language: g.language,
+					name: g.display_name,
+					reason: g.reason,
+				})),
+				note: 'Markdown/unsupported files are indexed as plain text (no AST symbols/refs/usages).',
+			};
 			const initialized = await configExists(projectRoot);
 			if (!initialized) {
 				return JSON.stringify({
 					status: 'not_initialized',
 					projectRoot,
+					parsing,
 					startup_checks: {
 						npm_update: npmUpdate,
 						index: v2IndexCompatibility,
@@ -838,6 +850,7 @@ CALL THIS FIRST if unsure whether VibeRAG is ready to use.`,
 			if (!indexed) {
 				return JSON.stringify({
 					status: 'not_indexed',
+					parsing,
 					startup_checks: {
 						npm_update: npmUpdate,
 						index: v2IndexCompatibility,
@@ -868,6 +881,7 @@ CALL THIS FIRST if unsure whether VibeRAG is ready to use.`,
 				embeddingProvider: config.embeddingProvider,
 				embeddingModel: config.embeddingModel,
 				embeddingDimensions: config.embeddingDimensions,
+				parsing,
 				startup_checks: {
 					npm_update: npmUpdate,
 					index: v2IndexCompatibility,

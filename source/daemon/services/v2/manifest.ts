@@ -8,7 +8,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {getViberagDir} from '../../lib/constants.js';
 
-export const V2_SCHEMA_VERSION = 3;
+export const V2_SCHEMA_VERSION = 6;
 
 export type V2IndexCompatibilityStatus =
 	| 'not_indexed'

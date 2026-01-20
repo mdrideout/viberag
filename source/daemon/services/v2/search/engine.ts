@@ -54,6 +54,8 @@ type Candidate = {
 	file_path: string;
 	start_line: number;
 	end_line: number;
+	start_byte?: number | null;
+	end_byte?: number | null;
 	title: string;
 	snippet: string;
 	is_exported?: boolean;
@@ -425,7 +427,7 @@ export class SearchEngineV2 {
 		}
 
 		const refsTable = await this.getRefsTable();
-		await ensureFtsIndex(refsTable, 'token_text', {
+		await ensureFtsIndex(refsTable, 'token_texts', {
 			baseTokenizer: 'whitespace',
 			lowercase: true,
 			stem: false,
@@ -438,10 +440,10 @@ export class SearchEngineV2 {
 		const candidates = await this.ftsCandidatesRefs(
 			refsTable,
 			resolvedSymbolName,
-			'token_text',
+			'token_texts',
 			oversample,
 			filterClause,
-			'refs.token_text',
+			'refs.token_texts',
 		);
 
 		const reranked = rerankCandidates(candidates, {
@@ -1095,11 +1097,11 @@ export class SearchEngineV2 {
 		filterClause: string | undefined,
 		explain: boolean,
 	): Promise<V2HitBase[]> {
-		const token = extractUsageToken(query);
-		if (!token) return [];
+		const tokens = extractUsageTokens(query);
+		if (!tokens) return [];
 
 		const table = await this.getRefsTable();
-		await ensureFtsIndex(table, 'token_text', {
+		await ensureFtsIndex(table, 'token_texts', {
 			baseTokenizer: 'whitespace',
 			lowercase: true,
 			stem: false,
@@ -1109,14 +1111,30 @@ export class SearchEngineV2 {
 		});
 
 		const oversample = Math.min(1000, Math.max(k * 12, 100));
-		const ftsHits = await this.ftsCandidatesRefs(
-			table,
-			token,
-			'token_text',
-			oversample,
-			filterClause,
-			'refs.token_text',
-		);
+		const qualifiedHits = tokens.qualified
+			? await this.ftsCandidatesRefs(
+					table,
+					tokens.qualified,
+					'token_texts',
+					oversample,
+					filterClause,
+					'refs.token_texts_qualified',
+				)
+			: [];
+
+		const needsBaseFallback = qualifiedHits.length < k;
+		const baseHits = needsBaseFallback
+			? await this.ftsCandidatesRefs(
+					table,
+					tokens.base,
+					'token_texts',
+					oversample,
+					filterClause,
+					'refs.token_texts',
+				)
+			: [];
+
+		const ftsHits = dedupeUsageCandidates([...qualifiedHits, ...baseHits]);
 
 		const reranked = rerankCandidates(ftsHits, {
 			intent: 'usage',
@@ -1281,13 +1299,24 @@ export class SearchEngineV2 {
 		return rows.map((row, index) => {
 			const r = row as Record<string, unknown> & {_score?: number};
 			const refKind = String(r['ref_kind'] ?? 'identifier');
-			const tokenText = String(r['token_text'] ?? '');
+			const tokenTextsRaw = normalizeJsonValue(r['token_texts']);
+			const tokenTexts = Array.isArray(tokenTextsRaw)
+				? tokenTextsRaw.map(v => String(v)).filter(Boolean)
+				: [];
+			const tokenQuery = query.trim().toLowerCase();
+			const tokenText =
+				tokenTexts.find(t => t.toLowerCase() === tokenQuery) ??
+				tokenTexts.find(t => t.toLowerCase().includes(tokenQuery)) ??
+				tokenTexts[0] ??
+				'';
 			return {
 				table: 'refs',
 				id: String(r['ref_id']),
 				file_path: String(r['file_path']),
 				start_line: Number(r['start_line']),
 				end_line: Number(r['end_line']),
+				start_byte: r['start_byte'] != null ? Number(r['start_byte']) : null,
+				end_byte: r['end_byte'] != null ? Number(r['end_byte']) : null,
 				title: `${refKind}: ${tokenText}`,
 				snippet: String(r['context_snippet'] ?? '').slice(0, 240),
 				ref_kind: refKind,
@@ -1748,19 +1777,21 @@ const USAGE_TOKEN_STOP_WORDS = new Set([
 	'an',
 ]);
 
-function extractUsageToken(query: string): string | null {
+type UsageTokens = {base: string; qualified: string | null};
+
+function extractUsageTokens(query: string): UsageTokens | null {
 	const q = query.trim();
 	if (!q) return null;
 
 	const backtick = q.match(/`([^`]+)`/);
 	if (backtick?.[1]) {
-		const token = normalizeUsageToken(backtick[1]);
+		const token = normalizeUsageTokens(backtick[1]);
 		if (token) return token;
 	}
 
 	const quoted = q.match(/["']([^"']+)["']/);
 	if (quoted?.[1]) {
-		const token = normalizeUsageToken(quoted[1]);
+		const token = normalizeUsageTokens(quoted[1]);
 		if (token) return token;
 	}
 
@@ -1772,21 +1803,48 @@ function extractUsageToken(query: string): string | null {
 		const raw = tokens[i] ?? '';
 		if (!raw) continue;
 		if (USAGE_TOKEN_STOP_WORDS.has(raw.toLowerCase())) continue;
-		const token = normalizeUsageToken(raw);
+		const token = normalizeUsageTokens(raw);
 		if (token) return token;
 	}
 
 	return null;
 }
 
-function normalizeUsageToken(raw: string): string | null {
-	const trimmed = raw.trim();
-	if (!trimmed) return null;
-	const lastNs = trimmed.includes('::') ? trimmed.split('::').pop()! : trimmed;
-	const last = lastNs.split(/[.#]/).pop()!.trim();
-	if (!last) return null;
-	if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(last)) return null;
-	return last;
+function normalizeUsageTokens(raw: string): UsageTokens | null {
+	let token = raw.trim();
+	if (!token) return null;
+
+	token = stripWrappingQuotes(token);
+	token = token.replace(/\(\)\s*$/, '');
+	token = token.replace(/\(\s*$/, '');
+	token = token.replace(/\)\s*$/, '');
+	token = token.replace(/[;,:]+$/, '');
+	if (!token) return null;
+
+	const normalized = token.replace(/::/g, '.').replace(/#/g, '.');
+	const parts = normalized
+		.split('.')
+		.map(p => p.trim())
+		.filter(Boolean);
+	if (parts.length === 0) return null;
+
+	const base = parts[parts.length - 1] ?? '';
+	if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(base)) return null;
+
+	const receiver = parts.length >= 2 ? (parts[parts.length - 2] ?? '') : '';
+	const receiverIsIgnored =
+		receiver === 'this' ||
+		receiver === 'self' ||
+		receiver === 'super' ||
+		receiver === 'cls';
+	const qualified =
+		receiver &&
+		!receiverIsIgnored &&
+		/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(receiver)
+			? `${receiver}.${base}`
+			: null;
+
+	return {base, qualified};
 }
 
 function buildFtsQueryFromCode(query: string): string | null {
@@ -1893,6 +1951,42 @@ function mergeCandidates(lists: Candidate[][]): Candidate[] {
 			}
 		}
 	}
+	return [...byKey.values()];
+}
+
+function dedupeUsageCandidates(candidates: Candidate[]): Candidate[] {
+	const byKey = new Map<string, Candidate>();
+
+	const hasQualifiedChannel = (c: Candidate) =>
+		c.channels.some(ch => ch.source === 'refs.token_texts_qualified');
+
+	for (const candidate of candidates) {
+		if (candidate.table !== 'refs') continue;
+
+		const key = `${candidate.file_path}:${candidate.start_byte ?? candidate.start_line}:${candidate.end_byte ?? candidate.end_line}:${candidate.ref_kind ?? ''}`;
+		const existing = byKey.get(key);
+		if (!existing) {
+			byKey.set(key, candidate);
+			continue;
+		}
+
+		const mergedChannels = [...existing.channels, ...candidate.channels];
+
+		const existingPreferred =
+			hasQualifiedChannel(existing) ||
+			(typeof existing.token_text === 'string' &&
+				existing.token_text.includes('.'));
+		const candidatePreferred =
+			hasQualifiedChannel(candidate) ||
+			(typeof candidate.token_text === 'string' &&
+				candidate.token_text.includes('.'));
+
+		byKey.set(key, {
+			...(candidatePreferred && !existingPreferred ? candidate : existing),
+			channels: mergedChannels,
+		});
+	}
+
 	return [...byKey.values()];
 }
 
@@ -2073,7 +2167,8 @@ function channelRrfWeight(
 			return base;
 		}
 		case 'usage': {
-			if (s === 'refs.token_text') return 1.0;
+			if (s === 'refs.token_texts_qualified') return 1.15;
+			if (s === 'refs.token_texts') return 1.0;
 			return base;
 		}
 		default: {

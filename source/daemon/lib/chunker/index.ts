@@ -11,10 +11,14 @@ import Parser from 'web-tree-sitter';
 import {computeStringHash} from '../merkle/hash.js';
 import {
 	EXTENSION_TO_LANGUAGE,
+	type AnalyzedFile,
 	type Chunk,
 	type ChunkType,
+	type ExtractedRef,
+	type RefExtractionOptions,
 	type SupportedLanguage,
 } from './types.js';
+import {LANGUAGE_WASM_FILES} from './grammars.js';
 
 // Use createRequire to resolve WASM file paths from tree-sitter-wasms
 const require = createRequire(import.meta.url);
@@ -24,27 +28,6 @@ type TokenFacts = {
 	identifierParts: string[];
 	calledNames: string[];
 	stringLiterals: string[];
-};
-
-/**
- * Mapping from our language names to tree-sitter-wasms filenames.
- * WASM files are in node_modules/tree-sitter-wasms/out/
- * Note: Dart is temporarily disabled due to tree-sitter version mismatch.
- * tree-sitter-wasms Dart WASM is version 15, web-tree-sitter 0.24.7 supports 13-14.
- */
-const LANGUAGE_WASM_FILES: Record<SupportedLanguage, string | null> = {
-	javascript: 'tree-sitter-javascript.wasm',
-	typescript: 'tree-sitter-typescript.wasm',
-	tsx: 'tree-sitter-tsx.wasm',
-	python: 'tree-sitter-python.wasm',
-	go: 'tree-sitter-go.wasm',
-	rust: 'tree-sitter-rust.wasm',
-	java: 'tree-sitter-java.wasm',
-	csharp: 'tree-sitter-c_sharp.wasm',
-	kotlin: 'tree-sitter-kotlin.wasm',
-	swift: 'tree-sitter-swift.wasm',
-	dart: null, // Disabled: version 15 incompatible with web-tree-sitter 0.24.7 (supports 13-14)
-	php: 'tree-sitter-php.wasm',
 };
 
 /**
@@ -354,6 +337,114 @@ export class Chunker {
 		);
 
 		return sizedChunks;
+	}
+
+	/**
+	 * Analyze a file by parsing once and extracting:
+	 * - definition_chunks: unsplit, unmerged semantic definitions (functions/classes/methods)
+	 * - chunks: size-constrained chunks (may split large bodies)
+	 * - refs: AST-derived references (calls/imports/identifiers), suitable for usage navigation
+	 *
+	 * This is intended for indexing pipelines that need multiple artifacts without
+	 * re-parsing the file multiple times.
+	 */
+	analyzeFile(
+		filepath: string,
+		content: string,
+		options: {
+			chunkMaxSize: number;
+			definitionMaxChunkSize?: number;
+			refs?: RefExtractionOptions;
+		},
+	): AnalyzedFile {
+		if (!this.initialized || !this.parser) {
+			throw new Error(
+				'Chunker not initialized. Call initialize() before analyzeFile().',
+			);
+		}
+
+		const chunkMaxSize = options.chunkMaxSize;
+		const definitionMaxChunkSize = options.definitionMaxChunkSize ?? 1_000_000;
+		const refsOptions = options.refs ?? {};
+
+		const ext = path.extname(filepath);
+		const lang = this.getLanguageForExtension(ext);
+
+		if (this.isMarkdownFile(filepath)) {
+			return {
+				language: null,
+				parse_status: 'markdown',
+				definition_chunks: [],
+				chunks: this.chunkMarkdown(filepath, content, chunkMaxSize),
+				refs: [],
+			};
+		}
+
+		if (!lang || !this.languages.has(lang)) {
+			const moduleChunk = this.createModuleChunk(filepath, content);
+			return {
+				language: null,
+				parse_status: 'unsupported',
+				definition_chunks: [],
+				chunks: this.enforceSizeLimits(
+					[moduleChunk],
+					chunkMaxSize,
+					content,
+					lang ?? 'javascript',
+					filepath,
+					DEFAULT_OVERLAP_LINES,
+				),
+				refs: [],
+			};
+		}
+
+		const language = this.languages.get(lang)!;
+		this.parser.setLanguage(language);
+
+		const tree = this.parser.parse(content);
+		if (!tree) {
+			const moduleChunk = this.createModuleChunk(filepath, content);
+			return {
+				language: lang,
+				parse_status: 'parse_failed',
+				definition_chunks: [],
+				chunks: this.enforceSizeLimits(
+					[moduleChunk],
+					chunkMaxSize,
+					content,
+					lang,
+					filepath,
+					DEFAULT_OVERLAP_LINES,
+				),
+				refs: [],
+			};
+		}
+
+		const definition_chunks = this.extractChunks(
+			tree.rootNode,
+			content,
+			lang,
+			filepath,
+			definitionMaxChunkSize,
+		);
+
+		const chunks = this.enforceSizeLimits(
+			this.extractChunks(tree.rootNode, content, lang, filepath, chunkMaxSize),
+			chunkMaxSize,
+			content,
+			lang,
+			filepath,
+		);
+
+		const refs = this.extractRefsFromTree(tree.rootNode, lang, refsOptions);
+
+		return {
+			language: lang,
+			parse_status: 'parsed',
+			definition_chunks,
+			chunks,
+			refs,
+		};
 	}
 
 	/**
@@ -1493,13 +1584,19 @@ export class Chunker {
 	}
 
 	private isIdentifierLike(text: string): boolean {
-		return /^[A-Za-z_][A-Za-z0-9_]*$/.test(text);
+		return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(text);
 	}
 
 	private isIdentifierNodeType(nodeType: string): boolean {
 		if (nodeType === 'identifier' || nodeType === 'name') return true;
 		if (nodeType.endsWith('identifier')) return true;
 		return false;
+	}
+
+	private isCommentNodeType(nodeType: string): boolean {
+		if (nodeType === 'comment') return true;
+		if (nodeType.endsWith('_comment')) return true;
+		return nodeType.includes('comment');
 	}
 
 	private isStringLiteralNodeType(nodeType: string): boolean {
@@ -1533,6 +1630,172 @@ export class Chunker {
 		return nodeType.includes('call') && nodeType.includes('expression');
 	}
 
+	private isQualifiedCallToken(text: string): boolean {
+		return /^[A-Za-z_$][A-Za-z0-9_$]*\.[A-Za-z_$][A-Za-z0-9_$]*$/.test(text);
+	}
+
+	private collectImportedReceiverNames(
+		root: Parser.SyntaxNode,
+		lang: SupportedLanguage,
+	): Set<string> {
+		const out = new Set<string>();
+
+		const walk = (node: Parser.SyntaxNode) => {
+			if (this.isCommentNodeType(node.type)) return;
+
+			if (this.isImportNodeType(lang, node.type)) {
+				for (const ref of this.extractImportRefsFromNode(node, lang)) {
+					if (!ref.imported_name) continue; // ignore side-effect imports
+					const local = ref.token_texts[0] ?? '';
+					if (!this.isIdentifierLike(local)) continue;
+					out.add(local);
+				}
+
+				// JS/TS export_statement nodes can wrap real declarations (export function/class/const).
+				// We still want to traverse those to capture call refs inside bodies.
+				if (
+					(lang === 'javascript' || lang === 'typescript' || lang === 'tsx') &&
+					node.type === 'export_statement'
+				) {
+					const isReExport = node.childForFieldName('source') != null;
+					if (isReExport) return;
+				} else {
+					return;
+				}
+			}
+
+			for (let i = 0; i < node.namedChildCount; i++) {
+				const child = node.namedChild(i);
+				if (child) walk(child);
+			}
+		};
+
+		walk(root);
+		return out;
+	}
+
+	private extractQualifiedCallToken(
+		callNode: Parser.SyntaxNode,
+		importedReceivers: Set<string>,
+	): string | null {
+		const callee =
+			callNode.childForFieldName('function') ??
+			callNode.childForFieldName('name') ??
+			callNode.childForFieldName('method') ??
+			callNode.childForFieldName('callee') ??
+			callNode.childForFieldName('target') ??
+			callNode.childForFieldName('macro') ??
+			callNode.childForFieldName('constructor') ??
+			(callNode.namedChildCount > 0 ? callNode.namedChild(0) : null);
+		if (!callee) return null;
+
+		const ignoredReceivers = new Set(['this', 'self', 'super', 'cls']);
+
+		const extractChain = (node: Parser.SyntaxNode): string[] | null => {
+			if (this.isCommentNodeType(node.type)) return null;
+			if (this.isStringLiteralNodeType(node.type)) return null;
+
+			if (this.isIdentifierNodeType(node.type)) {
+				const text = node.text.trim();
+				return this.isIdentifierLike(text) ? [text] : null;
+			}
+
+			const property =
+				node.childForFieldName('property') ??
+				node.childForFieldName('field') ??
+				node.childForFieldName('attribute') ??
+				node.childForFieldName('name') ??
+				node.childForFieldName('method');
+			const object =
+				node.childForFieldName('object') ??
+				node.childForFieldName('receiver') ??
+				node.childForFieldName('value') ??
+				node.childForFieldName('operand');
+			if (property && object) {
+				const prop = property.text.trim();
+				if (!this.isIdentifierLike(prop)) return null;
+				const left = extractChain(object);
+				if (!left) return null;
+				return [...left, prop];
+			}
+
+			// Namespaced identifiers: Foo::bar (Rust, PHP, etc.)
+			const scope = node.childForFieldName('scope');
+			const name = node.childForFieldName('name');
+			if (scope && name && scope !== node && name !== node) {
+				const nameText = name.text.trim();
+				if (!this.isIdentifierLike(nameText)) return null;
+				const left = extractChain(scope);
+				if (!left) return null;
+				return [...left, nameText];
+			}
+
+			const unwrap =
+				node.childForFieldName('expression') ??
+				node.childForFieldName('operand') ??
+				node.childForFieldName('function') ??
+				node.childForFieldName('value') ??
+				node.childForFieldName('callee') ??
+				node.childForFieldName('target');
+			if (unwrap && unwrap !== node) {
+				const inner = extractChain(unwrap);
+				if (inner) return inner;
+			}
+
+			if (node.namedChildCount === 1) {
+				const only = node.namedChild(0);
+				if (only && only !== node) return extractChain(only);
+			}
+
+			return null;
+		};
+
+		let chain = extractChain(callee);
+
+		// Some grammars model the receiver + name as fields on the call node itself
+		// (e.g., java: method_invocation {object, name}).
+		if (!chain || chain.length < 2) {
+			const receiverNode =
+				callNode.childForFieldName('object') ??
+				callNode.childForFieldName('receiver') ??
+				callNode.childForFieldName('value') ??
+				callNode.childForFieldName('operand');
+			const nameNode =
+				callNode.childForFieldName('name') ??
+				callNode.childForFieldName('method') ??
+				callNode.childForFieldName('property') ??
+				callNode.childForFieldName('attribute') ??
+				callNode.childForFieldName('field');
+
+			if (receiverNode && nameNode) {
+				const method = nameNode.text.trim();
+				const left = extractChain(receiverNode);
+				if (left && this.isIdentifierLike(method)) {
+					chain = [...left, method];
+				}
+			}
+		}
+
+		if (!chain || chain.length < 2) return null;
+
+		const method = chain[chain.length - 1] ?? '';
+		const receiver = chain[chain.length - 2] ?? '';
+		if (!this.isIdentifierLike(receiver) || !this.isIdentifierLike(method))
+			return null;
+		if (ignoredReceivers.has(receiver)) return null;
+
+		const qualified = `${receiver}.${method}`;
+		if (!this.isQualifiedCallToken(qualified)) return null;
+
+		// Only emit receiver.method for:
+		// - deeper chains (foo.bar.baz → bar.baz), or
+		// - 2-segment chains where receiver looks "stable" (imported or Symbolish).
+		if (chain.length >= 3) return qualified;
+		if (importedReceivers.has(receiver) || this.isSymbolishIdentifier(receiver))
+			return qualified;
+		return null;
+	}
+
 	private extractCalleeText(node: Parser.SyntaxNode): string | null {
 		const direct =
 			node.childForFieldName('function') ??
@@ -1560,7 +1823,7 @@ export class Chunker {
 		if (raw.length <= 128) out.push(raw);
 
 		// Also include the last identifier-like segment for member/qualified calls.
-		const lastId = raw.match(/([A-Za-z_][A-Za-z0-9_]*)\s*$/);
+		const lastId = raw.match(/([A-Za-z_$][A-Za-z0-9_$]*)\s*$/);
 		if (lastId?.[1]) out.push(lastId[1]);
 
 		return this.uniqueStable(out);
@@ -1637,6 +1900,1027 @@ export class Chunker {
 		};
 	}
 
+	private extractRefsFromTree(
+		root: Parser.SyntaxNode,
+		lang: SupportedLanguage,
+		options: RefExtractionOptions,
+	): ExtractedRef[] {
+		const identifierMode = options.identifier_mode ?? 'symbolish';
+		const includeStringLiterals = options.include_string_literals ?? false;
+		const maxOccurrencesPerToken = options.max_occurrences_per_token ?? 0;
+
+		const excludeDefinitionNameRanges = this.collectDefinitionNameRanges(
+			root,
+			lang,
+		);
+
+		const importedReceivers = this.collectImportedReceiverNames(root, lang);
+
+		const refs: ExtractedRef[] = [];
+
+		const walk = (node: Parser.SyntaxNode) => {
+			if (this.isCommentNodeType(node.type)) return;
+
+			if (this.isImportNodeType(lang, node.type)) {
+				refs.push(...this.extractImportRefsFromNode(node, lang));
+				// JS/TS export_statement nodes can wrap real declarations (export function/class/const).
+				// We still want to traverse those to capture call refs inside bodies.
+				if (
+					(lang === 'javascript' || lang === 'typescript' || lang === 'tsx') &&
+					node.type === 'export_statement'
+				) {
+					const isReExport = node.childForFieldName('source') != null;
+					if (isReExport) return;
+				} else {
+					return;
+				}
+			}
+
+			if (this.isStringLiteralNodeType(node.type)) {
+				if (includeStringLiterals) {
+					const stripped = this.stripStringLiteral(node.text);
+					if (stripped && stripped.trim().length > 0) {
+						refs.push({
+							ref_kind: 'string_literal',
+							token_texts: [stripped.slice(0, 512)],
+							start_line: node.startPosition.row + 1,
+							end_line: node.endPosition.row + 1,
+							start_byte: node.startIndex,
+							end_byte: node.endIndex,
+							module_name: null,
+							imported_name: null,
+						});
+					}
+				}
+				// Avoid capturing identifiers from literal content, but still traverse into
+				// interpolations / substitutions (e.g., JS/TS template strings, Python f-strings).
+				if (node.namedChildCount > 0) {
+					for (let i = 0; i < node.namedChildCount; i++) {
+						const child = node.namedChild(i);
+						if (child) walk(child);
+					}
+				}
+				return;
+			}
+
+			if (this.isCallExpressionNodeType(node.type)) {
+				const calledNode = this.extractCalledNameNode(node);
+				const locNode = calledNode ?? node;
+				const base = (calledNode?.text ?? '').trim();
+				const qualified = this.extractQualifiedCallToken(
+					node,
+					importedReceivers,
+				);
+				const tokens = this.uniqueStable(
+					[base, qualified].filter(
+						(t): t is string =>
+							typeof t === 'string' &&
+							t.trim().length > 0 &&
+							(this.isIdentifierLike(t) || this.isQualifiedCallToken(t)),
+					),
+				);
+
+				if (tokens.length > 0) {
+					refs.push({
+						ref_kind: 'call',
+						token_texts: tokens,
+						start_line: locNode.startPosition.row + 1,
+						end_line: locNode.endPosition.row + 1,
+						start_byte: locNode.startIndex,
+						end_byte: locNode.endIndex,
+						module_name: null,
+						imported_name: null,
+					});
+				}
+			}
+
+			if (identifierMode !== 'none' && this.isIdentifierNodeType(node.type)) {
+				const text = node.text.trim();
+				if (
+					text &&
+					this.isIdentifierLike(text) &&
+					!excludeDefinitionNameRanges.has(
+						`${node.startIndex}|${node.endIndex}`,
+					)
+				) {
+					const shouldInclude =
+						identifierMode === 'all' || this.isSymbolishIdentifier(text);
+					if (shouldInclude) {
+						refs.push({
+							ref_kind: 'identifier',
+							token_texts: [text],
+							start_line: node.startPosition.row + 1,
+							end_line: node.endPosition.row + 1,
+							start_byte: node.startIndex,
+							end_byte: node.endIndex,
+							module_name: null,
+							imported_name: null,
+						});
+					}
+				}
+			}
+
+			for (let i = 0; i < node.namedChildCount; i++) {
+				const child = node.namedChild(i);
+				if (child) walk(child);
+			}
+		};
+
+		walk(root);
+
+		const deduped = this.dedupeRefs(refs);
+		return maxOccurrencesPerToken > 0
+			? this.limitRefsPerToken(deduped, maxOccurrencesPerToken)
+			: deduped;
+	}
+
+	private isImportNodeType(lang: SupportedLanguage, nodeType: string): boolean {
+		switch (lang) {
+			case 'javascript':
+			case 'typescript':
+			case 'tsx':
+				return (
+					nodeType === 'import_statement' || nodeType === 'export_statement'
+				);
+			case 'python':
+				return (
+					nodeType === 'import_statement' ||
+					nodeType === 'import_from_statement'
+				);
+			case 'go':
+				return nodeType === 'import_declaration';
+			case 'rust':
+				return (
+					nodeType === 'use_declaration' ||
+					nodeType === 'extern_crate_declaration'
+				);
+			case 'java':
+				return nodeType === 'import_declaration';
+			case 'csharp':
+				return nodeType === 'using_directive';
+			case 'kotlin':
+				return nodeType === 'import_header';
+			case 'swift':
+				return nodeType === 'import_declaration';
+			case 'php':
+				return (
+					nodeType === 'namespace_use_declaration' ||
+					nodeType === 'namespace_use_clause'
+				);
+			default:
+				return false;
+		}
+	}
+
+	private extractImportRefsFromNode(
+		node: Parser.SyntaxNode,
+		lang: SupportedLanguage,
+	): ExtractedRef[] {
+		if (lang === 'javascript' || lang === 'typescript' || lang === 'tsx') {
+			return this.extractImportRefsFromJsLikeNode(node);
+		}
+		if (lang === 'python') {
+			return this.extractImportRefsFromPythonNode(node);
+		}
+		if (lang === 'go') {
+			return this.extractImportRefsFromGoNode(node);
+		}
+		if (lang === 'rust') {
+			return this.extractImportRefsFromRustNode(node);
+		}
+		if (lang === 'java') {
+			return this.extractImportRefsFromJavaNode(node);
+		}
+		if (lang === 'csharp') {
+			return this.extractImportRefsFromCSharpNode(node);
+		}
+		if (lang === 'kotlin') {
+			return this.extractImportRefsFromKotlinNode(node);
+		}
+		if (lang === 'swift') {
+			return this.extractImportRefsFromSwiftNode(node);
+		}
+		if (lang === 'php') {
+			return this.extractImportRefsFromPhpNode(node);
+		}
+		return [];
+	}
+
+	private extractImportRefsFromJsLikeNode(
+		node: Parser.SyntaxNode,
+	): ExtractedRef[] {
+		const moduleNode =
+			node.childForFieldName('source') ?? this.findFirstStringLiteralNode(node);
+		const moduleRaw = moduleNode ? moduleNode.text : null;
+		const module_name = moduleRaw ? this.stripStringLiteral(moduleRaw) : null;
+		if (!module_name) return [];
+
+		const extractClauseNode = (): Parser.SyntaxNode | null => {
+			const byField =
+				node.childForFieldName('import_clause') ??
+				node.childForFieldName('export_clause') ??
+				node.childForFieldName('clause');
+			if (byField) return byField;
+			for (let i = 0; i < node.namedChildCount; i++) {
+				const child = node.namedChild(i);
+				if (!child) continue;
+				if (child.type === 'import_clause' || child.type === 'export_clause') {
+					return child;
+				}
+			}
+			return null;
+		};
+
+		const clauseNode = extractClauseNode();
+		if (!clauseNode) {
+			// Side-effect import: `import "x";`
+			if (node.type !== 'import_statement') return [];
+			return [
+				{
+					ref_kind: 'import',
+					token_texts: [module_name],
+					start_line: node.startPosition.row + 1,
+					end_line: node.endPosition.row + 1,
+					start_byte: node.startIndex,
+					end_byte: node.endIndex,
+					module_name,
+					imported_name: null,
+				},
+			];
+		}
+
+		const imports: Array<{imported: string; local: string}> = [];
+
+		// Default import: import Foo from "x"
+		const defaultName = clauseNode.childForFieldName('name');
+		if (defaultName && this.isIdentifierLike(defaultName.text.trim())) {
+			imports.push({imported: 'default', local: defaultName.text.trim()});
+		}
+
+		// Namespace import/export: import * as ns from "x" / export * as ns from "x"
+		const namespaceNodes: Parser.SyntaxNode[] = [];
+		const specifierNodes: Parser.SyntaxNode[] = [];
+
+		const visit = (n: Parser.SyntaxNode) => {
+			if (this.isCommentNodeType(n.type)) return;
+			if (n.type === 'namespace_import' || n.type === 'namespace_export') {
+				namespaceNodes.push(n);
+				return;
+			}
+			if (n.type === 'import_specifier' || n.type === 'export_specifier') {
+				specifierNodes.push(n);
+				return;
+			}
+			for (let i = 0; i < n.namedChildCount; i++) {
+				const child = n.namedChild(i);
+				if (child) visit(child);
+			}
+		};
+
+		visit(clauseNode);
+
+		for (const nsNode of namespaceNodes) {
+			const nameNode = nsNode.childForFieldName('name') ?? nsNode.namedChild(0);
+			const local = nameNode ? nameNode.text.trim() : '';
+			if (local && this.isIdentifierLike(local)) {
+				imports.push({imported: '*', local});
+			}
+		}
+
+		for (const spec of specifierNodes) {
+			const importedNode =
+				spec.childForFieldName('name') ??
+				spec.childForFieldName('property') ??
+				spec.childForFieldName('value') ??
+				spec.namedChild(0);
+			const aliasNode =
+				spec.childForFieldName('alias') ??
+				spec.childForFieldName('as') ??
+				spec.childForFieldName('exported') ??
+				(spec.namedChildCount > 1 ? spec.namedChild(1) : null);
+			const imported = importedNode ? importedNode.text.trim() : '';
+			const alias = aliasNode ? aliasNode.text.trim() : '';
+			if (!imported || !this.isIdentifierLike(imported)) continue;
+			if (alias && this.isIdentifierLike(alias)) {
+				imports.push({imported, local: alias});
+			} else {
+				imports.push({imported, local: imported});
+			}
+		}
+
+		// Fallback: text parsing (best-effort) for grammars that don't expose
+		// import/export clause shapes consistently.
+		if (imports.length === 0) {
+			const text = node.text.trim();
+			if (!text) return [];
+			const fromMatch = text.match(
+				/^\s*(?:import|export)\s+(?:type\s+)?([\s\S]+?)\s+from\s+['"][^'"]+['"]\s*;?\s*$/,
+			);
+			if (fromMatch?.[1]) {
+				const clause = fromMatch[1].trim();
+				imports.push(...this.parseJsImportClause(clause));
+			}
+		}
+
+		if (imports.length === 0) return [];
+
+		return imports.map(entry => ({
+			ref_kind: 'import',
+			token_texts: [entry.local],
+			start_line: node.startPosition.row + 1,
+			end_line: node.endPosition.row + 1,
+			start_byte: node.startIndex,
+			end_byte: node.endIndex,
+			module_name,
+			imported_name: entry.imported,
+		}));
+	}
+
+	private parseJsImportClause(
+		clause: string,
+	): Array<{imported: string; local: string}> {
+		const out: Array<{imported: string; local: string}> = [];
+		const trimmed = clause.trim();
+		if (!trimmed) return out;
+
+		const parseNamed = (segment: string) => {
+			const body = segment.replace(/^{\s*|\s*}$/g, '');
+			for (const raw of body.split(',')) {
+				const entry = raw.trim();
+				if (!entry) continue;
+
+				const cleaned = entry.replace(/^type\s+/, '').trim();
+				if (!cleaned) continue;
+
+				const asMatch = cleaned.match(
+					/^([A-Za-z_$][A-Za-z0-9_$]*)(?:\s+as\s+([A-Za-z_$][A-Za-z0-9_$]*))?$/,
+				);
+				if (!asMatch?.[1]) continue;
+				const imported = asMatch[1];
+				const local = asMatch[2] ?? imported;
+				out.push({imported, local});
+			}
+		};
+
+		const parseNamespace = (segment: string) => {
+			const nsMatch = segment.match(/^\*\s+as\s+([A-Za-z_$][A-Za-z0-9_$]*)$/);
+			if (nsMatch?.[1]) {
+				out.push({imported: '*', local: nsMatch[1]});
+			}
+		};
+
+		const parseDefault = (segment: string) => {
+			const defaultMatch = segment.match(/^([A-Za-z_$][A-Za-z0-9_$]*)$/);
+			if (defaultMatch?.[1]) {
+				out.push({imported: 'default', local: defaultMatch[1]});
+			}
+		};
+
+		// Named-only import: {a, b as c}
+		if (trimmed.startsWith('{')) {
+			parseNamed(trimmed);
+			return out;
+		}
+
+		// Namespace-only import: * as ns
+		if (trimmed.startsWith('*')) {
+			parseNamespace(trimmed);
+			return out;
+		}
+
+		const commaIndex = trimmed.indexOf(',');
+		if (commaIndex === -1) {
+			parseDefault(trimmed);
+			return out;
+		}
+
+		const defaultPart = trimmed.slice(0, commaIndex).trim();
+		const rest = trimmed.slice(commaIndex + 1).trim();
+		if (defaultPart) parseDefault(defaultPart);
+		if (!rest) return out;
+		if (rest.startsWith('{')) {
+			parseNamed(rest);
+			return out;
+		}
+		if (rest.startsWith('*')) {
+			parseNamespace(rest);
+		}
+
+		return out;
+	}
+
+	private extractImportRefsFromPythonNode(
+		node: Parser.SyntaxNode,
+	): ExtractedRef[] {
+		const lastSegment = (value: string): string => {
+			const trimmed = value.trim();
+			if (!trimmed) return '';
+			const parts = trimmed.split('.').filter(Boolean);
+			return parts.length > 0 ? parts[parts.length - 1]! : trimmed;
+		};
+
+		const build = (
+			localNode: Parser.SyntaxNode,
+			module_name: string,
+			imported_name: string,
+			token_text: string,
+		): ExtractedRef | null => {
+			const local = token_text.trim();
+			if (!local || !this.isIdentifierLike(local)) return null;
+			const imported = imported_name.trim();
+			return {
+				ref_kind: 'import',
+				token_texts: [local],
+				start_line: localNode.startPosition.row + 1,
+				end_line: localNode.endPosition.row + 1,
+				start_byte: localNode.startIndex,
+				end_byte: localNode.endIndex,
+				module_name: module_name.trim() || null,
+				imported_name: imported || null,
+			};
+		};
+
+		if (node.type === 'import_statement') {
+			const refs: ExtractedRef[] = [];
+
+			for (let i = 0; i < node.namedChildCount; i++) {
+				const child = node.namedChild(i);
+				if (!child) continue;
+				if (this.isCommentNodeType(child.type)) continue;
+
+				if (child.type === 'dotted_name') {
+					const module_name = child.text.trim();
+					if (!module_name) continue;
+					const imported = lastSegment(module_name);
+					const ref = build(child, module_name, imported, imported);
+					if (ref) refs.push(ref);
+					continue;
+				}
+
+				if (child.type === 'aliased_import') {
+					const nameNode = child.childForFieldName('name');
+					if (!nameNode) continue;
+					const module_name = nameNode.text.trim();
+					if (!module_name) continue;
+					const imported = lastSegment(module_name);
+
+					const aliasNode = child.childForFieldName('alias');
+					const token_text = aliasNode?.text?.trim() || imported;
+					const locNode = aliasNode ?? nameNode;
+					const ref = build(locNode, module_name, imported, token_text);
+					if (ref) refs.push(ref);
+					continue;
+				}
+			}
+
+			return refs;
+		}
+
+		if (node.type === 'import_from_statement') {
+			const moduleNode = node.childForFieldName('module_name');
+			if (!moduleNode) return [];
+			const module_name = moduleNode.text.trim();
+			if (!module_name) return [];
+
+			const refs: ExtractedRef[] = [];
+
+			for (let i = 0; i < node.namedChildCount; i++) {
+				const child = node.namedChild(i);
+				if (!child) continue;
+				if (child === moduleNode) continue;
+				if (this.isCommentNodeType(child.type)) continue;
+				if (child.type === 'wildcard_import') continue;
+
+				if (child.type === 'dotted_name') {
+					const importedPath = child.text.trim();
+					if (!importedPath) continue;
+					const imported = lastSegment(importedPath);
+					const ref = build(child, module_name, imported, imported);
+					if (ref) refs.push(ref);
+					continue;
+				}
+
+				if (child.type === 'aliased_import') {
+					const nameNode = child.childForFieldName('name');
+					if (!nameNode) continue;
+					const importedPath = nameNode.text.trim();
+					if (!importedPath) continue;
+					const imported = lastSegment(importedPath);
+
+					const aliasNode = child.childForFieldName('alias');
+					const token_text = aliasNode?.text?.trim() || imported;
+					const locNode = aliasNode ?? nameNode;
+					const ref = build(locNode, module_name, imported, token_text);
+					if (ref) refs.push(ref);
+					continue;
+				}
+			}
+
+			return refs;
+		}
+
+		return [];
+	}
+
+	private extractImportRefsFromGoNode(node: Parser.SyntaxNode): ExtractedRef[] {
+		const stringNodes = this.findStringLiteralNodes(node);
+		if (stringNodes.length === 0) return [];
+
+		const refs: ExtractedRef[] = [];
+		for (const s of stringNodes) {
+			const stripped = this.stripStringLiteral(s.text);
+			if (!stripped) continue;
+			const module_name = stripped.trim();
+			if (!module_name) continue;
+
+			const parent = s.parent;
+			const aliasNode = parent?.childForFieldName('name') ?? null;
+			const alias =
+				aliasNode && this.isIdentifierLike(aliasNode.text.trim())
+					? aliasNode.text.trim()
+					: null;
+
+			const imported = module_name.split('/').pop() ?? module_name;
+			const token_text = alias ?? imported;
+
+			refs.push({
+				ref_kind: 'import',
+				token_texts: [token_text],
+				start_line: (parent ?? s).startPosition.row + 1,
+				end_line: (parent ?? s).endPosition.row + 1,
+				start_byte: (parent ?? s).startIndex,
+				end_byte: (parent ?? s).endIndex,
+				module_name,
+				imported_name: imported,
+			});
+		}
+
+		return refs;
+	}
+
+	private extractImportRefsFromRustNode(
+		node: Parser.SyntaxNode,
+	): ExtractedRef[] {
+		const normalized = node.text.replace(/\s+/g, ' ').trim();
+		if (!normalized) return [];
+
+		if (normalized.startsWith('extern crate ')) {
+			const body = normalized
+				.replace(/^extern\s+crate\s+/, '')
+				.replace(/;\s*$/, '')
+				.trim();
+			const match = body.match(
+				/^([A-Za-z_][A-Za-z0-9_]*)(?:\s+as\s+([A-Za-z_][A-Za-z0-9_]*))?$/,
+			);
+			if (!match?.[1]) return [];
+			const module_name = match[1];
+			const token_text = match[2] ?? module_name;
+			return [
+				{
+					ref_kind: 'import',
+					token_texts: [token_text],
+					start_line: node.startPosition.row + 1,
+					end_line: node.endPosition.row + 1,
+					start_byte: node.startIndex,
+					end_byte: node.endIndex,
+					module_name,
+					imported_name: module_name,
+				},
+			];
+		}
+
+		if (!normalized.startsWith('use ')) return [];
+
+		const body = normalized
+			.replace(/^use\s+/, '')
+			.replace(/;\s*$/, '')
+			.trim();
+		if (!body) return [];
+
+		const refs: ExtractedRef[] = [];
+
+		const braceStart = body.indexOf('{');
+		const braceEnd = body.lastIndexOf('}');
+		const hasBraces = braceStart >= 0 && braceEnd > braceStart;
+
+		const prefix = hasBraces
+			? body
+					.slice(0, braceStart)
+					.replace(/::\s*$/, '')
+					.trim()
+			: body.split('::').slice(0, -1).join('::').trim();
+
+		const entriesPart = hasBraces
+			? body.slice(braceStart + 1, braceEnd).trim()
+			: body.split('::').pop()!.trim();
+
+		const entries = entriesPart
+			.split(',')
+			.map(e => e.trim())
+			.filter(Boolean)
+			.filter(e => e !== '*' && e !== 'self' && e !== 'super' && e !== 'crate');
+
+		for (const entry of entries) {
+			const cleaned = entry.replace(/^pub\s+/, '').trim();
+			if (!cleaned) continue;
+			const match = cleaned.match(
+				/^([A-Za-z_][A-Za-z0-9_]*)(?:\s+as\s+([A-Za-z_][A-Za-z0-9_]*))?$/,
+			);
+			if (!match?.[1]) continue;
+			const imported = match[1];
+			const local = match[2] ?? imported;
+			const module_name = prefix || body;
+
+			refs.push({
+				ref_kind: 'import',
+				token_texts: [local],
+				start_line: node.startPosition.row + 1,
+				end_line: node.endPosition.row + 1,
+				start_byte: node.startIndex,
+				end_byte: node.endIndex,
+				module_name,
+				imported_name: imported,
+			});
+		}
+
+		return refs;
+	}
+
+	private extractImportRefsFromJavaNode(
+		node: Parser.SyntaxNode,
+	): ExtractedRef[] {
+		const normalized = node.text.replace(/\s+/g, ' ').trim();
+		const match = normalized.match(
+			/^\s*import\s+(?:static\s+)?([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)(?:\.\*)?\s*;?\s*$/,
+		);
+		if (!match?.[1]) return [];
+		const module_name = match[1];
+		const imported = module_name.split('.').pop() ?? module_name;
+		return [
+			{
+				ref_kind: 'import',
+				token_texts: [imported],
+				start_line: node.startPosition.row + 1,
+				end_line: node.endPosition.row + 1,
+				start_byte: node.startIndex,
+				end_byte: node.endIndex,
+				module_name,
+				imported_name: imported,
+			},
+		];
+	}
+
+	private extractImportRefsFromCSharpNode(
+		node: Parser.SyntaxNode,
+	): ExtractedRef[] {
+		const normalized = node.text.replace(/\s+/g, ' ').trim();
+		if (!normalized.startsWith('using ')) return [];
+		const body = normalized
+			.replace(/^using\s+/, '')
+			.replace(/;\s*$/, '')
+			.trim();
+		if (!body) return [];
+
+		const aliasMatch = body.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)$/);
+		if (aliasMatch?.[1] && aliasMatch[2]) {
+			const token_text = aliasMatch[1];
+			const module_name = aliasMatch[2].trim();
+			const imported = module_name.split('.').pop() ?? module_name;
+			return [
+				{
+					ref_kind: 'import',
+					token_texts: [token_text],
+					start_line: node.startPosition.row + 1,
+					end_line: node.endPosition.row + 1,
+					start_byte: node.startIndex,
+					end_byte: node.endIndex,
+					module_name,
+					imported_name: imported,
+				},
+			];
+		}
+
+		const module_name = body.replace(/^static\s+/, '').trim();
+		const imported = module_name.split('.').pop() ?? module_name;
+		return [
+			{
+				ref_kind: 'import',
+				token_texts: [imported],
+				start_line: node.startPosition.row + 1,
+				end_line: node.endPosition.row + 1,
+				start_byte: node.startIndex,
+				end_byte: node.endIndex,
+				module_name,
+				imported_name: imported,
+			},
+		];
+	}
+
+	private extractImportRefsFromKotlinNode(
+		node: Parser.SyntaxNode,
+	): ExtractedRef[] {
+		const normalized = node.text.replace(/\s+/g, ' ').trim();
+		const match = normalized.match(
+			/^\s*import\s+([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)(?:\s+as\s+([A-Za-z_][A-Za-z0-9_]*))?\s*$/,
+		);
+		if (!match?.[1]) return [];
+		const module_name = match[1];
+		const imported = module_name.split('.').pop() ?? module_name;
+		const token_text = match[2] ?? imported;
+		return [
+			{
+				ref_kind: 'import',
+				token_texts: [token_text],
+				start_line: node.startPosition.row + 1,
+				end_line: node.endPosition.row + 1,
+				start_byte: node.startIndex,
+				end_byte: node.endIndex,
+				module_name,
+				imported_name: imported,
+			},
+		];
+	}
+
+	private extractImportRefsFromSwiftNode(
+		node: Parser.SyntaxNode,
+	): ExtractedRef[] {
+		const normalized = node.text.replace(/\s+/g, ' ').trim();
+		const match = normalized.match(/^\s*import\s+(.+?)\s*$/);
+		if (!match?.[1]) return [];
+		const module_name = match[1].replace(/^class\s+|^struct\s+/, '').trim();
+		if (!module_name) return [];
+		const imported = module_name.split('.').pop() ?? module_name;
+		return [
+			{
+				ref_kind: 'import',
+				token_texts: [imported],
+				start_line: node.startPosition.row + 1,
+				end_line: node.endPosition.row + 1,
+				start_byte: node.startIndex,
+				end_byte: node.endIndex,
+				module_name,
+				imported_name: imported,
+			},
+		];
+	}
+
+	private extractImportRefsFromPhpNode(
+		node: Parser.SyntaxNode,
+	): ExtractedRef[] {
+		const normalized = node.text.replace(/\s+/g, ' ').trim();
+		if (!normalized.startsWith('use ')) return [];
+
+		const body = normalized
+			.replace(/^use\s+/, '')
+			.replace(/;\s*$/, '')
+			.replace(/^function\s+/, '')
+			.replace(/^const\s+/, '')
+			.trim();
+		if (!body) return [];
+
+		const match = body.match(/^(.+?)(?:\s+as\s+([A-Za-z_][A-Za-z0-9_]*))?$/);
+		if (!match?.[1]) return [];
+
+		const module_name = match[1].trim();
+		const imported = module_name.split(/\\+/).pop() ?? module_name;
+		const token_text = match[2] ?? imported;
+
+		return [
+			{
+				ref_kind: 'import',
+				token_texts: [token_text],
+				start_line: node.startPosition.row + 1,
+				end_line: node.endPosition.row + 1,
+				start_byte: node.startIndex,
+				end_byte: node.endIndex,
+				module_name,
+				imported_name: imported,
+			},
+		];
+	}
+
+	private findFirstStringLiteralNode(
+		node: Parser.SyntaxNode,
+	): Parser.SyntaxNode | null {
+		let found: Parser.SyntaxNode | null = null;
+		const visit = (n: Parser.SyntaxNode) => {
+			if (found) return;
+			if (this.isCommentNodeType(n.type)) return;
+			if (this.isStringLiteralNodeType(n.type)) {
+				found = n;
+				return;
+			}
+			for (let i = 0; i < n.namedChildCount; i++) {
+				const child = n.namedChild(i);
+				if (child) visit(child);
+			}
+		};
+		visit(node);
+		return found;
+	}
+
+	private findStringLiteralNodes(node: Parser.SyntaxNode): Parser.SyntaxNode[] {
+		const found: Parser.SyntaxNode[] = [];
+		const visit = (n: Parser.SyntaxNode) => {
+			if (this.isCommentNodeType(n.type)) return;
+			if (this.isStringLiteralNodeType(n.type)) {
+				found.push(n);
+				return;
+			}
+			for (let i = 0; i < n.namedChildCount; i++) {
+				const child = n.namedChild(i);
+				if (child) visit(child);
+			}
+		};
+		visit(node);
+		return found;
+	}
+
+	private extractCalledNameNode(
+		callNode: Parser.SyntaxNode,
+	): Parser.SyntaxNode | null {
+		const callee =
+			callNode.childForFieldName('function') ??
+			callNode.childForFieldName('name') ??
+			callNode.childForFieldName('method') ??
+			callNode.childForFieldName('callee') ??
+			callNode.childForFieldName('target') ??
+			callNode.childForFieldName('macro') ??
+			callNode.childForFieldName('constructor') ??
+			(callNode.namedChildCount > 0 ? callNode.namedChild(0) : null);
+		if (!callee) return null;
+
+		if (this.isIdentifierNodeType(callee.type)) {
+			const text = callee.text.trim();
+			return this.isIdentifierLike(text) ? callee : null;
+		}
+
+		const property =
+			callee.childForFieldName('property') ??
+			callee.childForFieldName('field') ??
+			callee.childForFieldName('attribute') ??
+			callee.childForFieldName('name') ??
+			callee.childForFieldName('method');
+		if (property) {
+			const text = property.text.trim();
+			if (this.isIdentifierLike(text)) return property;
+		}
+
+		return this.findRightmostIdentifierNode(callee);
+	}
+
+	private findRightmostIdentifierNode(
+		node: Parser.SyntaxNode,
+	): Parser.SyntaxNode | null {
+		let last: Parser.SyntaxNode | null = null;
+		const visit = (n: Parser.SyntaxNode) => {
+			if (this.isCommentNodeType(n.type)) return;
+			if (this.isStringLiteralNodeType(n.type)) return;
+			for (let i = 0; i < n.namedChildCount; i++) {
+				const child = n.namedChild(i);
+				if (child) visit(child);
+			}
+			if (this.isIdentifierNodeType(n.type)) {
+				const text = n.text.trim();
+				if (this.isIdentifierLike(text)) {
+					last = n;
+				}
+			}
+		};
+		visit(node);
+		return last;
+	}
+
+	private collectDefinitionNameRanges(
+		root: Parser.SyntaxNode,
+		lang: SupportedLanguage,
+	): Set<string> {
+		const out = new Set<string>();
+
+		const isDefinitionNode = (nodeType: string) =>
+			CLASS_NODE_TYPES[lang].includes(nodeType) ||
+			FUNCTION_NODE_TYPES[lang].includes(nodeType) ||
+			METHOD_NODE_TYPES[lang].includes(nodeType);
+
+		const walk = (node: Parser.SyntaxNode) => {
+			if (this.isCommentNodeType(node.type)) return;
+
+			if (isDefinitionNode(node.type)) {
+				const nameNode = this.extractNameNode(node, lang);
+				if (nameNode) {
+					out.add(`${nameNode.startIndex}|${nameNode.endIndex}`);
+				}
+			}
+
+			for (let i = 0; i < node.namedChildCount; i++) {
+				const child = node.namedChild(i);
+				if (child) walk(child);
+			}
+		};
+
+		walk(root);
+		return out;
+	}
+
+	private isSymbolishIdentifier(text: string): boolean {
+		if (text.length < 2) return false;
+		if (/^[A-Z][A-Z0-9_]+$/.test(text)) return true; // SCREAMING_SNAKE_CASE
+		return /^[A-Z][A-Za-z0-9]*$/.test(text); // PascalCase (best-effort)
+	}
+
+	private dedupeRefs(refs: ExtractedRef[]): ExtractedRef[] {
+		const priority = (kind: ExtractedRef['ref_kind']): number => {
+			switch (kind) {
+				case 'import':
+					return 4;
+				case 'call':
+					return 3;
+				case 'identifier':
+					return 2;
+				case 'string_literal':
+					return 1;
+				default:
+					return 0;
+			}
+		};
+
+		const mergeTokenTexts = (base: string[], extra: string[]): string[] => {
+			if (extra.length === 0) return base;
+			const seen = new Set(base);
+			const out = [...base];
+			for (const t of extra) {
+				if (!t) continue;
+				if (seen.has(t)) continue;
+				seen.add(t);
+				out.push(t);
+			}
+			return out;
+		};
+
+		const byKey = new Map<string, {ref: ExtractedRef; order: number}>();
+		for (let i = 0; i < refs.length; i++) {
+			const ref = refs[i]!;
+			const primary = ref.token_texts[0] ?? '';
+			const key = `${ref.start_byte ?? ''}|${ref.end_byte ?? ''}|${primary}`;
+			const existing = byKey.get(key);
+			if (!existing) {
+				byKey.set(key, {ref, order: i});
+				continue;
+			}
+
+			const existingPriority = priority(existing.ref.ref_kind);
+			const nextPriority = priority(ref.ref_kind);
+
+			if (nextPriority > existingPriority) {
+				byKey.set(key, {
+					ref: {
+						...ref,
+						token_texts: mergeTokenTexts(
+							ref.token_texts,
+							existing.ref.token_texts,
+						),
+					},
+					order: existing.order,
+				});
+			} else if (nextPriority === existingPriority) {
+				byKey.set(key, {
+					ref: {
+						...existing.ref,
+						token_texts: mergeTokenTexts(
+							existing.ref.token_texts,
+							ref.token_texts,
+						),
+					},
+					order: existing.order,
+				});
+			}
+		}
+
+		return [...byKey.values()]
+			.sort((a, b) => a.order - b.order)
+			.map(v => v.ref);
+	}
+
+	private limitRefsPerToken(
+		refs: ExtractedRef[],
+		maxPerToken: number,
+	): ExtractedRef[] {
+		if (maxPerToken <= 0) return refs;
+		const counts = new Map<string, number>();
+		const out: ExtractedRef[] = [];
+
+		for (const ref of refs) {
+			const primary = ref.token_texts[0] ?? '';
+			const key = `${ref.ref_kind}|${primary}`;
+			const prev = counts.get(key) ?? 0;
+			if (prev >= maxPerToken) continue;
+			counts.set(key, prev + 1);
+			out.push(ref);
+		}
+
+		return out;
+	}
+
 	private extractFallbackTokenFacts(text: string): TokenFacts {
 		const identifiers: string[] = [];
 		const stringLiterals: string[] = [];
@@ -1668,14 +2952,14 @@ export class Chunker {
 	/**
 	 * Extract the name of a function/class/method from its node.
 	 */
-	private extractName(
+	private extractNameNode(
 		node: Parser.SyntaxNode,
 		_lang: SupportedLanguage,
-	): string {
+	): Parser.SyntaxNode | null {
 		// Try to get name via field first (works for many languages)
 		const nameField = node.childForFieldName('name');
 		if (nameField) {
-			return nameField.text;
+			return nameField;
 		}
 
 		// Look for common identifier node types
@@ -1690,19 +2974,19 @@ export class Chunker {
 				child.type === 'simple_identifier' || // Kotlin, Swift
 				child.type === 'type_identifier' // Rust, Go struct types
 			) {
-				return child.text;
+				return child;
 			}
 
 			// JS/TS method names
 			if (child.type === 'property_identifier') {
-				return child.text;
+				return child;
 			}
 
 			// Go type declarations (type Foo struct { })
 			if (child.type === 'type_spec') {
 				const specName = child.childForFieldName('name');
 				if (specName) {
-					return specName.text;
+					return specName;
 				}
 			}
 		}
@@ -1711,11 +2995,11 @@ export class Chunker {
 		if (node.parent?.type === 'variable_declarator') {
 			const varName = node.parent.childForFieldName('name');
 			if (varName) {
-				return varName.text;
+				return varName;
 			}
 		}
 
-		// For Rust impl blocks, try to get the type name
+		// For Rust impl blocks, try to get the type identifier node.
 		if (node.type === 'impl_item') {
 			const typeNode = node.childForFieldName('type');
 			if (typeNode) {
@@ -1724,12 +3008,26 @@ export class Chunker {
 					'identifier',
 				]);
 				if (typeId) {
-					return `impl ${typeId.text}`;
+					return typeId;
 				}
 			}
 		}
 
-		return '';
+		return null;
+	}
+
+	private extractName(
+		node: Parser.SyntaxNode,
+		_lang: SupportedLanguage,
+	): string {
+		const nameNode = this.extractNameNode(node, _lang);
+		if (!nameNode) return '';
+
+		if (node.type === 'impl_item') {
+			return `impl ${nameNode.text}`;
+		}
+
+		return nameNode.text;
 	}
 
 	/**

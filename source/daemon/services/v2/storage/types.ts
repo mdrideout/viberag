@@ -117,7 +117,7 @@ export type V2RefRow = {
 	start_byte: number | null;
 	end_byte: number | null;
 	ref_kind: V2RefKind | string;
-	token_text: string;
+	token_texts: string[];
 	context_snippet: string;
 	module_name: string | null;
 	imported_name: string | null;

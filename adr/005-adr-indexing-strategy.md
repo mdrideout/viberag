@@ -270,11 +270,12 @@ Search v2 stores deterministic occurrences as refs (usages) without attempting
 full cross-language resolution:
 
 ```
-| ref_kind       | token_text   | filepath        | line |
-|----------------|--------------|-----------------|------|
-| import         | UserService  | src/api/auth.ts | 3    |
-| identifier     | UserService  | src/api/auth.ts | 45   |
-| string_literal | Invalid ID   | src/api/auth.ts | 12   |
+| ref_kind       | token_texts                      | filepath        | line |
+|----------------|----------------------------------|-----------------|------|
+| import         | ["UserService"]                  | src/api/auth.ts | 3    |
+| identifier     | ["UserService"]                  | src/api/auth.ts | 45   |
+| call           | ["getUser", "Endpoints.getUser"] | src/api/auth.ts | 51   |
+| string_literal | ["Invalid ID"]                   | src/api/auth.ts | 12   |
 ```
 
 These are **facts** (observations), not interpretations. Agents can group refs,

@@ -683,7 +683,7 @@ describe('MCP Server', () => {
 
 			expect(data.resolved.symbol_name).toBe('HttpClient');
 			const file = data.by_file.find(f =>
-				f.file_path.includes('http_client.ts'),
+				f.file_path.includes('src/services/http.ts'),
 			);
 			expect(file).toBeDefined();
 			expect(file!.refs.some(r => r.token_text === 'HttpClient')).toBe(true);
