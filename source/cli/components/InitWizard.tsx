@@ -52,6 +52,7 @@ const API_KEY_URLS: Record<CloudProvider, string> = {
 };
 
 type SelectItem<T> = {
+	key?: string;
 	label: string;
 	value: T;
 };
@@ -596,6 +597,7 @@ export function InitWizard({
 
 									if (hasExistingKeyForProvider && existingApiKeyId) {
 										items.push({
+											key: `existing:${existingApiKeyId}`,
 											label: 'Keep current key',
 											value: {kind: 'existing', keyId: existingApiKeyId},
 										});
@@ -605,6 +607,7 @@ export function InitWizard({
 									for (const key of availableKeys ?? []) {
 										if (seen.has(key.id)) continue;
 										items.push({
+											key: `existing:${key.id}`,
 											label: `${key.label} (${key.preview})`,
 											value: {kind: 'existing', keyId: key.id},
 										});
@@ -612,6 +615,7 @@ export function InitWizard({
 									}
 
 									items.push({
+										key: 'new',
 										label: 'Add new API key',
 										value: {kind: 'new'},
 									});
