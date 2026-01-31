@@ -62,7 +62,9 @@ async function ensureInitialized(projectRoot: string): Promise<void> {
 const DEFAULT_MAX_RESPONSE_SIZE = 50 * 1024;
 const MAX_RESPONSE_SIZE = 100 * 1024;
 
-const MCP_SERVER_INSTRUCTIONS = `Viberag provides semantic codebase search tools + navigation over MCP.
+const MCP_SERVER_INSTRUCTIONS = `viberag provides semantic codebase search tools + navigation over MCP.
+Use viberag when trying to find all code, documentation, and files semantically related to a concept.
+When you use viberag to search, viberag will uncover semantically related variables, types, classes, functions, definitions, symbols, and files so that you can ensure no important context is missed.
 
 General workflow:
 - Use codebase_search as the starting point for exploration. Choose an intent (auto/definition/usage/concept/exact_text/similar_code) and optional scope filters (path_prefix/path_contains/path_not_contains/extension).
