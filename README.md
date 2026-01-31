@@ -132,6 +132,8 @@ The following sections describe manual MCP server setup configurations for vario
 claude mcp add viberag -- npx viberag-mcp
 ```
 
+> **Tool Search:** Claude Code supports MCP Tool Search (beta) to discover MCP tools on-demand when many tools are installed. It is enabled by default; to force-enable set `ENABLE_TOOL_SEARCH=true` when launching `claude`.
+
 **Global Config:** `~/.claude.json`
 
 ```json

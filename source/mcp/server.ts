@@ -62,6 +62,14 @@ async function ensureInitialized(projectRoot: string): Promise<void> {
 const DEFAULT_MAX_RESPONSE_SIZE = 50 * 1024;
 const MAX_RESPONSE_SIZE = 100 * 1024;
 
+const MCP_SERVER_INSTRUCTIONS = `Viberag provides semantic codebase search tools + navigation over MCP.
+
+General workflow:
+- Use codebase_search as the starting point for exploration. Choose an intent (auto/definition/usage/concept/exact_text/similar_code) and optional scope filters (path_prefix/path_contains/path_not_contains/extension).
+- Use get_symbol_details(symbol_id) to fetch full definitions, find_references to locate usages, get_surrounding_code to expand context around a hit, and read_file_lines for raw source when you need exact lines.
+- If errors or not initialized, call get_status to check if "not_initialized" or "not_indexed", ask the user to run "npx viberag" in the project and complete /init, then call build_index.
+`;
+
 function estimateJsonSize(value: unknown): number {
 	return Buffer.byteLength(JSON.stringify(value), 'utf8');
 }
@@ -115,6 +123,7 @@ export function createMcpServer(projectRoot: string): McpServerWithDaemon {
 	const server = new FastMCP({
 		name: 'viberag',
 		version: pkg.version,
+		instructions: MCP_SERVER_INSTRUCTIONS,
 	});
 
 	const client = new DaemonClient(projectRoot);
@@ -189,10 +198,30 @@ export function createMcpServer(projectRoot: string): McpServerWithDaemon {
 
 	const scopeSchema = z
 		.object({
-			path_prefix: z.array(z.string()).optional(),
-			path_contains: z.array(z.string()).optional(),
-			path_not_contains: z.array(z.string()).optional(),
-			extension: z.array(z.string()).optional(),
+			path_prefix: z
+				.array(z.string())
+				.optional()
+				.describe(
+					'Only include paths that start with any of these prefixes (project-relative). Example: ["src/"]. Avoiding when exploring and trying to find all related files.',
+				),
+			path_contains: z
+				.array(z.string())
+				.optional()
+				.describe(
+					'Only include paths that contain any of these substrings. Example: ["components/"]. Avoiding when exploring and trying to find all related files.',
+				),
+			path_not_contains: z
+				.array(z.string())
+				.optional()
+				.describe(
+					'Exclude paths that contain any of these substrings. Example: ["node_modules/"]. Avoiding when exploring and trying to find all related files.',
+				),
+			extension: z
+				.array(z.string())
+				.optional()
+				.describe(
+					'Only include files with these extensions (including the dot). Example: [".ts", ".tsx"]. Avoiding when exploring and trying to find all related files.',
+				),
 		})
 		.optional();
 
