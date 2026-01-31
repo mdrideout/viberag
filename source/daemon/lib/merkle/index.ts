@@ -93,7 +93,7 @@ export class MerkleTree {
 	 *
 	 * @param projectRoot - Absolute path to project root
 	 * @param extensions - File extensions to include (e.g., [".py", ".ts"]), or empty for all
-	 * @param _excludePatterns - DEPRECATED: Use .gitignore instead. This parameter is ignored.
+	 * @param _excludePatterns - DEPRECATED: Use .gitignore/.viberagignore instead. This parameter is ignored.
 	 * @param previousTree - Previous tree for mtime optimization
 	 */
 	static async build(
@@ -122,7 +122,7 @@ export class MerkleTree {
 			filesSkipped: 0,
 		};
 
-		// Load gitignore rules for both fast-glob (upfront filtering) and post-filtering
+		// Load ignore rules (.gitignore + .viberagignore) for both fast-glob (upfront filtering) and post-filtering
 		const [gitignore, globIgnorePatterns] = await Promise.all([
 			loadGitignore(projectRoot),
 			getGlobIgnorePatterns(projectRoot),

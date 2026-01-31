@@ -51,7 +51,7 @@ When using a coding agent like [Claude Code](https://claude.ai/code), add `use v
 - **Agent-first search** - Find definitions, entry files, and relevant blocks (not just “chunks”)
 - **Flexible embeddings** - Local model (offline, free) or cloud providers (Gemini, Mistral, OpenAI)
 - **MCP server** - Works with Claude Code, Cursor, VS Code Copilot, and more
-- **Automatic incremental indexing** - Watches for file changes (respects `.gitignore`) and reindexes only what has changed in real time
+- **Automatic incremental indexing** - Watches for file changes (respects `.gitignore` + `.viberagignore`) and reindexes only what has changed in real time
 - **Cancelable indexing** - Supports `/cancel` and clear status reporting via `/status`
 - **Multi-language support** - TypeScript, JavaScript, Python, Go, Rust, and more
 - **Blazing fast** - The data storage and search functionality is local on your machine, meaning the full power of your machine can churn through massive amounts of data and execute complex search queries in milliseconds.
@@ -518,6 +518,30 @@ VibeRAG stores all per-project state (config, index, logs) globally under:
 
 No files are written into your repo.
 
+## Ignoring Files
+
+VibeRAG uses `.gitignore` rules to exclude files and folders from indexing. For
+non-git projects (or for additional ignore patterns), you can create a
+`.viberagignore` file in the project root.
+
+- `.viberagignore` uses the exact same pattern syntax as `.gitignore`
+- It is applied in addition to `.gitignore` (if present)
+
+Example `.viberagignore`:
+
+```gitignore
+# build outputs
+dist/
+build/
+
+# local artifacts
+coverage/
+tmp/
+
+# generated bundles
+**/*.min.js
+```
+
 ## Logs
 
 VibeRAG writes per-service logs with hourly rotation:
@@ -685,9 +709,9 @@ Example sequence:
 
 ### Watcher EMFILE (too many open files)
 
-Large repos can exceed OS watch limits. The watcher now honors `.gitignore`, but if you still see EMFILE:
+Large repos can exceed OS watch limits. The watcher honors `.gitignore` and `.viberagignore`, but if you still see EMFILE:
 
-- Add more ignores in `.gitignore` to reduce watched files.
+- Add more ignores in `.gitignore` or `.viberagignore` to reduce watched files.
 - Increase OS limits:
   - macOS: raise `kern.maxfiles`, `kern.maxfilesperproc`, and `ulimit -n`
   - Linux: raise `fs.inotify.max_user_watches`, `fs.inotify.max_user_instances`, and `ulimit -n`

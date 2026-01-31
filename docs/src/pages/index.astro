@@ -742,14 +742,14 @@ const LANGUAGES = [
 	        </div>
 	    </section>
 
-    <!-- Embedding Options Section -->
-    <section class="py-24 bg-[#090b11] border-b border-slate-900">
-      <div class="container mx-auto px-6 text-center max-w-4xl mx-auto mb-16">
-          <h2 class="text-3xl md:text-5xl font-bold text-white mb-6">Flexible Embedding Models</h2>
-          <p class="text-slate-400 text-lg">
-              Choose between complete privacy or state-of-the-art cloud performance. Viberag adapts to your security requirements.
-          </p>
-      </div>
+	    <!-- Embedding Options Section -->
+	    <section class="py-24 bg-[#090b11] border-b border-slate-900">
+	      <div class="container mx-auto px-6 text-center max-w-4xl mx-auto mb-16">
+	          <h2 class="text-3xl md:text-5xl font-bold text-white mb-6">Flexible Embedding Models</h2>
+	          <p class="text-slate-400 text-lg">
+	              Choose between complete privacy or state-of-the-art cloud performance. Viberag adapts to your security requirements.
+	          </p>
+	      </div>
 
       <div class="container mx-auto px-6 grid md:grid-cols-2 gap-8 max-w-5xl">
           <!-- Local Option -->
@@ -809,9 +809,42 @@ const LANGUAGES = [
                   </li>
               </ul>
           </div>
-      </div>
-    </section>
-    </main>
+	      </div>
+	    </section>
+
+	    <!-- Ignore Files Section -->
+	    <section class="py-24 bg-[#020617] border-b border-slate-900">
+	      <div class="container mx-auto px-6">
+	          <div class="text-center mb-12 max-w-4xl mx-auto">
+	              <div class="inline-flex items-center gap-2 text-[#00D9FF] font-bold mb-4 uppercase tracking-wider text-sm">
+	                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m2 0a2 2 0 012 2v5a2 2 0 01-2 2H7a2 2 0 01-2-2v-5a2 2 0 012-2m3-9h4a2 2 0 012 2v3H8V5a2 2 0 012-2z"></path></svg>
+	                  Index Control
+	              </div>
+	              <h2 class="text-3xl md:text-5xl font-bold text-white mb-6">Control What Gets Indexed</h2>
+	              <p class="text-slate-400 text-lg leading-relaxed">
+	                  Viberag respects <span class="text-white font-mono">.gitignore</span> automatically. For non-git projects (or extra exclusions), add a <span class="text-white font-mono">.viberagignore</span> file in your project root.
+	                  It uses the exact same pattern syntax as <span class="text-white font-mono">.gitignore</span>.
+	              </p>
+	          </div>
+
+	          <div class="max-w-4xl mx-auto">
+	              <div class="bg-slate-950 border border-slate-800 rounded-xl p-6">
+	                  <div class="text-slate-500 text-xs font-mono uppercase tracking-wider mb-3">.viberagignore</div>
+	                  <pre class="text-sm text-slate-200 overflow-x-auto leading-relaxed"><code># build outputs
+dist/
+build/
+
+# local artifacts
+coverage/
+tmp/
+
+# generated bundles
+**/*.min.js</code></pre>
+	              </div>
+	          </div>
+	      </div>
+	    </section>
+	    </main>
 
     <!-- Footer -->
     <footer class="border-t border-slate-900 py-12 bg-[#05060a]">

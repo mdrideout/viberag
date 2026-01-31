@@ -109,9 +109,9 @@ export const DEFAULT_CONFIG: ViberagConfig = {
 	embeddingDimensions: PROVIDER_CONFIGS['gemini'].dimensions,
 	// Extensions to index. Empty array = index ALL text files (recommended).
 	// Binary files are automatically detected and skipped.
-	// Use .gitignore for exclusions.
+	// Use .gitignore and/or .viberagignore for exclusions.
 	extensions: [],
-	// DEPRECATED: Use .gitignore instead. This field is ignored.
+	// DEPRECATED: Use .gitignore/.viberagignore instead. This field is ignored.
 	excludePatterns: [],
 	chunkMaxSize: 2000,
 	watchDebounceMs: 500,

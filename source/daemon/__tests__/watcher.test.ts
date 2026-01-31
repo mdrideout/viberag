@@ -105,4 +105,42 @@ describe('FileWatcher', () => {
 		await waitForFs(200);
 		expect(indexCalls).toBeGreaterThan(0);
 	});
+
+	it('reloads .viberagignore and ignores newly listed files', async () => {
+		await fs.writeFile(
+			path.join(ctx.projectRoot, '.viberagignore'),
+			'ignored.txt\n',
+		);
+
+		watcher = new FileWatcher(ctx.projectRoot);
+		let indexCalls = 0;
+		watcher.setIndexTrigger(async () => {
+			indexCalls += 1;
+			return {chunksAdded: 0, chunksDeleted: 0};
+		});
+
+		await watcher.start();
+		await waitForFs(200);
+		indexCalls = 0;
+
+		await addFile(ctx.projectRoot, 'ignored.txt', 'ignore me');
+		await waitForFs(200);
+		expect(indexCalls).toBe(0);
+
+		await modifyFile(
+			ctx.projectRoot,
+			'.viberagignore',
+			'ignored.txt\ndynamic.txt\n',
+		);
+		await waitForFs(200);
+		indexCalls = 0;
+
+		await addFile(ctx.projectRoot, 'dynamic.txt', 'also ignore');
+		await waitForFs(200);
+		expect(indexCalls).toBe(0);
+
+		await addFile(ctx.projectRoot, 'tracked.txt', 'track me');
+		await waitForFs(200);
+		expect(indexCalls).toBeGreaterThan(0);
+	});
 });

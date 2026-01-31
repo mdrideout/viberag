@@ -4,6 +4,8 @@
  */
 
 import {describe, it, expect, beforeEach, afterEach} from 'vitest';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import {MerkleTree} from '../lib/merkle/index.js';
 import type {MerkleNode} from '../lib/merkle/node.js';
 import {
@@ -66,6 +68,22 @@ describe('MerkleTree', () => {
 			expect(
 				allFiles.some(f => f.includes('src/components/forms/LoginForm.tsx')),
 			).toBe(true);
+		});
+
+		it('respects .viberagignore patterns', async () => {
+			await fs.writeFile(
+				path.join(ctx.projectRoot, '.viberagignore'),
+				'math.py\n',
+			);
+
+			const tree = await MerkleTree.build(
+				ctx.projectRoot,
+				['.ts', '.tsx', '.js', '.py'],
+				[],
+			);
+
+			const allFiles = collectFiles(tree.root);
+			expect(allFiles.includes('math.py')).toBe(false);
 		});
 
 		it('populates directory children correctly', async () => {

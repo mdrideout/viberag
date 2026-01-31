@@ -1,7 +1,7 @@
 /**
- * Gitignore - File filtering based on .gitignore patterns.
+ * Gitignore - File filtering based on .gitignore-style patterns.
  *
- * Uses the `ignore` package to parse .gitignore files and filter paths.
+ * Uses the `ignore` package to parse .gitignore and .viberagignore files and filter paths.
  * This replaces the hardcoded excludePatterns approach.
  */
 
@@ -37,6 +37,9 @@ export const ALWAYS_IGNORED_DIRS = [
 	'.viberag',
 	'node_modules', // Fallback in case not in .gitignore
 ];
+
+export const GITIGNORE_FILENAME = '.gitignore';
+export const VIBERAGIGNORE_FILENAME = '.viberagignore';
 
 /**
  * Lock files that should always be ignored.
@@ -90,7 +93,8 @@ const ALWAYS_IGNORED_PATTERNS = [
  */
 type GitignoreCacheEntry = {
 	ignore: Ignore;
-	mtimeMs: number | null;
+	gitignoreMtimeMs: number | null;
+	viberagignoreMtimeMs: number | null;
 };
 
 const ignoreCache = new Map<string, GitignoreCacheEntry>();
@@ -107,8 +111,11 @@ const ignoreCache = new Map<string, GitignoreCacheEntry>();
  * @returns Ignore instance for filtering
  */
 export async function loadGitignore(projectRoot: string): Promise<Ignore> {
-	const gitignorePath = path.join(projectRoot, '.gitignore');
+	const gitignorePath = path.join(projectRoot, GITIGNORE_FILENAME);
+	const viberagignorePath = path.join(projectRoot, VIBERAGIGNORE_FILENAME);
+
 	let gitignoreMtime: number | null = null;
+	let viberagignoreMtime: number | null = null;
 	try {
 		const stats = await fs.stat(gitignorePath);
 		gitignoreMtime = stats.mtimeMs;
@@ -116,9 +123,20 @@ export async function loadGitignore(projectRoot: string): Promise<Ignore> {
 		// .gitignore doesn't exist, treat as no file
 	}
 
+	try {
+		const stats = await fs.stat(viberagignorePath);
+		viberagignoreMtime = stats.mtimeMs;
+	} catch {
+		// .viberagignore doesn't exist, treat as no file
+	}
+
 	// Check cache first
 	const cached = ignoreCache.get(projectRoot);
-	if (cached && cached.mtimeMs === gitignoreMtime) {
+	if (
+		cached &&
+		cached.gitignoreMtimeMs === gitignoreMtime &&
+		cached.viberagignoreMtimeMs === viberagignoreMtime
+	) {
 		return cached.ignore;
 	}
 
@@ -143,8 +161,22 @@ export async function loadGitignore(projectRoot: string): Promise<Ignore> {
 		}
 	}
 
+	// Try to load .viberagignore (additional patterns for non-git repos or extra exclusions)
+	if (viberagignoreMtime !== null) {
+		try {
+			const content = await fs.readFile(viberagignorePath, 'utf-8');
+			ig.add(content);
+		} catch {
+			// .viberagignore exists but can't be read, ignore
+		}
+	}
+
 	// Cache the instance
-	ignoreCache.set(projectRoot, {ignore: ig, mtimeMs: gitignoreMtime});
+	ignoreCache.set(projectRoot, {
+		ignore: ig,
+		gitignoreMtimeMs: gitignoreMtime,
+		viberagignoreMtimeMs: viberagignoreMtime,
+	});
 
 	return ig;
 }
@@ -231,34 +263,38 @@ export async function getGlobIgnorePatterns(
 		patterns.push(`**/${pattern}`);
 	}
 
-	// Try to load .gitignore
-	const gitignorePath = path.join(projectRoot, '.gitignore');
-	try {
-		const content = await fs.readFile(gitignorePath, 'utf-8');
-		const lines = content.split('\n');
+	const addIgnoreFilePatterns = async (ignorePath: string): Promise<void> => {
+		try {
+			const content = await fs.readFile(ignorePath, 'utf-8');
+			const lines = content.split('\n');
 
-		for (const line of lines) {
-			const trimmed = line.trim();
+			for (const line of lines) {
+				const trimmed = line.trim();
 
-			// Skip empty lines and comments
-			if (!trimmed || trimmed.startsWith('#')) {
-				continue;
+				// Skip empty lines and comments
+				if (!trimmed || trimmed.startsWith('#')) {
+					continue;
+				}
+
+				// Skip negation patterns (fast-glob handles these differently)
+				if (trimmed.startsWith('!')) {
+					continue;
+				}
+
+				// Convert gitignore pattern to fast-glob pattern
+				const globPattern = gitignoreToGlob(trimmed);
+				if (globPattern) {
+					patterns.push(globPattern);
+				}
 			}
-
-			// Skip negation patterns (fast-glob handles these differently)
-			if (trimmed.startsWith('!')) {
-				continue;
-			}
-
-			// Convert gitignore pattern to fast-glob pattern
-			const globPattern = gitignoreToGlob(trimmed);
-			if (globPattern) {
-				patterns.push(globPattern);
-			}
+		} catch {
+			// Ignore file doesn't exist, that's fine
 		}
-	} catch {
-		// .gitignore doesn't exist, that's fine
-	}
+	};
+
+	// Load ignore patterns from both .gitignore and .viberagignore
+	await addIgnoreFilePatterns(path.join(projectRoot, GITIGNORE_FILENAME));
+	await addIgnoreFilePatterns(path.join(projectRoot, VIBERAGIGNORE_FILENAME));
 
 	return patterns;
 }

@@ -252,6 +252,12 @@ export class FileWatcher extends TypedEmitter<WatcherEvents> {
 				return false;
 			}
 
+			// Always watch ignore files so we can reload rules on changes,
+			// even if ignore patterns would otherwise exclude them.
+			if (relativePath === '.gitignore' || relativePath === '.viberagignore') {
+				return false;
+			}
+
 			for (const dir of ALWAYS_IGNORED_DIRS) {
 				if (
 					relativePath === dir ||
@@ -450,14 +456,15 @@ export class FileWatcher extends TypedEmitter<WatcherEvents> {
 		}
 
 		const normalizedPath = relativePath;
-		const isGitignore = normalizedPath === '.gitignore';
+		const isIgnoreFile =
+			normalizedPath === '.gitignore' || normalizedPath === '.viberagignore';
 
-		if (isGitignore) {
+		if (isIgnoreFile) {
 			this.reloadGitignore();
 		}
 
 		// Skip if path is ignored by gitignore
-		if (!isGitignore && this.gitignore.ignores(normalizedPath)) {
+		if (!isIgnoreFile && this.gitignore.ignores(normalizedPath)) {
 			return;
 		}
 
@@ -465,7 +472,7 @@ export class FileWatcher extends TypedEmitter<WatcherEvents> {
 		if (
 			event !== 'unlink' &&
 			this.config.extensions.length > 0 &&
-			!isGitignore &&
+			!isIgnoreFile &&
 			!hasValidExtension(normalizedPath, this.config.extensions)
 		) {
 			return;
@@ -622,7 +629,7 @@ export class FileWatcher extends TypedEmitter<WatcherEvents> {
 	}
 
 	/**
-	 * Reload gitignore rules when .gitignore changes.
+	 * Reload ignore rules when .gitignore or .viberagignore changes.
 	 */
 	private reloadGitignore(): void {
 		if (this.gitignoreReloadPromise) {
@@ -632,11 +639,11 @@ export class FileWatcher extends TypedEmitter<WatcherEvents> {
 		this.gitignoreReloadPromise = (async () => {
 			clearGitignoreCache(this.projectRoot);
 			this.gitignore = await loadGitignore(this.projectRoot);
-			this.log('info', 'Reloaded .gitignore rules');
+			this.log('info', 'Reloaded ignore rules');
 		})()
 			.catch(error => {
 				const message = error instanceof Error ? error.message : String(error);
-				this.log('error', `Failed to reload .gitignore: ${message}`);
+				this.log('error', `Failed to reload ignore rules: ${message}`);
 			})
 			.finally(() => {
 				this.gitignoreReloadPromise = null;
