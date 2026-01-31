@@ -1,6 +1,6 @@
 {
 	"name": "viberag",
-	"version": "0.6.1",
+	"version": "0.6.2",
 	"description": "Local code RAG for AI coding assistants - semantic search via MCP server",
 	"license": "AGPL-3.0",
 	"keywords": [
