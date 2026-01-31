@@ -32,7 +32,7 @@
 	},
 	"type": "module",
 	"engines": {
-		"node": ">=18.0.0"
+		"node": ">=20.0.0"
 	},
 	"scripts": {
 		"preinstall": "node scripts/check-node-version.js",
@@ -79,7 +79,7 @@
 		"chokidar": "^5.0.0",
 		"cli-highlight": "^2.1.11",
 		"fast-glob": "^3.3.3",
-		"fastmcp": "^3.26.7",
+		"fastmcp": "3.26.7",
 		"ignore": "^7.0.5",
 		"ink": "^6.6.0",
 		"ink-big-text": "^2.0.0",
