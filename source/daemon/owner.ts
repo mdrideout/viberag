@@ -12,8 +12,8 @@
  */
 
 import * as crypto from 'node:crypto';
-import path from 'node:path';
 import {loadConfig, configExists, type ViberagConfig} from './lib/config.js';
+import {getDaemonPidPath, getDaemonSocketPath} from './lib/constants.js';
 import {createServiceLogger, type Logger} from './lib/logger.js';
 import {isAbortError, throwIfAborted} from './lib/abort.js';
 import {daemonState, type IndexingStatus} from './state.js';
@@ -230,7 +230,7 @@ export class DaemonOwner {
 		// Load config
 		this.config = await loadConfig(this.projectRoot);
 
-		// Create service logger (writes to .viberag/logs/daemon/)
+		// Create service logger (writes to global per-project logs directory)
 		try {
 			this.logger = createServiceLogger(this.projectRoot, 'daemon');
 		} catch {
@@ -1034,23 +1034,14 @@ export class DaemonOwner {
 	 * Get the socket path for this project.
 	 */
 	getSocketPath(): string {
-		if (process.platform === 'win32') {
-			// Windows named pipe - hash project root for unique name
-			const hash = crypto
-				.createHash('md5')
-				.update(this.projectRoot)
-				.digest('hex')
-				.slice(0, 8);
-			return `\\\\.\\pipe\\viberag-${hash}`;
-		}
-		return path.join(this.projectRoot, '.viberag', 'daemon.sock');
+		return getDaemonSocketPath(this.projectRoot);
 	}
 
 	/**
 	 * Get the PID file path for this project.
 	 */
 	getPidPath(): string {
-		return path.join(this.projectRoot, '.viberag', 'daemon.pid');
+		return getDaemonPidPath(this.projectRoot);
 	}
 
 	/**

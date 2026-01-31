@@ -510,17 +510,25 @@ VibeRAG includes a CLI for easy execution of initialization, indexing, setup, an
 | `/clean`          | Remove VibeRAG from project                               |
 | `/help`           | Show all commands                                         |
 
+## Data Directory
+
+VibeRAG stores all per-project state (config, index, logs) globally under:
+
+- `~/.local/share/viberag/projects/<projectId>/` (override via `VIBERAG_HOME`)
+
+No files are written into your repo.
+
 ## Logs
 
-VibeRAG writes per-service logs to `.viberag/logs/` with hourly rotation:
+VibeRAG writes per-service logs with hourly rotation:
 
-- `.viberag/logs/daemon/` - daemon lifecycle and IPC errors
-- `.viberag/logs/indexer/` - indexing progress, retries, and batch failures
-- `.viberag/logs/mcp/` - MCP server errors
-- `.viberag/logs/cli/` - CLI errors
+- `~/.local/share/viberag/projects/<projectId>/logs/daemon/` - daemon lifecycle and IPC errors
+- `~/.local/share/viberag/projects/<projectId>/logs/indexer/` - indexing progress, retries, and batch failures
+- `~/.local/share/viberag/projects/<projectId>/logs/mcp/` - MCP server errors
+- `~/.local/share/viberag/projects/<projectId>/logs/cli/` - CLI errors
 
 If indexing appears slow or retries are happening, check the latest file under
-`.viberag/logs/indexer/`.
+`~/.local/share/viberag/projects/<projectId>/logs/indexer/`.
 
 ## Embedding Providers
 
@@ -548,7 +556,7 @@ Choose your embedding provider during `/init`:
 - **Mistral** - Code-optimized embeddings for technical content
 - **OpenAI** - Fast and reliable with low cost
 
-API keys are entered during the `/init` wizard and stored securely in `.viberag/config.json` (automatically added to `.gitignore`).
+API keys are entered during the `/init` wizard and stored globally in `~/.local/share/viberag/secrets/secrets.json` (override via `VIBERAG_HOME`). Project configs store only a key id reference (never the raw API key).
 
 ## How It Works
 

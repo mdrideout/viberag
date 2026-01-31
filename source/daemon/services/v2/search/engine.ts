@@ -12,8 +12,10 @@ import {
 	type EmbeddingProviderType,
 	type ViberagConfig,
 } from '../../../lib/config.js';
+import {getSecretsPath} from '../../../lib/constants.js';
 import type {Logger} from '../../../lib/logger.js';
 import {isAbortError, throwIfAborted} from '../../../lib/abort.js';
+import {resolveApiKey} from '../../../lib/secrets.js';
 import {GeminiEmbeddingProvider} from '../../../providers/gemini.js';
 import {LocalEmbeddingProvider} from '../../../providers/local.js';
 import {MistralEmbeddingProvider} from '../../../providers/mistral.js';
@@ -1480,12 +1482,35 @@ export class SearchEngineV2 {
 		}
 	}
 
-	private createEmbeddingProvider(config: {
-		embeddingProvider: EmbeddingProviderType;
-		apiKey?: string;
-		openaiBaseUrl?: string;
-	}): EmbeddingProvider {
-		const apiKey = config.apiKey;
+	private async resolveEmbeddingApiKey(
+		config: ViberagConfig,
+	): Promise<string | undefined> {
+		if (config.embeddingProvider === 'local') {
+			return undefined;
+		}
+
+		const apiKey = await resolveApiKey({
+			provider: config.embeddingProvider,
+			keyId: config.apiKeyRef?.keyId,
+		});
+
+		if (!apiKey) {
+			throw new Error(
+				`${config.embeddingProvider} API key required. ` +
+					`Run /init to add/select an API key (stored at ${getSecretsPath()}).`,
+			);
+		}
+
+		return apiKey;
+	}
+
+	private createEmbeddingProvider(
+		config: {
+			embeddingProvider: EmbeddingProviderType;
+			openaiBaseUrl?: string;
+		},
+		apiKey?: string,
+	): EmbeddingProvider {
 		switch (config.embeddingProvider) {
 			case 'local':
 				return new LocalEmbeddingProvider();
@@ -1515,7 +1540,8 @@ export class SearchEngineV2 {
 			if (!this.config) {
 				this.config = await loadConfig(this.projectRoot);
 			}
-			const provider = this.createEmbeddingProvider(this.config);
+			const apiKey = await this.resolveEmbeddingApiKey(this.config);
+			const provider = this.createEmbeddingProvider(this.config, apiKey);
 			await provider.initialize();
 			this.embeddings = provider;
 		})().catch(error => {

@@ -166,7 +166,7 @@ The AI has domain knowledge we don't. It can handle framework variations, custom
 
 ### 1. Configurable Categories
 
-Allow users to define category rules in `.viberag/categories.json`:
+Allow users to define category rules in `~/.local/share/viberag/projects/<projectId>/categories.json` (override via `VIBERAG_HOME`):
 
 ```json
 {

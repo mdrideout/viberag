@@ -45,8 +45,8 @@ export interface WizardState {
 	isReinit: boolean;
 	/** Whether to show prompt step in MCP wizard */
 	showMcpPrompt: boolean;
-	/** Existing API key for reinit flow */
-	existingApiKey: string | null;
+	/** Existing API key id for reinit flow */
+	existingApiKeyId: string | null;
 	/** Existing provider for reinit flow */
 	existingProvider: EmbeddingProviderType | null;
 }
@@ -63,7 +63,7 @@ const initialState: WizardState = {
 	mcpConfig: {},
 	isReinit: false,
 	showMcpPrompt: false,
-	existingApiKey: null,
+	existingApiKeyId: null,
 	existingProvider: null,
 };
 
@@ -86,7 +86,7 @@ export const wizardSlice = createSlice({
 			state,
 			action: PayloadAction<{
 				isReinit: boolean;
-				existingApiKey?: string;
+				existingApiKeyId?: string;
 				existingProvider?: EmbeddingProviderType;
 			}>,
 		) => {
@@ -94,7 +94,7 @@ export const wizardSlice = createSlice({
 			state.initStep = 0;
 			state.initConfig = {};
 			state.isReinit = action.payload.isReinit;
-			state.existingApiKey = action.payload.existingApiKey ?? null;
+			state.existingApiKeyId = action.payload.existingApiKeyId ?? null;
 			state.existingProvider = action.payload.existingProvider ?? null;
 		},
 
@@ -192,11 +192,11 @@ export const wizardSlice = createSlice({
 		setExistingConfig: (
 			state,
 			action: PayloadAction<{
-				apiKey?: string;
+				apiKeyId?: string;
 				provider?: EmbeddingProviderType;
 			}>,
 		) => {
-			state.existingApiKey = action.payload.apiKey ?? null;
+			state.existingApiKeyId = action.payload.apiKeyId ?? null;
 			state.existingProvider = action.payload.provider ?? null;
 		},
 	},

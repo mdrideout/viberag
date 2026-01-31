@@ -14,12 +14,14 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import pLimit from 'p-limit';
 import {loadConfig, type ViberagConfig} from '../../lib/config.js';
+import {getSecretsPath} from '../../lib/constants.js';
 import {createServiceLogger, type Logger} from '../../lib/logger.js';
 import {getAbortReason, isAbortError, throwIfAborted} from '../../lib/abort.js';
 import {MerkleTree} from '../../lib/merkle/index.js';
 import type {SerializedNode} from '../../lib/merkle/node.js';
 import {computeStringHash} from '../../lib/merkle/hash.js';
 import {Chunker} from '../../lib/chunker/index.js';
+import {resolveApiKey} from '../../lib/secrets.js';
 import {GeminiEmbeddingProvider} from '../../providers/gemini.js';
 import {LocalEmbeddingProvider} from '../../providers/local.js';
 import {MistralEmbeddingProvider} from '../../providers/mistral.js';
@@ -733,7 +735,8 @@ export class IndexingServiceV2 extends TypedEmitter<V2IndexingServiceEvents> {
 		}
 
 		if (!this.embeddings) {
-			this.embeddings = this.createEmbeddingProvider(this.config);
+			const apiKey = await this.resolveEmbeddingApiKey(this.config);
+			this.embeddings = this.createEmbeddingProvider(this.config, apiKey);
 			await this.embeddings.initialize();
 		}
 	}
@@ -752,12 +755,35 @@ export class IndexingServiceV2 extends TypedEmitter<V2IndexingServiceEvents> {
 		this.config = null;
 	}
 
-	private createEmbeddingProvider(config: {
-		embeddingProvider: ViberagConfig['embeddingProvider'];
-		apiKey?: string;
-		openaiBaseUrl?: string;
-	}): EmbeddingProvider {
-		const apiKey = config.apiKey;
+	private async resolveEmbeddingApiKey(
+		config: ViberagConfig,
+	): Promise<string | undefined> {
+		if (config.embeddingProvider === 'local') {
+			return undefined;
+		}
+
+		const apiKey = await resolveApiKey({
+			provider: config.embeddingProvider,
+			keyId: config.apiKeyRef?.keyId,
+		});
+
+		if (!apiKey) {
+			throw new Error(
+				`${config.embeddingProvider} API key required. ` +
+					`Run /init to add/select an API key (stored at ${getSecretsPath()}).`,
+			);
+		}
+
+		return apiKey;
+	}
+
+	private createEmbeddingProvider(
+		config: {
+			embeddingProvider: ViberagConfig['embeddingProvider'];
+			openaiBaseUrl?: string;
+		},
+		apiKey?: string,
+	): EmbeddingProvider {
 		switch (config.embeddingProvider) {
 			case 'local':
 				return new LocalEmbeddingProvider();

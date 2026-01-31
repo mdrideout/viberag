@@ -7,23 +7,33 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import {getStatus} from '../commands/handlers.js';
-import {V2_SCHEMA_VERSION} from '../../daemon/services/v2/manifest.js';
+import {getRunDir, getViberagDir} from '../../daemon/lib/constants.js';
+import {
+	getV2ManifestPath,
+	V2_SCHEMA_VERSION,
+} from '../../daemon/services/v2/manifest.js';
 
 describe('CLI /status startup checks', () => {
 	let projectRoot: string;
+	let projectDataDir: string;
+	let runDir: string;
 
 	beforeEach(async () => {
 		projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'viberag-cli-test-'));
-		await fs.mkdir(path.join(projectRoot, '.viberag'), {recursive: true});
+		projectDataDir = getViberagDir(projectRoot);
+		runDir = getRunDir(projectRoot);
+		await fs.mkdir(projectDataDir, {recursive: true});
 	});
 
 	afterEach(async () => {
+		await fs.rm(projectDataDir, {recursive: true, force: true});
+		await fs.rm(runDir, {recursive: true, force: true});
 		await fs.rm(projectRoot, {recursive: true, force: true});
 	});
 
 	it('includes a reindex-required warning when manifest schemaVersion is incompatible', async () => {
 		await fs.writeFile(
-			path.join(projectRoot, '.viberag', 'manifest-v2.json'),
+			getV2ManifestPath(projectRoot),
 			JSON.stringify({schemaVersion: V2_SCHEMA_VERSION - 1}, null, '\t') + '\n',
 		);
 

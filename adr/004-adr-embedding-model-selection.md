@@ -150,7 +150,7 @@ export const PROVIDER_CONFIGS = {
 
 LanceDB stores vectors with fixed dimensions. When switching providers:
 
-1. Delete existing `.viberag/` directory
+1. Delete the project's data directory (`~/.local/share/viberag/projects/<projectId>/`, override via `VIBERAG_HOME`) or run `/clean`
 2. Re-initialize with new provider
 3. Full reindex required
 

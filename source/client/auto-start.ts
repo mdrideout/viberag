@@ -6,12 +6,18 @@
  */
 
 import {spawn} from 'node:child_process';
-import * as crypto from 'node:crypto';
 import * as net from 'node:net';
 import * as fs from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import lockfile from 'proper-lockfile';
+import {
+	getCanonicalProjectRoot,
+	getDaemonLockPath,
+	getDaemonPidPath,
+	getDaemonSocketPath,
+	getRunDir,
+} from '../daemon/lib/constants.js';
 
 // ============================================================================
 // Constants
@@ -34,29 +40,21 @@ const CONNECT_TIMEOUT_MS = 5000;
  * Get the socket path for a project.
  */
 export function getSocketPath(projectRoot: string): string {
-	if (process.platform === 'win32') {
-		const hash = crypto
-			.createHash('md5')
-			.update(projectRoot)
-			.digest('hex')
-			.slice(0, 8);
-		return `\\\\.\\pipe\\viberag-${hash}`;
-	}
-	return path.join(projectRoot, '.viberag', 'daemon.sock');
+	return getDaemonSocketPath(projectRoot);
 }
 
 /**
  * Get the PID file path for a project.
  */
 export function getPidPath(projectRoot: string): string {
-	return path.join(projectRoot, '.viberag', 'daemon.pid');
+	return getDaemonPidPath(projectRoot);
 }
 
 /**
  * Get the lock file path for a project.
  */
 export function getLockPath(projectRoot: string): string {
-	return path.join(projectRoot, '.viberag', 'daemon.lock');
+	return getDaemonLockPath(projectRoot);
 }
 
 // ============================================================================
@@ -69,8 +67,12 @@ export function getLockPath(projectRoot: string): string {
  */
 export async function isDaemonLocked(projectRoot: string): Promise<boolean> {
 	const lockPath = getLockPath(projectRoot);
+	const runDir = getRunDir(projectRoot);
 	try {
-		const isLocked = await lockfile.check(projectRoot, {
+		// Ensure run dir exists so lockfile.check has a target path
+		await fs.mkdir(runDir, {recursive: true});
+
+		const isLocked = await lockfile.check(runDir, {
 			lockfilePath: lockPath,
 			stale: 30000, // Same as daemon lock settings
 		});
@@ -138,13 +140,19 @@ async function cleanupStaleFiles(
 	socketPath: string,
 	pidPath: string,
 ): Promise<boolean> {
+	const removeSocketFile = async () => {
+		// Windows named pipes are not filesystem paths
+		if (process.platform === 'win32') return;
+		await fs.rm(socketPath, {force: true});
+	};
+
 	try {
 		const pidStr = await fs.readFile(pidPath, 'utf-8');
 		const pid = parseInt(pidStr.trim(), 10);
 
 		if (isNaN(pid)) {
 			// Invalid PID file, clean up
-			await fs.rm(socketPath, {force: true});
+			await removeSocketFile();
 			await fs.rm(pidPath, {force: true});
 			return true;
 		}
@@ -156,13 +164,13 @@ async function cleanupStaleFiles(
 		}
 
 		// Process not running, clean up stale files
-		await fs.rm(socketPath, {force: true});
+		await removeSocketFile();
 		await fs.rm(pidPath, {force: true});
 		return true;
 	} catch {
 		// No PID file or error reading it, try to clean up socket
 		try {
-			await fs.rm(socketPath, {force: true});
+			await removeSocketFile();
 		} catch {
 			// Ignore
 		}
@@ -194,16 +202,21 @@ function findDaemonScript(): string {
  */
 async function spawnDaemon(projectRoot: string): Promise<void> {
 	const daemonScript = findDaemonScript();
+	const canonicalProjectRoot = getCanonicalProjectRoot(projectRoot);
 
 	// Check if we can use direct node invocation (faster, more reliable)
 	try {
 		await fs.access(daemonScript);
 		// Direct node invocation
 		const daemon = spawn('node', [daemonScript], {
-			cwd: projectRoot,
+			cwd: canonicalProjectRoot,
 			detached: true,
 			stdio: 'ignore',
 			windowsHide: true,
+			env: {
+				...process.env,
+				VIBERAG_PROJECT_ROOT: canonicalProjectRoot,
+			},
 		});
 		daemon.unref();
 		return;
@@ -213,10 +226,14 @@ async function spawnDaemon(projectRoot: string): Promise<void> {
 
 	// Fallback: spawn via npx
 	const daemon = spawn('npx', ['viberag-daemon'], {
-		cwd: projectRoot,
+		cwd: canonicalProjectRoot,
 		detached: true,
 		stdio: 'ignore',
 		windowsHide: true,
+		env: {
+			...process.env,
+			VIBERAG_PROJECT_ROOT: canonicalProjectRoot,
+		},
 	});
 	daemon.unref();
 }

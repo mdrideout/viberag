@@ -5,7 +5,12 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
-import {createConfigForProvider} from '../lib/config.js';
+import {
+	createConfigForProvider,
+	saveConfig,
+	type ViberagConfig,
+} from '../lib/config.js';
+import {getRunDir, getViberagDir} from '../lib/constants.js';
 
 /** Path to the checked-in test fixtures */
 export const FIXTURES_ROOT = path.join(process.cwd(), 'test-fixtures');
@@ -18,10 +23,7 @@ const TEMP_PREFIX = 'viberag-test-';
  * This enables tests to run without requiring API keys.
  */
 async function writeTestConfig(projectRoot: string): Promise<void> {
-	const configDir = path.join(projectRoot, '.viberag');
-	await fs.mkdir(configDir, {recursive: true});
-
-	const config = {
+	const config: ViberagConfig = {
 		...createConfigForProvider('local'),
 		watch: {
 			enabled: false, // Disable watch in tests to avoid resource issues
@@ -30,11 +32,7 @@ async function writeTestConfig(projectRoot: string): Promise<void> {
 			awaitWriteFinish: true,
 		},
 	};
-
-	await fs.writeFile(
-		path.join(configDir, 'config.json'),
-		JSON.stringify(config, null, '\t') + '\n',
-	);
+	await saveConfig(projectRoot, config);
 }
 
 /** Test context with temp directory and cleanup */
@@ -55,9 +53,15 @@ export async function copyFixtureToTemp(
 	await copyDirectory(fixtureSource, tempDir);
 	await writeTestConfig(tempDir);
 
+	const projectDataDir = getViberagDir(tempDir);
+	const runDir = getRunDir(tempDir);
+
 	return {
 		projectRoot: tempDir,
 		cleanup: async () => {
+			// Clean global per-project state first (projectRoot may be deleted)
+			await fs.rm(projectDataDir, {recursive: true, force: true});
+			await fs.rm(runDir, {recursive: true, force: true});
 			await fs.rm(tempDir, {recursive: true, force: true});
 		},
 	};

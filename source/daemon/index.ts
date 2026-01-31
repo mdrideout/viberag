@@ -8,8 +8,11 @@
  * Usage:
  *   npx viberag-daemon
  *
- * The daemon uses the current working directory as the project root.
- * It creates a socket at .viberag/daemon.sock and a PID file at .viberag/daemon.pid.
+ * The daemon uses the current working directory as the project root by default,
+ * or $VIBERAG_PROJECT_ROOT when started by a client.
+ *
+ * Runtime files (socket/pid/lock) and all persisted data live under:
+ *   ~/.local/share/viberag (override via $VIBERAG_HOME)
  *
  * The daemon will:
  * - Acquire exclusive lock to prevent multiple instances
@@ -19,19 +22,26 @@
  * - Auto-shutdown after 5 minutes of idle (no connected clients)
  */
 
-import path from 'node:path';
+import fs from 'node:fs/promises';
 import lockfile from 'proper-lockfile';
 import {DaemonOwner} from './owner.js';
 import {DaemonServer} from './server.js';
 import {LifecycleManager} from './lifecycle.js';
 import {createHandlers} from './handlers.js';
 import {configExists, loadConfig} from './lib/config.js';
+import {
+	getCanonicalProjectRoot,
+	getDaemonLockPath,
+	getRunDir,
+} from './lib/constants.js';
 
-// Use current working directory as project root
-const projectRoot = process.cwd();
+const projectRoot = getCanonicalProjectRoot(
+	process.env['VIBERAG_PROJECT_ROOT'] ?? process.cwd(),
+);
 
-// Lock file path - inside .viberag directory
-const LOCK_FILE_PATH = path.join(projectRoot, '.viberag', 'daemon.lock');
+// Lock file path - inside the global run directory
+const LOCK_FILE_PATH = getDaemonLockPath(projectRoot);
+const RUN_DIR = getRunDir(projectRoot);
 
 // Lock release function - set when lock is acquired
 let releaseLock: (() => Promise<void>) | null = null;
@@ -42,7 +52,10 @@ let releaseLock: (() => Promise<void>) | null = null;
  */
 async function acquireDaemonLock(): Promise<() => Promise<void>> {
 	try {
-		const release = await lockfile.lock(projectRoot, {
+		// Ensure run dir exists so we never need to write inside the project folder
+		await fs.mkdir(RUN_DIR, {recursive: true});
+
+		const release = await lockfile.lock(RUN_DIR, {
 			lockfilePath: LOCK_FILE_PATH,
 			stale: 30000, // Lock is stale after 30s without mtime update
 			update: 10000, // Update mtime every 10s to prove liveness
@@ -93,7 +106,7 @@ function setupLockRelease(release: () => Promise<void>): void {
 async function main(): Promise<void> {
 	console.error(`[daemon] Starting for ${projectRoot}`);
 
-	// Verify project is initialized (needed before lock since lock is in .viberag/)
+	// Verify project is initialized
 	if (!(await configExists(projectRoot))) {
 		console.error('[daemon] Project not initialized');
 		console.error(

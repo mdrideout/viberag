@@ -13,7 +13,7 @@ import {
 	selectMcpConfig,
 	selectIsReinit,
 	selectShowMcpPrompt,
-	selectExistingApiKey,
+	selectExistingApiKeyId,
 	selectExistingProvider,
 } from './store/wizard/selectors.js';
 import {AppActions} from './store/app/slice.js';
@@ -98,7 +98,7 @@ function AppContent() {
 	const mcpConfig = useAppSelector(selectMcpConfig);
 	const isReinit = useAppSelector(selectIsReinit);
 	const showMcpPrompt = useAppSelector(selectShowMcpPrompt);
-	const existingApiKey = useAppSelector(selectExistingApiKey);
+	const existingApiKeyId = useAppSelector(selectExistingApiKeyId);
 	const existingProvider = useAppSelector(selectExistingProvider);
 
 	// Redux app state (migrated from useState)
@@ -125,7 +125,7 @@ function AppContent() {
 				const config = await loadConfig(projectRoot);
 				dispatch(
 					WizardActions.setExistingConfig({
-						apiKey: config.apiKey,
+						apiKeyId: config.apiKeyRef?.keyId,
 						provider: config.embeddingProvider,
 					}),
 				);
@@ -190,12 +190,12 @@ function AppContent() {
 			dispatch(
 				WizardActions.startInit({
 					isReinit,
-					existingApiKey: existingApiKey ?? undefined,
+					existingApiKeyId: existingApiKeyId ?? undefined,
 					existingProvider: existingProvider ?? undefined,
 				}),
 			);
 		},
-		[dispatch, existingApiKey, existingProvider],
+		[dispatch, existingApiKeyId, existingProvider],
 	);
 
 	// Start the MCP setup wizard
@@ -395,7 +395,7 @@ function AppContent() {
 					step={initStep}
 					config={initConfig}
 					isReinit={isReinit}
-					existingApiKey={existingApiKey ?? undefined}
+					existingApiKeyId={existingApiKeyId ?? undefined}
 					existingProvider={existingProvider ?? undefined}
 					onStepChange={handleInitWizardStep}
 					onComplete={handleInitWizardComplete}

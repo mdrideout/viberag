@@ -2,7 +2,7 @@
  * Logger - File-based logging with daily and hourly rotation.
  *
  * Provides multiple logger implementations:
- * - createLogger: Daily log files in .viberag/logs/
+ * - createLogger: Daily log files in the per-project logs directory
  * - createDebugLogger: Single debug.log file (deprecated)
  * - createServiceLogger: Per-service hourly rotation
  * - createNullLogger: No-op for testing
@@ -78,7 +78,7 @@ function formatEntry(
 
 /**
  * Create a logger that writes to daily log files.
- * Log files are created in the .viberag/logs/ directory.
+ * Log files are created in the per-project logs directory.
  */
 export function createLogger(projectRoot: string): Logger {
 	const logsDir = getLogsDir(projectRoot);
@@ -129,7 +129,7 @@ export function createNullLogger(): Logger {
 }
 
 /**
- * Create a debug logger that writes to .viberag/debug.log.
+ * Create a debug logger that writes to the per-project debug.log.
  * This is always-on logging for troubleshooting.
  * @deprecated Use createServiceLogger instead for per-service logging.
  */
@@ -172,7 +172,7 @@ export function createDebugLogger(projectRoot: string): Logger {
 /**
  * Create a service-specific logger with hourly rotation.
  *
- * Logs are written to: .viberag/logs/{service}/YYYY-MM-DD-HH.log
+ * Logs are written to: {projectDataDir}/logs/{service}/YYYY-MM-DD-HH.log
  *
  * @param projectRoot - Project root directory
  * @param service - Service name (daemon, mcp, cli, indexer)
@@ -180,7 +180,7 @@ export function createDebugLogger(projectRoot: string): Logger {
  * @example
  * const logger = createServiceLogger('/path/to/project', 'daemon');
  * logger.error('Handler', 'Request failed', error);
- * // Writes to: .viberag/logs/daemon/2024-01-11-15.log
+ * // Writes to: {projectDataDir}/logs/daemon/2024-01-11-15.log
  */
 export function createServiceLogger(
 	projectRoot: string,
@@ -189,7 +189,7 @@ export function createServiceLogger(
 	function write(entry: string) {
 		try {
 			// Always ensure directory exists before writing
-			// (handles case where .viberag/ was deleted during reinit)
+			// (handles case where the project data dir was deleted during reinit)
 			const serviceDir = getServiceLogsDir(projectRoot, service);
 			fs.mkdirSync(serviceDir, {recursive: true});
 			// Get current hourly log path (recalculated each write for rotation)

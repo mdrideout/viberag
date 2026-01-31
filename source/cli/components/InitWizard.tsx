@@ -6,6 +6,12 @@
 import React, {useState, useEffect} from 'react';
 import {Box, Text, useInput} from 'ink';
 import SelectInput from 'ink-select-input';
+import {getViberagDir} from '../../daemon/lib/constants.js';
+import {
+	listApiKeys,
+	type ApiKeySummary,
+	type CloudProvider,
+} from '../../daemon/lib/secrets.js';
 import type {
 	InitWizardConfig,
 	EmbeddingProviderType,
@@ -16,8 +22,8 @@ type Props = {
 	step: number;
 	config: Partial<InitWizardConfig>;
 	isReinit: boolean;
-	/** Existing API key from previous config (for reinit flow) */
-	existingApiKey?: string;
+	/** Existing API key id from previous config (for reinit flow) */
+	existingApiKeyId?: string;
 	/** Existing provider from previous config (for reinit flow) */
 	existingProvider?: EmbeddingProviderType;
 	onStepChange: (step: number, data?: Partial<InitWizardConfig>) => void;
@@ -28,8 +34,7 @@ type Props = {
 /**
  * Cloud providers that require API keys.
  */
-const CLOUD_PROVIDERS = ['gemini', 'mistral', 'openai'] as const;
-type CloudProvider = (typeof CLOUD_PROVIDERS)[number];
+const CLOUD_PROVIDERS: CloudProvider[] = ['gemini', 'mistral', 'openai'];
 
 function isCloudProvider(
 	provider: EmbeddingProviderType,
@@ -252,12 +257,6 @@ const CONFIRM_ITEMS: SelectItem<'init' | 'cancel'>[] = [
 	{label: 'Cancel', value: 'cancel'},
 ];
 
-// API key action options for reinit
-const API_KEY_ACTION_ITEMS: SelectItem<'keep' | 'new'>[] = [
-	{label: 'Keep existing API key', value: 'keep'},
-	{label: 'Enter new API key', value: 'new'},
-];
-
 // OpenAI region options for data residency
 const OPENAI_REGION_ITEMS: SelectItem<OpenAIRegion>[] = [
 	{
@@ -342,7 +341,7 @@ export function InitWizard({
 	step,
 	config,
 	isReinit,
-	existingApiKey,
+	existingApiKeyId,
 	existingProvider,
 	onStepChange,
 	onComplete,
@@ -350,13 +349,26 @@ export function InitWizard({
 }: Props): React.ReactElement {
 	// State for API key input
 	const [apiKeyInput, setApiKeyInput] = useState('');
-	const [apiKeyAction, setApiKeyAction] = useState<'keep' | 'new' | null>(null);
+	const [enteringNewKey, setEnteringNewKey] = useState(false);
+	const [availableKeys, setAvailableKeys] = useState<ApiKeySummary[] | null>(
+		null,
+	);
+	const [keysLoading, setKeysLoading] = useState(false);
+	const [keysError, setKeysError] = useState<string | null>(null);
 	// State for OpenAI region selection (shown after API key for OpenAI)
 	const [showRegionSelect, setShowRegionSelect] = useState(false);
 
 	// Handle Escape to cancel
 	useInput((input, key) => {
-		if (key.escape || (key.ctrl && input === 'c')) {
+		if (key.escape) {
+			if (enteringNewKey) {
+				setEnteringNewKey(false);
+				return;
+			}
+			onCancel();
+			return;
+		}
+		if (key.ctrl && input === 'c') {
 			onCancel();
 		}
 	});
@@ -368,6 +380,9 @@ export function InitWizard({
 	// Check if current provider is a cloud provider
 	const currentProvider = config.provider ?? 'local';
 	const needsApiKey = isCloudProvider(currentProvider);
+
+	// Data directory (global per-project)
+	const dataDir = getViberagDir(process.cwd());
 
 	// Compute effective step (adjusted for non-reinit flow)
 	// Steps: 0=reinit confirm, 1=provider select, 2=api key (cloud only), 3=final confirm
@@ -384,7 +399,30 @@ export function InitWizard({
 
 	// Check if we have an existing API key for the same provider
 	const hasExistingKeyForProvider =
-		existingApiKey && existingProvider === currentProvider;
+		existingApiKeyId && existingProvider === currentProvider;
+
+	// Load available keys when on the API key step for a cloud provider
+	useEffect(() => {
+		if (effectiveStep !== 2 || !needsApiKey) return;
+
+		setKeysLoading(true);
+		setKeysError(null);
+		setAvailableKeys(null);
+
+		const provider = currentProvider as CloudProvider;
+		listApiKeys(provider)
+			.then(keys => {
+				setAvailableKeys(keys);
+			})
+			.catch(error => {
+				const message = error instanceof Error ? error.message : String(error);
+				setKeysError(message);
+				setAvailableKeys([]);
+			})
+			.finally(() => {
+				setKeysLoading(false);
+			});
+	}, [effectiveStep, needsApiKey, currentProvider]);
 
 	// Step 0 (reinit only): Confirmation
 	if (normalizedIsReinit && normalizedStep === 0) {
@@ -428,10 +466,17 @@ export function InitWizard({
 						onSelect={item => {
 							// Reset API key and region state when provider changes
 							setApiKeyInput('');
-							setApiKeyAction(null);
+							setEnteringNewKey(false);
+							setAvailableKeys(null);
+							setKeysError(null);
 							setShowRegionSelect(false);
 							// Use relative increment: step + 1
-							onStepChange(normalizedStep + 1, {provider: item.value});
+							onStepChange(normalizedStep + 1, {
+								provider: item.value,
+								apiKey: undefined,
+								apiKeyId: undefined,
+								openaiRegion: undefined,
+							});
 						}}
 					/>
 				</Box>
@@ -492,7 +537,7 @@ export function InitWizard({
 
 		return (
 			<Box flexDirection="column" borderStyle="round" paddingX={2} paddingY={1}>
-				<Text bold>Configure {info.name} API Key</Text>
+				<Text bold>Select {info.name} API Key</Text>
 
 				<Box marginTop={1} flexDirection="column">
 					<Text>
@@ -503,58 +548,108 @@ export function InitWizard({
 					</Text>
 				</Box>
 
-				{/* Show keep/new choice if existing key for same provider */}
-				{hasExistingKeyForProvider && apiKeyAction === null ? (
-					<Box marginTop={1} flexDirection="column">
-						<Text color="green">
-							An API key is already configured for {info.name}.
+				{keysError && (
+					<Box marginTop={1}>
+						<Text color="yellow" dimColor>
+							Failed to load existing keys: {keysError}
 						</Text>
-						<Box marginTop={1}>
-							<SelectInput
-								items={API_KEY_ACTION_ITEMS}
-								onSelect={item => {
-									if (item.value === 'keep') {
-										// Keep existing key
-										onStepChange(normalizedStep, {apiKey: existingApiKey});
-										if (isOpenAI) {
-											// Show region selection for OpenAI
-											setShowRegionSelect(true);
-										} else {
-											// Advance to confirmation for other providers
-											onStepChange(normalizedStep + 1, {
-												apiKey: existingApiKey,
-											});
-										}
-									} else {
-										// Show text input for new key
-										setApiKeyAction('new');
-									}
-								}}
-							/>
-						</Box>
 					</Box>
-				) : (
+				)}
+
+				{enteringNewKey ? (
 					<ApiKeyInputStep
 						providerName={info.name}
 						apiKeyInput={apiKeyInput}
 						setApiKeyInput={setApiKeyInput}
 						onSubmit={key => {
 							if (key.trim()) {
-								onStepChange(normalizedStep, {apiKey: key.trim()});
+								onStepChange(normalizedStep, {
+									apiKey: key.trim(),
+									apiKeyId: undefined,
+								});
 								if (isOpenAI) {
 									// Show region selection for OpenAI
 									setShowRegionSelect(true);
 								} else {
 									// Advance to confirmation for other providers
-									onStepChange(normalizedStep + 1, {apiKey: key.trim()});
+									onStepChange(normalizedStep + 1, {
+										apiKey: key.trim(),
+										apiKeyId: undefined,
+									});
 								}
 							}
 						}}
 					/>
+				) : (
+					<Box marginTop={1} flexDirection="column">
+						{keysLoading && <Text dimColor>Loading saved keys...</Text>}
+
+						<Box marginTop={1}>
+							<SelectInput
+								items={(() => {
+									type ApiKeyChoice =
+										| {kind: 'existing'; keyId: string}
+										| {kind: 'new'};
+
+									const items: SelectItem<ApiKeyChoice>[] = [];
+									const seen = new Set<string>();
+
+									if (hasExistingKeyForProvider && existingApiKeyId) {
+										items.push({
+											label: 'Keep current key',
+											value: {kind: 'existing', keyId: existingApiKeyId},
+										});
+										seen.add(existingApiKeyId);
+									}
+
+									for (const key of availableKeys ?? []) {
+										if (seen.has(key.id)) continue;
+										items.push({
+											label: `${key.label} (${key.preview})`,
+											value: {kind: 'existing', keyId: key.id},
+										});
+										seen.add(key.id);
+									}
+
+									items.push({
+										label: 'Add new API key',
+										value: {kind: 'new'},
+									});
+
+									return items;
+								})()}
+								onSelect={item => {
+									if (item.value.kind === 'new') {
+										setEnteringNewKey(true);
+										setApiKeyInput('');
+										return;
+									}
+
+									const keyId = item.value.keyId;
+									if (isOpenAI) {
+										onStepChange(normalizedStep, {
+											apiKeyId: keyId,
+											apiKey: undefined,
+										});
+										setShowRegionSelect(true);
+									} else {
+										onStepChange(normalizedStep + 1, {
+											apiKeyId: keyId,
+											apiKey: undefined,
+										});
+									}
+								}}
+							/>
+						</Box>
+					</Box>
 				)}
 
 				<Box marginTop={1}>
-					<Text dimColor>Esc to cancel</Text>
+					<Text dimColor>
+						{enteringNewKey
+							? 'Esc to go back · Ctrl+C to cancel'
+							: 'Esc to cancel'}
+					</Text>
 				</Box>
 			</Box>
 		);
@@ -564,7 +659,7 @@ export function InitWizard({
 	if (effectiveStep === 3) {
 		const provider = config.provider ?? 'gemini';
 		const info = PROVIDER_CONFIG[provider];
-		const hasApiKey = !!config.apiKey;
+		const hasApiKey = !!config.apiKeyId || !!config.apiKey;
 
 		return (
 			<Box flexDirection="column" borderStyle="round" paddingX={2} paddingY={1}>
@@ -598,7 +693,7 @@ export function InitWizard({
 						</Text>
 					)}
 					<Text>
-						<Text dimColor>Directory:</Text> .viberag/
+						<Text dimColor>Directory:</Text> {dataDir}
 					</Text>
 				</Box>
 				<Box marginTop={1}>
@@ -606,7 +701,12 @@ export function InitWizard({
 						items={CONFIRM_ITEMS}
 						onSelect={item => {
 							if (item.value === 'init') {
-								onComplete({provider, apiKey: config.apiKey});
+								onComplete({
+									provider,
+									apiKeyId: config.apiKeyId,
+									apiKey: config.apiKey,
+									openaiRegion: config.openaiRegion,
+								});
 							} else {
 								onCancel();
 							}

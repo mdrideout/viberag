@@ -26,7 +26,13 @@ import os from 'node:os';
 import {spawn, type ChildProcess} from 'node:child_process';
 import {DaemonClient} from '../../client/index.js';
 import {getSocketPath, isSocketConnectable} from '../../client/auto-start.js';
-import {createConfigForProvider} from '../../daemon/lib/config.js';
+import {
+	createConfigForProvider,
+	saveConfig,
+	type ViberagConfig,
+} from '../../daemon/lib/config.js';
+import {getRunDir, getViberagDir} from '../../daemon/lib/constants.js';
+import {addApiKey} from '../../daemon/lib/secrets.js';
 
 const repoRoot = process.cwd();
 const fixturesRoot = path.join(repoRoot, 'test-fixtures', 'codebase');
@@ -134,10 +140,15 @@ async function startDaemonProcess(
 	);
 }
 
-function buildTestConfig(watchEnabled: boolean): Record<string, unknown> {
+async function buildTestConfig(watchEnabled: boolean): Promise<ViberagConfig> {
 	const config = createConfigForProvider(
 		testProvider as 'local' | 'gemini' | 'mistral' | 'openai',
 	);
+
+	config.watch = {
+		...config.watch,
+		enabled: watchEnabled,
+	};
 
 	if (testProvider !== 'local') {
 		if (!testApiKey) {
@@ -145,31 +156,26 @@ function buildTestConfig(watchEnabled: boolean): Record<string, unknown> {
 				`[mcp-server.test] VIBERAG_TEST_API_KEY is required for provider "${testProvider}".`,
 			);
 		}
-		config.apiKey = testApiKey;
+
+		const provider = testProvider as 'gemini' | 'mistral' | 'openai';
+		const {keyId} = await addApiKey({
+			provider,
+			apiKey: testApiKey,
+			label: `test-${provider}`,
+			makeDefault: true,
+		});
+		config.apiKeyRef = {provider, keyId};
 	}
 
-	return {
-		...config,
-		watch: {
-			...config.watch,
-			enabled: watchEnabled,
-		},
-	};
+	return config;
 }
 
 async function writeTestConfig(
 	projectRoot: string,
 	watchEnabled: boolean,
 ): Promise<void> {
-	const configDir = path.join(projectRoot, '.viberag');
-	await fs.mkdir(configDir, {recursive: true});
-
-	const config = buildTestConfig(watchEnabled);
-
-	await fs.writeFile(
-		path.join(configDir, 'config.json'),
-		JSON.stringify(config, null, '\t') + '\n',
-	);
+	const config = await buildTestConfig(watchEnabled);
+	await saveConfig(projectRoot, config);
 }
 
 async function createIntegrationProject(
@@ -178,6 +184,8 @@ async function createIntegrationProject(
 	const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'viberag-mcp-test-'));
 	await fs.cp(fixturesRoot, tempDir, {recursive: true});
 	await writeTestConfig(tempDir, options.watchEnabled ?? false);
+	const projectDataDir = getViberagDir(tempDir);
+	const runDir = getRunDir(tempDir);
 
 	if (options.includeLargeFile) {
 		const line = 'lorem ipsum dolor sit amet';
@@ -193,6 +201,9 @@ async function createIntegrationProject(
 	return {
 		projectRoot: tempDir,
 		cleanup: async () => {
+			// Clean global per-project state first (projectRoot may be deleted)
+			await fs.rm(projectDataDir, {recursive: true, force: true});
+			await fs.rm(runDir, {recursive: true, force: true});
 			await fs.rm(tempDir, {recursive: true, force: true});
 		},
 	};
@@ -569,8 +580,7 @@ describe('MCP Server', () => {
 			}
 
 			const manifestPath = path.join(
-				harness!.project.projectRoot,
-				'.viberag',
+				getViberagDir(harness!.project.projectRoot),
 				'manifest-v2.json',
 			);
 			const original = await fs.readFile(manifestPath, 'utf-8');
@@ -850,7 +860,7 @@ describe('MCP Server', () => {
 		beforeAll(async () => {
 			await ensureMcpServerBuild();
 
-			// Create a temporary directory WITHOUT .viberag
+			// Create a temporary directory WITHOUT VibeRAG initialization/config
 			tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'viberag-test-'));
 
 			// Get path to the compiled MCP server entry point

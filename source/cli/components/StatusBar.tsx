@@ -8,6 +8,7 @@
 import React, {useState, useEffect} from 'react';
 import {Box, Text} from 'ink';
 import {useDaemonStatus} from '../contexts/DaemonStatusContext.js';
+import {getServiceLogsDir} from '../../daemon/lib/constants.js';
 import type {DaemonStatusResponse} from '../../client/types.js';
 import type {AppStatus, IndexDisplayStats} from '../../common/types.js';
 
@@ -278,7 +279,8 @@ export default function StatusBar({status, stats}: Props) {
 			{hasFailures && (
 				<Box paddingLeft={2}>
 					<Text color="red">
-						⚠ {failures.length} batch(es) failed - see .viberag/logs/indexer/
+						⚠ {failures.length} batch(es) failed - see{' '}
+						{getServiceLogsDir(process.cwd(), 'indexer')}
 					</Text>
 				</Box>
 			)}

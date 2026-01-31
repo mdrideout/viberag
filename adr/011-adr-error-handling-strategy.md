@@ -15,11 +15,11 @@ VibeRAG runs across multiple process types (daemon, MCP server, CLI) and needs c
 
 ### Current State
 
-| Component  | Console         | File Log             | Stack Trace | Sentry-Ready |
-| ---------- | --------------- | -------------------- | ----------- | ------------ |
-| Daemon     | `console.error` | `.viberag/debug.log` | Yes         | Centralized  |
-| MCP Server | `console.error` | `.viberag/debug.log` | Partial     | Partial      |
-| CLI        | `console.error` | None                 | No          | Scattered    |
+| Component  | Console         | File Log                                                | Stack Trace | Sentry-Ready |
+| ---------- | --------------- | ------------------------------------------------------- | ----------- | ------------ |
+| Daemon     | `console.error` | `~/.local/share/viberag/projects/<projectId>/debug.log` | Yes         | Centralized  |
+| MCP Server | `console.error` | `~/.local/share/viberag/projects/<projectId>/debug.log` | Partial     | Partial      |
+| CLI        | `console.error` | None                                                    | No          | Scattered    |
 
 ### Problems
 
@@ -55,7 +55,7 @@ Adopt a **three-tier error logging strategy** that captures errors at the point 
                                   │
                                   ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│  TIER 2: Persistent Debug Log (.viberag/debug.log)                  │
+│  TIER 2: Persistent Debug Log (~/.local/share/viberag/projects/<projectId>/debug.log) │
 │  ─────────────────────────────────────────────────                  │
 │  • Full Error object with stack trace                               │
 │  • Structured format with timestamp                                 │
@@ -242,17 +242,19 @@ Embedding API calls use a shared `withRetry()` helper that retries all errors, n
 Per-service folders with hourly rotation:
 
 ```
-.viberag/
-└── logs/
-    ├── daemon/
-    │   ├── 2024-01-11-14.log
-    │   └── 2024-01-11-15.log
-    ├── mcp/
-    │   └── 2024-01-11-15.log
-    ├── cli/
-    │   └── 2024-01-11-15.log
-    └── indexer/
-        └── 2024-01-11-15.log
+~/.local/share/viberag/
+└── projects/
+    └── <projectId>/
+        └── logs/
+            ├── daemon/
+            │   ├── 2024-01-11-14.log
+            │   └── 2024-01-11-15.log
+            ├── mcp/
+            │   └── 2024-01-11-15.log
+            ├── cli/
+            │   └── 2024-01-11-15.log
+            └── indexer/
+                └── 2024-01-11-15.log
 ```
 
 **Benefits:**
@@ -325,6 +327,6 @@ When Sentry is added:
 - [x] Hourly log rotation (`daemon/lib/logger/index.ts`)
 - [x] Service logger factory (`createServiceLogger()`)
 - [x] CLI error handler (`cli/utils/error-handler.ts`)
-- [x] CLI logging to `.viberag/logs/cli/`
+- [x] CLI logging to `~/.local/share/viberag/projects/<projectId>/logs/cli/`
 - [ ] Sentry initialization
 - [ ] Sentry in centralized handlers

@@ -114,7 +114,8 @@ const TerminalDemo: React.FC = () => {
 					key="p-5"
 					className="text-green-400 mb-6 font-bold font-mono text-sm"
 				>
-					[+] Index created successfully in ./.viberag/lance_db
+					[+] Index created successfully in
+					~/.local/share/viberag/projects/&lt;projectId&gt;/lancedb
 				</div>,
 			];
 			setHistory(prev => [...prev, ...processingNodes]);

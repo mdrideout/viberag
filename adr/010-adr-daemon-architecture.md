@@ -6,7 +6,7 @@ Accepted
 
 ## Context
 
-VibeRAG currently has a fundamental architecture issue: the CLI and MCP server are separate processes that share filesystem state (`.viberag/` directory) but have no coordination mechanism.
+VibeRAG currently has a fundamental architecture issue: the CLI and MCP server are separate processes that share filesystem state (per-project data under `~/.local/share/viberag/projects/<projectId>/`, override via `VIBERAG_HOME`) but have no coordination mechanism.
 
 ### The Problem
 
@@ -20,7 +20,7 @@ This leads to concrete failures:
 
 ```
 User runs /clean in CLI
-├── CLI deletes .viberag/lancedb/
+├── CLI deletes ~/.local/share/viberag/projects/<projectId>/lancedb/
 ├── MCP server still has open LanceDB connection
 ├── MCP server queries → "file not found" errors
 └── User must restart IDE to recover
@@ -56,23 +56,24 @@ Adopt a **per-project daemon architecture** where a single daemon process owns a
 
 ### Daemon Locality
 
-**One daemon per `.viberag/` directory** (i.e., per project):
+**One daemon per project** (keyed by a stable `projectId` derived from the project root):
 
 ```
-/Users/matt/repos/
-├── projectA/
-│   └── .viberag/
-│       ├── daemon.sock      ← Daemon A listens here
-│       ├── daemon.pid       ← Daemon A's PID
+~/.local/share/viberag/
+├── projects/
+│   ├── <projectIdA>/
+│   │   ├── config.json
+│   │   └── lancedb/
+│   └── <projectIdB>/
 │       ├── config.json
 │       └── lancedb/
-│
-└── projectB/
-    └── .viberag/
+└── run/
+    ├── <projectIdA>/
+    │   ├── daemon.sock      ← Daemon A listens here (Unix)
+    │   └── daemon.pid
+    └── <projectIdB>/
         ├── daemon.sock      ← Daemon B (separate)
-        ├── daemon.pid
-        ├── config.json
-        └── lancedb/
+        └── daemon.pid
 ```
 
 ### Scenario 1: Two Separate Projects
@@ -152,7 +153,7 @@ STEP 2: Daemon handles coordinated shutdown
 STEP 3: CLI performs /clean or /init
 ────────────────────────────────────
               CLI:
-                - Deletes/recreates .viberag/
+                - Deletes/recreates the per-project data directory under `~/.local/share/viberag/projects/<projectId>/`
                 - Runs initialization wizard
                 - Creates new config.json
                 - (Optional) Starts initial indexing
@@ -181,7 +182,7 @@ The daemon exclusively owns:
 
 ### IPC Protocol
 
-Socket location: `.viberag/daemon.sock` (Unix) or `\\.\pipe\viberag-{projectHash}` (Windows)
+Socket location: `~/.local/share/viberag/run/<projectId>/daemon.sock` (Unix) or `\\.\pipe\viberag-<projectId>` (Windows)
 
 Protocol: JSON-RPC 2.0 over newline-delimited JSON
 
@@ -209,7 +210,7 @@ The protocol is request/response only. Clients poll `status()` (and optionally `
 
 **Startup:**
 
-1. First client checks for `.viberag/daemon.sock`
+1. First client checks for `~/.local/share/viberag/run/<projectId>/daemon.sock`
 2. If connectable → use existing daemon
 3. If not → spawn daemon subprocess, wait for socket, connect
 
@@ -222,7 +223,7 @@ The protocol is request/response only. Clients poll `status()` (and optionally `
 **Crash Recovery:**
 
 1. Client detects connection failure
-2. Client checks `daemon.pid` - if process dead, clean up stale socket
+2. Client checks `~/.local/share/viberag/run/<projectId>/daemon.pid` - if process dead, clean up stale socket
 3. Client spawns new daemon
 4. Client reconnects
 
@@ -335,9 +336,9 @@ const stats = await client.index({force: false});
 // /clean command
 const client = new DaemonClient(projectRoot);
 if (await client.isRunning()) {
-	await client.shutdown({reason: 'clean'});
+	await client.shutdown('clean');
 }
-// Now safe to delete .viberag/
+// Now safe to delete the project data dir
 await fs.rm(viberagDir, {recursive: true});
 ```
 

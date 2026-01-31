@@ -3,7 +3,6 @@
  */
 
 import fs from 'node:fs/promises';
-import path from 'node:path';
 import chalk from 'chalk';
 import {computeStringHash} from '../../daemon/lib/merkle/hash.js';
 import {
@@ -13,7 +12,13 @@ import {
 	PROVIDER_CONFIGS,
 	type ViberagConfig,
 } from '../../daemon/lib/config.js';
-import {getViberagDir} from '../../daemon/lib/constants.js';
+import {
+	getSecretsPath,
+	getRunDir,
+	getServiceLogsDir,
+	getViberagDir,
+} from '../../daemon/lib/constants.js';
+import {addApiKey} from '../../daemon/lib/secrets.js';
 import {
 	loadV2Manifest,
 	checkV2IndexCompatibility,
@@ -65,7 +70,7 @@ export async function loadIndexStats(
 
 /**
  * Initialize a project for Viberag.
- * Creates .viberag/ directory with config.json.
+ * Creates a global per-project data directory with config.json.
  * With isReinit=true, shuts down daemon and deletes everything first.
  * Optionally reports progress for UI status updates.
  */
@@ -78,7 +83,7 @@ export async function runInit(
 	const viberagDir = getViberagDir(projectRoot);
 	const isExisting = await configExists(projectRoot);
 
-	// If reinit, shutdown daemon and delete entire .viberag directory first
+	// If reinit, shutdown daemon and delete entire project data directory first
 	if (isReinit && isExisting) {
 		onProgress?.('Stopping daemon');
 		const client = new DaemonClient(projectRoot);
@@ -94,12 +99,14 @@ export async function runInit(
 		} finally {
 			await client.disconnect();
 		}
-		onProgress?.('Removing .viberag');
+		onProgress?.('Removing project data');
 		await fs.rm(viberagDir, {recursive: true, force: true});
+		// Also remove runtime files (socket/pid/lock)
+		await fs.rm(getRunDir(projectRoot), {recursive: true, force: true});
 	}
 
-	// Create .viberag directory
-	onProgress?.('Creating .viberag');
+	// Create global per-project directory
+	onProgress?.('Creating project data');
 	await fs.mkdir(viberagDir, {recursive: true});
 
 	// Build config from wizard choices
@@ -120,30 +127,45 @@ export async function runInit(
 		embeddingProvider: provider,
 		embeddingModel: model,
 		embeddingDimensions: dimensions,
-		...(wizardConfig?.apiKey && {apiKey: wizardConfig.apiKey}),
 		...(openaiBaseUrl && {openaiBaseUrl}),
 	};
+
+	// Configure API key reference for cloud providers
+	if (provider !== 'local') {
+		let keyId: string | undefined = wizardConfig?.apiKeyId;
+
+		if (!keyId && wizardConfig?.apiKey) {
+			onProgress?.('Saving API key');
+			const result = await addApiKey({
+				provider,
+				apiKey: wizardConfig.apiKey,
+				makeDefault: true,
+			});
+			keyId = result.keyId;
+		}
+
+		if (!keyId) {
+			throw new Error(
+				`${provider} API key required. Add one via /init (stored at ${getSecretsPath()}).`,
+			);
+		}
+
+		config.apiKeyRef = {provider, keyId};
+	}
 
 	// Save config
 	onProgress?.('Writing config');
 	await saveConfig(projectRoot, config);
 
-	// Add .viberag/ to .gitignore if not present
-	const gitignorePath = path.join(projectRoot, '.gitignore');
-	onProgress?.('Updating .gitignore');
-	try {
-		const content = await fs.readFile(gitignorePath, 'utf-8');
-		if (!content.includes('.viberag')) {
-			await fs.appendFile(gitignorePath, '\n# Viberag index\n.viberag/\n');
-		}
-	} catch {
-		// .gitignore doesn't exist, create it
-		await fs.writeFile(gitignorePath, '# Viberag index\n.viberag/\n');
-	}
-
 	const action = isExisting ? 'Reinitialized' : 'Initialized';
 	const providerLabel = provider.charAt(0).toUpperCase() + provider.slice(1);
-	return `${action} Viberag in ${viberagDir}\nProvider: ${providerLabel}\nModel: ${model} (${dimensions}d)\nRun /index to build the code index.`;
+	return (
+		`${action} VibeRAG for ${projectRoot}\n` +
+		`Data: ${viberagDir}\n` +
+		`Provider: ${providerLabel}\n` +
+		`Model: ${model} (${dimensions}d)\n` +
+		'Run /index to build the code index.'
+	);
 }
 
 /**
@@ -446,10 +468,13 @@ export async function getStatus(projectRoot: string): Promise<string> {
 			updatePromise,
 			compatibilityPromise,
 		]);
-		return formatStatusWithStartupChecks(formatDaemonStatus(daemonStatus), {
-			update,
-			compatibility,
-		});
+		return formatStatusWithStartupChecks(
+			formatDaemonStatus(daemonStatus, projectRoot),
+			{
+				update,
+				compatibility,
+			},
+		);
 	}
 
 	const manifestStatus = await formatManifestStatus(projectRoot);
@@ -539,7 +564,10 @@ function formatStatusWithStartupChecks(
 	return `${lines.join('\n')}${body}`;
 }
 
-function formatDaemonStatus(status: DaemonStatusResponse): string {
+function formatDaemonStatus(
+	status: DaemonStatusResponse,
+	projectRoot: string,
+): string {
 	const lines: string[] = ['Daemon status:'];
 
 	lines.push(`  Initialized: ${status.initialized ? 'yes' : 'no'}`);
@@ -614,7 +642,7 @@ function formatDaemonStatus(status: DaemonStatusResponse): string {
 
 	if (status.failures.length > 0) {
 		lines.push(
-			`  Failures: ${status.failures.length} batch(es) - see .viberag/logs/indexer/`,
+			`  Failures: ${status.failures.length} batch(es) - see ${getServiceLogsDir(projectRoot, 'indexer')}`,
 		);
 	}
 
@@ -720,7 +748,7 @@ function normalizeCancelTarget(target?: string): 'indexing' | 'warmup' | 'all' {
 
 /**
  * Clean/uninstall Viberag from a project.
- * Shuts down daemon first, then removes the entire .viberag/ directory.
+ * Shuts down daemon first, then removes the entire project data directory.
  */
 export async function runClean(projectRoot: string): Promise<string> {
 	const viberagDir = getViberagDir(projectRoot);
@@ -746,7 +774,13 @@ export async function runClean(projectRoot: string): Promise<string> {
 	}
 
 	await fs.rm(viberagDir, {recursive: true, force: true});
-	return `Removed ${viberagDir}\nViberag has been uninstalled from this project.\nRun /init to reinitialize.`;
+	await fs.rm(getRunDir(projectRoot), {recursive: true, force: true});
+	return (
+		`Removed ${viberagDir}\n` +
+		'VibeRAG has been uninstalled for this project.\n' +
+		'Run /init to reinitialize.\n' +
+		`Note: API keys are stored globally at ${getSecretsPath()}.`
+	);
 }
 
 /**

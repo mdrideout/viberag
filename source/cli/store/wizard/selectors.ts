@@ -48,8 +48,8 @@ export const selectIsReinit = (state: RootState): boolean =>
 export const selectShowMcpPrompt = (state: RootState): boolean =>
 	state.wizard.showMcpPrompt;
 
-export const selectExistingApiKey = (state: RootState): string | null =>
-	state.wizard.existingApiKey;
+export const selectExistingApiKeyId = (state: RootState): string | null =>
+	state.wizard.existingApiKeyId;
 
 export const selectExistingProvider = (
 	state: RootState,

@@ -8,6 +8,7 @@
 import React, {useState, useEffect, useCallback} from 'react';
 import {Box, Text, useInput} from 'ink';
 import SelectInput from 'ink-select-input';
+import {DaemonClient} from '../../client/index.js';
 import {EDITORS, getConfigPath} from '../data/mcp-editors.js';
 import {
 	findConfiguredEditors,
@@ -15,6 +16,7 @@ import {
 	type McpRemovalResult,
 	type ConfiguredEditorInfo,
 } from '../commands/mcp-setup.js';
+import {getRunDir} from '../../daemon/lib/constants.js';
 
 type CleanStep =
 	| 'confirm'
@@ -115,7 +117,25 @@ export function CleanWizard({
 		async (cleanProjectMcpArg: boolean, cleanGlobalMcp: boolean) => {
 			const fs = await import('node:fs/promises');
 
-			// Remove .viberag directory
+			// Shutdown daemon first (prevents stale DB handles / sockets)
+			const client = new DaemonClient({
+				projectRoot,
+				autoStart: false,
+			});
+			try {
+				if (await client.isRunning()) {
+					await client.connect();
+					await client.shutdown('clean');
+					// Give the daemon a moment to exit
+					await new Promise(r => setTimeout(r, 500));
+				}
+			} catch {
+				// Ignore errors - daemon may not be running
+			} finally {
+				await client.disconnect();
+			}
+
+			// Remove global per-project data directory
 			try {
 				await fs.rm(viberagDir, {recursive: true, force: true});
 				setViberagRemoved(true);
@@ -138,6 +158,13 @@ export function CleanWizard({
 					setStep('summary');
 					return;
 				}
+			}
+
+			// Remove runtime files (socket/pid/lock)
+			try {
+				await fs.rm(getRunDir(projectRoot), {recursive: true, force: true});
+			} catch {
+				// Ignore
 			}
 
 			const results: McpRemovalResult[] = [];
@@ -249,7 +276,7 @@ export function CleanWizard({
 					Remove from MCP configs?
 				</Text>
 				<Box marginTop={1} flexDirection="column">
-					<Text>Found viberag in these project MCP configs:</Text>
+					<Text>Found VibeRAG in these project MCP configs:</Text>
 					{projectScopeConfigs.map(info => (
 						<Text key={`${info.editor.id}-${info.scope}`} dimColor>
 							{' '}
@@ -282,7 +309,7 @@ export function CleanWizard({
 					</Text>
 				</Box>
 				<Box marginTop={1} flexDirection="column">
-					<Text>Found viberag in these global configs:</Text>
+					<Text>Found VibeRAG in these global configs:</Text>
 					{globalScopeConfigs.map(info => (
 						<Text key={`${info.editor.id}-${info.scope}`} dimColor>
 							{' '}

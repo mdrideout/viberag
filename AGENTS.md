@@ -110,4 +110,4 @@ We don't test that tree-sitter parses Python or that LanceDB stores vectors. We 
 
 ## Storage
 
-All data lives in `.viberag/` (gitignored).
+All persisted data lives under `~/.local/share/viberag/` (override via `VIBERAG_HOME`).

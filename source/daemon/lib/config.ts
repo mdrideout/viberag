@@ -2,11 +2,20 @@
  * Config - Viberag project configuration loading and management.
  *
  * Handles loading, saving, and validating project configuration.
- * Configuration is stored in .viberag/config.json.
+ *
+ * Configuration is stored globally per-project under the VibeRAG home dir
+ * (default: ~/.local/share/viberag, override via $VIBERAG_HOME).
  */
 
 import fs from 'node:fs/promises';
-import {getConfigPath, getViberagDir} from './constants.js';
+import {
+	getCanonicalProjectRoot,
+	getConfigPath,
+	getProjectId,
+	getProjectMetaPath,
+	getViberagDir,
+} from './constants.js';
+import type {CloudProvider} from './secrets.js';
 import type {EmbeddingProviderType} from '../../common/types.js';
 
 export type {EmbeddingProviderType};
@@ -34,8 +43,11 @@ export interface ViberagConfig {
 	embeddingProvider: EmbeddingProviderType;
 	embeddingModel: string;
 	embeddingDimensions: number;
-	/** API key for cloud providers (gemini, mistral, openai) */
-	apiKey?: string;
+	/**
+	 * Reference to a global API key entry (stored under ~/.local/share/viberag/secrets).
+	 * Never store raw API keys in the per-project config.
+	 */
+	apiKeyRef?: {provider: CloudProvider; keyId: string};
 	/** OpenAI API base URL (for corporate accounts with data residency) */
 	openaiBaseUrl?: string;
 	extensions: string[];
@@ -162,6 +174,15 @@ export async function loadConfig(projectRoot: string): Promise<ViberagConfig> {
 		);
 	}
 
+	// Guard rail: never allow legacy inline apiKey storage
+	if ('apiKey' in loaded) {
+		throw new Error(
+			`Legacy inline apiKey found in config at ${configPath}. ` +
+				`VibeRAG now stores API keys globally under ~/.local/share/viberag/secrets/. ` +
+				`Run /init to reconfigure your embedding provider and API key.`,
+		);
+	}
+
 	// Validate embedding dimensions match provider
 	const provider = loaded.embeddingProvider ?? DEFAULT_CONFIG.embeddingProvider;
 	const expectedDimensions = PROVIDER_CONFIGS[provider]?.dimensions;
@@ -178,16 +199,33 @@ export async function loadConfig(projectRoot: string): Promise<ViberagConfig> {
 		...(loaded.watch ?? {}),
 	};
 
+	// Ensure apiKeyRef provider matches embeddingProvider (avoid mismatched refs)
+	const apiKeyRef =
+		loaded.apiKeyRef &&
+		typeof loaded.apiKeyRef === 'object' &&
+		typeof (loaded.apiKeyRef as {provider?: unknown}).provider === 'string' &&
+		typeof (loaded.apiKeyRef as {keyId?: unknown}).keyId === 'string'
+			? (loaded.apiKeyRef as {provider: CloudProvider; keyId: string})
+			: undefined;
+
+	const normalizedApiKeyRef =
+		provider === 'local'
+			? undefined
+			: apiKeyRef?.provider === provider
+				? apiKeyRef
+				: undefined;
+
 	return {
 		...DEFAULT_CONFIG,
 		...loaded,
 		watch: watchConfig,
+		apiKeyRef: normalizedApiKeyRef,
 	};
 }
 
 /**
  * Save config to disk.
- * Creates the .viberag directory if it doesn't exist.
+ * Creates the per-project VibeRAG directory if it doesn't exist.
  */
 export async function saveConfig(
 	projectRoot: string,
@@ -198,6 +236,39 @@ export async function saveConfig(
 
 	const configPath = getConfigPath(projectRoot);
 	await fs.writeFile(configPath, JSON.stringify(config, null, '\t') + '\n');
+
+	// Write per-project metadata (helps with debugging / listing projects)
+	const metaPath = getProjectMetaPath(projectRoot);
+	const canonicalRoot = getCanonicalProjectRoot(projectRoot);
+	const projectId = getProjectId(projectRoot);
+
+	const now = new Date().toISOString();
+	let createdAt = now;
+	try {
+		const existing = JSON.parse(
+			await fs.readFile(metaPath, 'utf-8'),
+		) as Partial<{createdAt: string}>;
+		if (typeof existing.createdAt === 'string') {
+			createdAt = existing.createdAt;
+		}
+	} catch {
+		// Ignore (first write or corrupt)
+	}
+
+	await fs.writeFile(
+		metaPath,
+		JSON.stringify(
+			{
+				schemaVersion: 1,
+				projectId,
+				projectRoot: canonicalRoot,
+				createdAt,
+				updatedAt: now,
+			},
+			null,
+			'\t',
+		) + '\n',
+	);
 }
 
 /**

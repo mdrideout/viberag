@@ -41,7 +41,7 @@ Implementation reference: `source/daemon/lib/update-check.ts`
 
 Reindex requirements are driven by the v2 manifest field:
 
-- `.viberag/manifest-v2.json` → `schemaVersion`
+- `~/.local/share/viberag/projects/<projectId>/manifest-v2.json` → `schemaVersion` (override via `VIBERAG_HOME`)
 - Code requirement: `V2_SCHEMA_VERSION` in `source/daemon/services/v2/manifest.ts`
 
 Rules:

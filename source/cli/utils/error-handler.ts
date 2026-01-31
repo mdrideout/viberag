@@ -3,7 +3,7 @@
  *
  * Centralized error handling for the CLI with logging to:
  * - Console (stderr) - immediate visibility with full stack trace
- * - .viberag/logs/cli/ - persistent log with hourly rotation
+ * - per-project logs directory - persistent log with hourly rotation
  *
  * Usage:
  * ```typescript
@@ -24,7 +24,7 @@ import {createServiceLogger, type Logger} from '../../daemon/lib/logger.js';
 
 /**
  * Create a CLI logger for the given project root.
- * Writes to .viberag/logs/cli/YYYY-MM-DD-HH.log
+ * Writes to: {projectDataDir}/logs/cli/YYYY-MM-DD-HH.log
  */
 export function createCliLogger(projectRoot: string): Logger | null {
 	try {
@@ -40,7 +40,7 @@ export function createCliLogger(projectRoot: string): Logger | null {
  *
  * Logs to:
  * 1. Console (stderr) - with full Error object for stack trace
- * 2. CLI log file - .viberag/logs/cli/ with hourly rotation
+ * 2. CLI log file - per-project hourly rotation
  *
  * @param component - Component or context name (e.g., 'IndexCommand', 'SearchHandler')
  * @param error - The error that occurred

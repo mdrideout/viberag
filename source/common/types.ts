@@ -133,7 +133,15 @@ export type OpenAIRegion = 'default' | 'us' | 'eu';
  */
 export type InitWizardConfig = {
 	provider: EmbeddingProviderType;
-	/** API key for cloud providers (gemini, mistral, openai) */
+	/**
+	 * Selected global API key id (stored under ~/.local/share/viberag/secrets).
+	 * This is the preferred way to configure cloud providers.
+	 */
+	apiKeyId?: string;
+	/**
+	 * New API key entered during the wizard. This is written to the global
+	 * secrets store and is never persisted to the per-project config.
+	 */
 	apiKey?: string;
 	/** OpenAI regional endpoint (for corporate accounts with data residency) */
 	openaiRegion?: OpenAIRegion;

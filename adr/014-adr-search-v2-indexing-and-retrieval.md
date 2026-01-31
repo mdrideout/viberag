@@ -35,7 +35,7 @@ Tables are stored in LanceDB as:
 - `v2_refs`
 - `v2_embedding_cache` (shared embedding cache keyed by input hash)
 
-The v2 manifest is stored separately as `.viberag/manifest-v2.json`.
+The v2 manifest is stored separately as `~/.local/share/viberag/projects/<projectId>/manifest-v2.json` (override via `VIBERAG_HOME`).
 
 ### 2) Stable Handles for Agent Navigation
 

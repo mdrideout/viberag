@@ -7,7 +7,12 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import {FileWatcher} from '../services/watcher.js';
-import {createConfigForProvider} from '../lib/config.js';
+import {
+	createConfigForProvider,
+	saveConfig,
+	type ViberagConfig,
+} from '../lib/config.js';
+import {getRunDir, getViberagDir} from '../lib/constants.js';
 import {addFile, modifyFile, waitForFs} from './helpers.js';
 
 type TempProject = {
@@ -16,10 +21,7 @@ type TempProject = {
 };
 
 async function writeWatcherConfig(projectRoot: string): Promise<void> {
-	const configDir = path.join(projectRoot, '.viberag');
-	await fs.mkdir(configDir, {recursive: true});
-
-	const config = {
+	const config: ViberagConfig = {
 		...createConfigForProvider('local'),
 		watch: {
 			enabled: true,
@@ -28,11 +30,7 @@ async function writeWatcherConfig(projectRoot: string): Promise<void> {
 			awaitWriteFinish: false,
 		},
 	};
-
-	await fs.writeFile(
-		path.join(configDir, 'config.json'),
-		JSON.stringify(config, null, '\t') + '\n',
-	);
+	await saveConfig(projectRoot, config);
 }
 
 async function createTempProject(): Promise<TempProject> {
@@ -41,9 +39,14 @@ async function createTempProject(): Promise<TempProject> {
 	);
 	await writeWatcherConfig(projectRoot);
 
+	const projectDataDir = getViberagDir(projectRoot);
+	const runDir = getRunDir(projectRoot);
+
 	return {
 		projectRoot,
 		cleanup: async () => {
+			await fs.rm(projectDataDir, {recursive: true, force: true});
+			await fs.rm(runDir, {recursive: true, force: true});
 			await fs.rm(projectRoot, {recursive: true, force: true});
 		},
 	};

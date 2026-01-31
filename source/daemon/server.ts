@@ -113,9 +113,9 @@ export class DaemonServer {
 	 * Start the server.
 	 */
 	async start(): Promise<void> {
-		// Ensure .viberag directory exists (avoid Windows named pipe path)
-		const viberagDir = path.dirname(this.pidPath);
-		await fs.mkdir(viberagDir, {recursive: true});
+		// Ensure global run directory exists (avoid writing inside project folder)
+		const runDir = path.dirname(this.pidPath);
+		await fs.mkdir(runDir, {recursive: true});
 
 		// Clean up stale socket file if it exists
 		// Note: We hold the daemon lock at this point, so any existing socket is stale.

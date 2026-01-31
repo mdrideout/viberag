@@ -8,6 +8,7 @@ import path from 'node:path';
 import {checkNpmForUpdate, compareSemver} from '../lib/update-check.js';
 import {
 	checkV2IndexCompatibility,
+	getV2ManifestPath,
 	V2ReindexRequiredError,
 	V2_SCHEMA_VERSION,
 } from '../services/v2/manifest.js';
@@ -78,7 +79,7 @@ describe('V2 index compatibility', () => {
 
 	beforeAll(async () => {
 		ctx = await copyFixtureToTemp('codebase');
-		manifestPath = path.join(ctx.projectRoot, '.viberag', 'manifest-v2.json');
+		manifestPath = getV2ManifestPath(ctx.projectRoot);
 	}, 60_000);
 
 	afterAll(async () => {

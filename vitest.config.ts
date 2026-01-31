@@ -17,6 +17,7 @@ export default defineConfig({
 		environment: 'node',
 		globals: true,
 		passWithNoTests: true,
+		setupFiles: ['source/test-setup.ts'],
 		projects: [
 			{
 				extends: true,

@@ -60,7 +60,7 @@ export function useCommands({
   /status         - Show index status
   /cancel [target] - Cancel indexing or warmup (targets: indexing, warmup)
   /mcp-setup      - Configure MCP server for AI coding tools
-  /clean          - Remove Viberag from project (delete .viberag/)
+  /clean          - Remove VibeRAG from project (delete project data)
   /quit           - Exit
 
 Multi-line input:

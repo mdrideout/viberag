@@ -96,7 +96,7 @@ This table documents whether each editor supports explicit `cwd` (working direct
 
 **Implications for VibeRAG:**
 
-Since viberag-mcp needs to access the project's `.viberag/` directory, it uses `process.cwd()` as the project root (`source/mcp/index.ts:17`).
+Since `viberag-mcp` needs to operate on a specific project, it uses `process.cwd()` as the project root (`source/mcp/index.ts:17`) and derives a stable `projectId` to locate the project's global data directory under `~/.local/share/viberag/projects/<projectId>/` (override via `VIBERAG_HOME`).
 
 **No changes needed to setup or wizards.** The current approach works correctly because:
 
