@@ -68,6 +68,7 @@ When you use viberag to search, viberag will uncover semantically related variab
 
 General workflow:
 - Use codebase_search as the starting point for exploration. Choose an intent (auto/definition/usage/concept/exact_text/similar_code) and optional scope filters (path_prefix/path_contains/path_not_contains/extension).
+- Use subagents with viberag search tools to explore more in parallel.
 - Use get_symbol_details(symbol_id) to fetch full definitions, find_references to locate usages, get_surrounding_code to expand context around a hit, and read_file_lines for raw source when you need exact lines.
 - If errors or not initialized, call get_status to check if "not_initialized" or "not_indexed", ask the user to run "npx viberag" in the project and complete /init, then call build_index.
 `;
@@ -383,6 +384,8 @@ RETURNS: Detailed guide with examples and workflow suggestions.`,
 		name: 'codebase_search',
 		description: `Semantic codebase search - your starting point for code exploration.
 
+use subagents to run searches in parallel for different queries.
+
 WHEN TO USE:
 - Understanding features: "how does authentication work"
 - Finding symbols: class names, function names, types
@@ -482,6 +485,8 @@ NEXT STEPS:
 		name: 'read_file_lines',
 		description: `Read exact source code lines from a file.
 
+use subagents to do this in parallel.
+
 WHEN TO USE:
 - Search result snippet is truncated
 - Need more context around a specific location
@@ -531,6 +536,8 @@ NOTE: Use after search results give you a file_path and line numbers.`,
 	server.addTool({
 		name: 'get_symbol_details',
 		description: `Fetch full details for a symbol by ID.
+
+use subagents to do this in parallel.
 
 WHEN TO USE:
 - After codebase_search returns a definition you want to inspect
@@ -592,6 +599,8 @@ NEXT STEPS:
 	server.addTool({
 		name: 'find_references',
 		description: `Find all references to a symbol across the codebase.
+
+use subagents to do this in parallel.
 
 WHEN TO USE:
 - Trace how widely a function/class is used
@@ -663,6 +672,8 @@ EXAMPLES:
 	server.addTool({
 		name: 'get_surrounding_code',
 		description: `Get neighboring code around a search result.
+
+use subagents to do this in parallel.
 
 WHEN TO USE:
 - See other methods in the same class
