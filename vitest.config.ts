@@ -27,6 +27,8 @@ export default defineConfig({
 						'source/cli/__tests__/**/*.test.ts',
 						'source/mcp/__tests__/**/*.test.ts',
 						'source/daemon/__tests__/api-utils.test.ts',
+						'source/daemon/__tests__/telemetry-sanitize.test.ts',
+						'source/daemon/__tests__/user-settings.test.ts',
 						'source/daemon/__tests__/merkle.test.ts',
 						'source/daemon/__tests__/grammar-smoke.test.ts',
 					],

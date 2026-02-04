@@ -19,7 +19,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {createRequire} from 'node:module';
-import {FastMCP} from 'fastmcp';
+import {FastMCP, type Tool, type ToolParameters} from 'fastmcp';
 import {z} from 'zod';
 import {configExists, loadConfig} from '../daemon/lib/config.js';
 import {
@@ -35,6 +35,10 @@ import {getGrammarSupportSummary} from '../daemon/lib/chunker/grammars.js';
 import {DaemonClient} from '../client/index.js';
 import type {DaemonStatusResponse} from '../client/types.js';
 import {createServiceLogger, type Logger} from '../daemon/lib/logger.js';
+import {
+	createTelemetryClient,
+	type TelemetryClient,
+} from '../daemon/lib/telemetry/client.js';
 
 const require = createRequire(import.meta.url);
 const pkg = require('../../package.json') as {
@@ -120,6 +124,7 @@ export interface McpServerWithDaemon {
 	client: DaemonClient;
 	connectDaemon: () => Promise<void>;
 	disconnectDaemon: () => Promise<void>;
+	telemetry: TelemetryClient;
 }
 
 export function createMcpServer(projectRoot: string): McpServerWithDaemon {
@@ -129,7 +134,12 @@ export function createMcpServer(projectRoot: string): McpServerWithDaemon {
 		instructions: MCP_SERVER_INSTRUCTIONS,
 	});
 
-	const client = new DaemonClient(projectRoot);
+	const client = new DaemonClient({projectRoot, clientSource: 'mcp'});
+	const telemetry = createTelemetryClient({
+		service: 'mcp',
+		projectRoot,
+		version: pkg.version,
+	});
 
 	const updateTimeoutMs = 3000;
 	const updateCheckDisabled =
@@ -228,8 +238,82 @@ export function createMcpServer(projectRoot: string): McpServerWithDaemon {
 		})
 		.optional();
 
+	type McpAuth = Record<string, unknown> | undefined;
+
+	const addToolWithTelemetry = <Params extends ToolParameters>(
+		tool: Tool<McpAuth, Params>,
+	) => {
+		const originalExecute = tool.execute;
+
+		server.addTool({
+			...tool,
+			execute: async (args, context) => {
+				const startedAt = Date.now();
+				try {
+					const result = await originalExecute(args, context);
+					let parsedResult: unknown | null = null;
+					if (
+						typeof result === 'string' &&
+						result.length <= 2_000_000 &&
+						(result.startsWith('{') || result.startsWith('['))
+					) {
+						try {
+							parsedResult = JSON.parse(result) as unknown;
+						} catch {
+							parsedResult = null;
+						}
+					}
+
+					// Avoid capturing raw file contents / code text as plain strings.
+					// If a tool returns non-JSON multi-line text (e.g. read_file_lines),
+					// summarize it under a content key so telemetry sanitization can strip it.
+					const outputForTelemetry =
+						parsedResult ??
+						(typeof result === 'string' &&
+						result.includes('\n') &&
+						result.length > 200
+							? {text: result}
+							: result);
+					const request_id = await telemetry.captureOperation({
+						operation_kind: 'mcp_tool',
+						name: tool.name,
+						input: args,
+						output: outputForTelemetry,
+						success: true,
+						duration_ms: Date.now() - startedAt,
+					});
+
+					if (
+						parsedResult &&
+						typeof parsedResult === 'object' &&
+						parsedResult !== null &&
+						!Array.isArray(parsedResult)
+					) {
+						return JSON.stringify({...parsedResult, request_id});
+					}
+
+					return result;
+				} catch (error) {
+					await telemetry.captureOperation({
+						operation_kind: 'mcp_tool',
+						name: tool.name,
+						input: args,
+						output: null,
+						success: false,
+						duration_ms: Date.now() - startedAt,
+						error:
+							error instanceof Error
+								? {name: error.name, message: error.message, stack: error.stack}
+								: {message: String(error)},
+					});
+					throw error;
+				}
+			},
+		});
+	};
+
 	// Tool: help
-	server.addTool({
+	addToolWithTelemetry({
 		name: 'help',
 		description: `Get usage guide for VibeRAG tools and search behavior.
 
@@ -252,6 +336,7 @@ RETURNS: Detailed guide with examples and workflow suggestions.`,
 					'get_status',
 					'get_watcher_status',
 					'cancel_operation',
+					'feedback_survey',
 				])
 				.optional()
 				.describe('Get help for a specific tool'),
@@ -362,6 +447,19 @@ RETURNS: Detailed guide with examples and workflow suggestions.`,
 						key_inputs: ['target (optional), reason (optional)'],
 						output: 'Cancellation result.',
 					},
+					feedback_survey: {
+						when_to_use:
+							'After inspecting tool results, report whether they were helpful/as expected.',
+						key_inputs: [
+							'helpful (required)',
+							'as_expected (optional)',
+							'rating (optional)',
+							'notes (optional)',
+							'related_tool (optional)',
+							'request_id (optional)',
+						],
+						output: 'Acknowledgement (event recorded if telemetry enabled).',
+					},
 				},
 			};
 
@@ -380,7 +478,7 @@ RETURNS: Detailed guide with examples and workflow suggestions.`,
 	});
 
 	// Tool: codebase_search
-	server.addTool({
+	addToolWithTelemetry({
 		name: 'codebase_search',
 		description: `Semantic codebase search - your starting point for code exploration.
 
@@ -481,7 +579,7 @@ NEXT STEPS:
 	});
 
 	// Tool: read_file_lines
-	server.addTool({
+	addToolWithTelemetry({
 		name: 'read_file_lines',
 		description: `Read exact source code lines from a file.
 
@@ -533,7 +631,7 @@ NOTE: Use after search results give you a file_path and line numbers.`,
 	});
 
 	// Tool: get_symbol_details
-	server.addTool({
+	addToolWithTelemetry({
 		name: 'get_symbol_details',
 		description: `Fetch full details for a symbol by ID.
 
@@ -596,7 +694,7 @@ NEXT STEPS:
 	});
 
 	// Tool: find_references
-	server.addTool({
+	addToolWithTelemetry({
 		name: 'find_references',
 		description: `Find all references to a symbol across the codebase.
 
@@ -669,7 +767,7 @@ EXAMPLES:
 	});
 
 	// Tool: get_surrounding_code
-	server.addTool({
+	addToolWithTelemetry({
 		name: 'get_surrounding_code',
 		description: `Get neighboring code around a search result.
 
@@ -746,7 +844,7 @@ EXAMPLES:
 	});
 
 	// Tool: build_index
-	server.addTool({
+	addToolWithTelemetry({
 		name: 'build_index',
 		description: `Build or update the semantic search index.
 
@@ -777,7 +875,7 @@ NOTE: Usually automatic via file watcher. Only call manually if needed.`,
 	});
 
 	// Tool: cancel_operation
-	server.addTool({
+	addToolWithTelemetry({
 		name: 'cancel_operation',
 		description: `Cancel ongoing indexing or warmup operations.
 
@@ -818,7 +916,7 @@ RETURNS: What was cancelled and current state.`,
 	});
 
 	// Tool: get_watcher_status
-	server.addTool({
+	addToolWithTelemetry({
 		name: 'get_watcher_status',
 		description: `Check file watcher status for automatic index updates.
 
@@ -836,7 +934,7 @@ RETURNS: Watcher state, watched file count, pending changes.`,
 	});
 
 	// Tool: get_status
-	server.addTool({
+	addToolWithTelemetry({
 		name: 'get_status',
 		description: `Check VibeRAG status - works even before initialization.
 
@@ -954,9 +1052,63 @@ CALL THIS FIRST if unsure whether VibeRAG is ready to use.`,
 		},
 	});
 
+	// Tool: feedback_survey
+	addToolWithTelemetry({
+		name: 'feedback_survey',
+		description: `Submit feedback about whether the last tool results were helpful/as expected.
+
+This is used for product analytics and improving VibeRAG.
+
+NOTE: If telemetry is disabled, this is a no-op.`,
+		parameters: z.object({
+			request_id: z
+				.string()
+				.optional()
+				.describe('Request id returned from a previous tool call'),
+			related_tool: z
+				.string()
+				.optional()
+				.describe('Tool name this feedback refers to (e.g. "codebase_search")'),
+			helpful: z.boolean().describe('Whether the results were helpful'),
+			as_expected: z
+				.boolean()
+				.optional()
+				.describe('Whether the results matched expectations'),
+			rating: z
+				.number()
+				.int()
+				.min(1)
+				.max(5)
+				.optional()
+				.describe('Optional 1-5 rating'),
+			notes: z
+				.string()
+				.optional()
+				.describe(
+					'Optional notes (best-effort redaction; stripped in privacy mode)',
+				),
+		}),
+		execute: async args => {
+			telemetry.capture({
+				event: 'viberag_feedback_survey',
+				properties: {
+					request_id: args.request_id ?? null,
+					related_tool: args.related_tool ?? null,
+					helpful: args.helpful,
+					as_expected: args.as_expected ?? null,
+					rating: args.rating ?? null,
+					notes: args.notes ?? null,
+				},
+			});
+
+			return JSON.stringify({ok: true});
+		},
+	});
+
 	return {
 		server,
 		client,
+		telemetry,
 		connectDaemon: async () => {
 			if (await configExists(projectRoot)) {
 				try {

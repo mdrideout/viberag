@@ -53,6 +53,13 @@ export interface DaemonClientOptions {
 	autoStart?: boolean;
 	/** Connection timeout in ms (default: 5000) */
 	connectTimeout?: number;
+	/**
+	 * Caller identity for telemetry correlation and filtering.
+	 *
+	 * Used to reduce duplicate telemetry events (e.g. when MCP tools already
+	 * capture operations at the tool boundary).
+	 */
+	clientSource?: 'cli' | 'mcp' | 'unknown';
 }
 
 // ============================================================================

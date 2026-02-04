@@ -23,6 +23,7 @@
  */
 
 import fs from 'node:fs/promises';
+import {createRequire} from 'node:module';
 import lockfile from 'proper-lockfile';
 import {DaemonOwner} from './owner.js';
 import {DaemonServer} from './server.js';
@@ -34,10 +35,25 @@ import {
 	getDaemonLockPath,
 	getRunDir,
 } from './lib/constants.js';
+import {createTelemetryClient} from './lib/telemetry/client.js';
+import {captureException, initSentry} from './lib/telemetry/sentry.js';
+
+const require = createRequire(import.meta.url);
+const pkg = require('../../package.json') as {
+	name: string;
+	version: `${number}.${number}.${number}`;
+};
 
 const projectRoot = getCanonicalProjectRoot(
 	process.env['VIBERAG_PROJECT_ROOT'] ?? process.cwd(),
 );
+
+const telemetry = createTelemetryClient({
+	service: 'daemon',
+	projectRoot,
+	version: pkg.version,
+});
+const sentry = initSentry({service: 'daemon', version: pkg.version});
 
 // Lock file path - inside the global run directory
 const LOCK_FILE_PATH = getDaemonLockPath(projectRoot);
@@ -128,7 +144,16 @@ async function main(): Promise<void> {
 	// Create components
 	const owner = new DaemonOwner(projectRoot);
 	const server = new DaemonServer(owner);
-	const lifecycle = new LifecycleManager(server, owner, idleTimeoutMs);
+	server.setTelemetry(telemetry);
+	const lifecycle = new LifecycleManager(
+		server,
+		owner,
+		idleTimeoutMs,
+		async () => {
+			await telemetry.shutdown();
+			await sentry.shutdown();
+		},
+	);
 
 	// Register handlers
 	server.setHandlers(createHandlers());
@@ -151,8 +176,11 @@ async function main(): Promise<void> {
 }
 
 // Run main with error handling
-main().catch(error => {
+main().catch(async error => {
 	// Pass Error object directly to preserve stack trace (ADR-011)
 	console.error('[daemon] Fatal error:', error);
+	captureException(error, {tags: {service: 'daemon', fatal: 'true'}});
+	await telemetry.shutdown();
+	await sentry.shutdown();
 	process.exit(1);
 });

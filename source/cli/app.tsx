@@ -59,10 +59,19 @@ import {loadConfig} from '../daemon/lib/config.js';
 import {checkNpmForUpdate} from '../daemon/lib/update-check.js';
 import {checkV2IndexCompatibility} from '../daemon/services/v2/manifest.js';
 import type {SearchResultsData} from '../common/types.js';
+import {createTelemetryClient} from '../daemon/lib/telemetry/client.js';
+import {initSentry} from '../daemon/lib/telemetry/sentry.js';
 
 const require = createRequire(import.meta.url);
 // Path is relative from dist/ after compilation
 const {version} = require('../../package.json') as {version: string};
+
+const cliTelemetry = createTelemetryClient({
+	service: 'cli',
+	projectRoot: process.cwd(),
+	version,
+});
+const cliSentry = initSentry({service: 'cli', version});
 
 // Available slash commands for autocomplete with descriptions
 const COMMANDS: CommandInfo[] = [
@@ -79,6 +88,8 @@ const COMMANDS: CommandInfo[] = [
 	{command: '/status', description: 'Show daemon and index status'},
 	{command: '/cancel', description: 'Cancel indexing or warmup'},
 	{command: '/mcp-setup', description: 'Configure MCP for AI tools'},
+	{command: '/telemetry', description: 'Configure telemetry mode'},
+	{command: '/privacy-policy', description: 'Show privacy policy'},
 	{command: '/clean', description: 'Remove Viberag from project'},
 	{command: '/quit', description: 'Exit the application'},
 ];
@@ -322,6 +333,11 @@ function AppContent() {
 		startMcpSetupWizard,
 		startCleanWizard,
 		isInitialized: isInitialized ?? false,
+		telemetry: cliTelemetry,
+		shutdownTelemetry: async () => {
+			await cliTelemetry.shutdown();
+			await cliSentry.shutdown();
+		},
 	});
 
 	const handleSubmit = (text: string) => {

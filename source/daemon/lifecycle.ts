@@ -34,6 +34,7 @@ export class LifecycleManager {
 	private readonly server: DaemonServer;
 	private readonly owner: DaemonOwner;
 	private readonly idleTimeoutMs: number;
+	private readonly onShutdown: ((reason: string) => Promise<void>) | null;
 
 	private idleTimer: ReturnType<typeof setTimeout> | null = null;
 	private shuttingDown = false;
@@ -43,10 +44,12 @@ export class LifecycleManager {
 		server: DaemonServer,
 		owner: DaemonOwner,
 		idleTimeoutMs: number = DEFAULT_IDLE_TIMEOUT_MS,
+		onShutdown?: (reason: string) => Promise<void>,
 	) {
 		this.server = server;
 		this.owner = owner;
 		this.idleTimeoutMs = idleTimeoutMs;
+		this.onShutdown = onShutdown ?? null;
 
 		// Wire up activity callback instead of connect/disconnect
 		this.server.onActivity = this.onActivity.bind(this);
@@ -120,6 +123,10 @@ export class LifecycleManager {
 		this.cancelIdleTimer();
 
 		try {
+			if (this.onShutdown) {
+				await this.onShutdown(reason);
+			}
+
 			// Shutdown owner (closes watcher, search engine)
 			await this.owner.shutdown();
 

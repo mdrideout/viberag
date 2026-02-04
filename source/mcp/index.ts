@@ -12,16 +12,45 @@
 
 import {createMcpServer} from './server.js';
 import {configExists} from '../daemon/lib/config.js';
+import {createRequire} from 'node:module';
+import {captureException, initSentry} from '../daemon/lib/telemetry/sentry.js';
+
+const require = createRequire(import.meta.url);
+const pkg = require('../../package.json') as {
+	name: string;
+	version: `${number}.${number}.${number}`;
+};
 
 // Use current working directory as project root (same behavior as CLI)
 const projectRoot = process.cwd();
 
-const {server, connectDaemon, disconnectDaemon} = createMcpServer(projectRoot);
+const {server, connectDaemon, disconnectDaemon, telemetry} =
+	createMcpServer(projectRoot);
+const sentry = initSentry({service: 'mcp', version: pkg.version});
+
+const shouldTestException =
+	process.env['VIBERAG_TEST_EXCEPTION'] === '1' ||
+	process.env['VIBERAG_TEST_EXCEPTION'] === 'true';
+
+if (shouldTestException) {
+	void (async () => {
+		const error = new Error('VibeRAG test exception (mcp)');
+		captureException(error, {
+			tags: {service: 'mcp', test_exception: 'true'},
+			extra: {test_id: process.env['VIBERAG_TEST_EXCEPTION_ID'] ?? null},
+		});
+		await telemetry.shutdown();
+		await sentry.shutdown();
+		process.exit(1);
+	})();
+}
 
 // Handle shutdown signals
 async function shutdown(signal: string): Promise<void> {
 	console.error(`[viberag-mcp] Received ${signal}, shutting down...`);
 	await disconnectDaemon();
+	await telemetry.shutdown();
+	await sentry.shutdown();
 	process.exit(0);
 }
 
@@ -64,6 +93,7 @@ server.on('connect', () => {
 	runStartupTasks().catch(error => {
 		// Pass Error object directly to preserve stack trace (ADR-011)
 		console.error('[viberag-mcp] Startup tasks failed:', error);
+		captureException(error, {tags: {service: 'mcp', phase: 'startup'}});
 	});
 });
 
@@ -72,8 +102,11 @@ server
 	.start({
 		transportType: 'stdio',
 	})
-	.catch(error => {
+	.catch(async error => {
 		// Pass Error object directly to preserve stack trace (ADR-011)
 		console.error('[viberag-mcp] Failed to start server:', error);
+		captureException(error, {tags: {service: 'mcp', phase: 'start'}});
+		await telemetry.shutdown();
+		await sentry.shutdown();
 		process.exit(1);
 	});

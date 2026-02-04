@@ -3,6 +3,11 @@
  * Consolidates all command routing and handler implementations.
  */
 
+import crypto from 'node:crypto';
+import {spawn} from 'node:child_process';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import {fileURLToPath} from 'node:url';
 import {useCallback} from 'react';
 import {useApp} from 'ink';
 import {
@@ -19,6 +24,19 @@ import {setupVSCodeTerminal} from '../../common/commands/terminalSetup.js';
 import type {SearchResultsData} from '../../common/types.js';
 import {useAppDispatch} from '../store/hooks.js';
 import {AppActions} from '../store/app/slice.js';
+import {DaemonClient} from '../../client/index.js';
+import type {TelemetryClient} from '../../daemon/lib/telemetry/client.js';
+import {VIBERAG_PRIVACY_POLICY} from '../../daemon/lib/telemetry/privacy-policy.js';
+import {
+	loadUserSettings,
+	parseTelemetryMode,
+	resolveEffectiveTelemetryMode,
+	setTelemetryMode,
+} from '../../daemon/lib/user-settings.js';
+import {
+	captureException,
+	flushSentry,
+} from '../../daemon/lib/telemetry/sentry.js';
 
 type CommandContext = {
 	addOutput: (type: 'user' | 'system', content: string) => void;
@@ -29,6 +47,8 @@ type CommandContext = {
 	startMcpSetupWizard: (showPrompt?: boolean) => void;
 	startCleanWizard: () => void;
 	isInitialized: boolean;
+	telemetry: TelemetryClient;
+	shutdownTelemetry: () => Promise<void>;
 };
 
 export function useCommands({
@@ -40,6 +60,8 @@ export function useCommands({
 	startMcpSetupWizard,
 	startCleanWizard,
 	isInitialized,
+	telemetry,
+	shutdownTelemetry,
 }: CommandContext) {
 	const dispatch = useAppDispatch();
 	const {exit} = useApp();
@@ -60,6 +82,8 @@ export function useCommands({
   /status         - Show index status
   /cancel [target] - Cancel indexing or warmup (targets: indexing, warmup)
   /mcp-setup      - Configure MCP server for AI coding tools
+  /telemetry [mode] - Set telemetry (disabled|stripped|default)
+  /privacy-policy - Show privacy policy for telemetry
   /clean          - Remove VibeRAG from project (delete project data)
   /quit           - Exit
 
@@ -183,6 +207,192 @@ Manual MCP Setup:
 		startCleanWizard();
 	}, [startCleanWizard]);
 
+	const handleTelemetry = useCallback(
+		(arg?: string) => {
+			const requested = arg?.trim();
+
+			const showCurrent = async () => {
+				const settings = await loadUserSettings();
+				const effective = resolveEffectiveTelemetryMode(settings);
+				const source =
+					effective.source === 'env'
+						? 'VIBERAG_TELEMETRY env var'
+						: 'global settings file';
+
+				addOutput(
+					'system',
+					`Telemetry mode: ${effective.mode} (from ${source})\n\nModes:\n  disabled - no telemetry or error reporting\n  stripped - privacy-preserving telemetry (no query text)\n  default  - includes query text (best-effort redaction)\n\nSet with:\n  /telemetry disabled|stripped|default\n\nThis setting is global (applies to CLI, daemon, and MCP).`,
+				);
+
+				await telemetry.captureOperation({
+					operation_kind: 'cli_command',
+					name: '/telemetry',
+					projectRoot,
+					input: {action: 'show', effective_mode: effective.mode},
+					output: null,
+					success: true,
+					duration_ms: 0,
+				});
+			};
+
+			const setMode = async (mode: string) => {
+				const parsed = parseTelemetryMode(mode);
+				if (!parsed) {
+					addOutput(
+						'system',
+						`Invalid telemetry mode: ${mode}\n\nUsage:\n  /telemetry disabled|stripped|default`,
+					);
+					return;
+				}
+
+				await setTelemetryMode(parsed);
+				addOutput(
+					'system',
+					`Telemetry mode set to: ${parsed}\n\nThis setting is global (applies to CLI, daemon, and MCP).\nIf the daemon is already running, it may take a few seconds to pick up the change.`,
+				);
+
+				await telemetry.captureOperation({
+					operation_kind: 'cli_command',
+					name: '/telemetry',
+					projectRoot,
+					input: {action: 'set', mode: parsed},
+					output: null,
+					success: true,
+					duration_ms: 0,
+				});
+			};
+
+			void (async () => {
+				if (!requested) {
+					await showCurrent();
+					return;
+				}
+				await setMode(requested);
+			})().catch(err => {
+				addOutput('system', `Telemetry error: ${err.message}`);
+			});
+		},
+		[addOutput, projectRoot, telemetry],
+	);
+
+	const handlePrivacyPolicy = useCallback(() => {
+		addOutput('system', VIBERAG_PRIVACY_POLICY);
+		telemetry.capture({
+			event: 'viberag_privacy_policy_viewed',
+			properties: {service: 'cli'},
+		});
+	}, [addOutput, telemetry]);
+
+	const handleTestException = useCallback(
+		(arg?: string) => {
+			void (async () => {
+				const testId = crypto.randomUUID();
+				const settings = await loadUserSettings();
+				const effective = resolveEffectiveTelemetryMode(settings);
+
+				if (effective.mode === 'disabled') {
+					addOutput(
+						'system',
+						`Telemetry is disabled, so error reporting is also disabled.\n\nSet with:\n  /telemetry default\n\nThen re-run:\n  /test-exception`,
+					);
+					return;
+				}
+
+				addOutput(
+					'system',
+					`Triggering test exceptions (test_id=${testId}).\nThis is an undocumented command.`,
+				);
+
+				// CLI exception (captured, not fatal)
+				const cliError = new Error(
+					`VibeRAG test exception (cli)${arg ? `: ${arg}` : ''}`,
+				);
+				captureException(cliError, {
+					tags: {service: 'cli', test_exception: 'true'},
+					extra: {test_id: testId},
+				});
+				await flushSentry(2000);
+
+				// Daemon exception (captured inside daemon handler)
+				if (isInitialized) {
+					const client = new DaemonClient(projectRoot);
+					try {
+						await client.testException(`test_id=${testId}`);
+					} catch {
+						// Expected: daemon throws
+					} finally {
+						await client.disconnect();
+					}
+				} else {
+					addOutput(
+						'system',
+						'Skipping daemon test exception (project not initialized).',
+					);
+				}
+
+				// MCP exception (one-shot process)
+				const modulePath = fileURLToPath(import.meta.url);
+				const mcpScriptPath = path.resolve(
+					path.dirname(modulePath),
+					'../../mcp/index.js',
+				);
+
+				const env = {
+					...process.env,
+					VIBERAG_TEST_EXCEPTION: '1',
+					VIBERAG_TEST_EXCEPTION_ID: testId,
+				};
+
+				const spawnAndWait = (command: string, args: string[]) =>
+					new Promise<number | null>((resolve, reject) => {
+						const child = spawn(command, args, {
+							cwd: projectRoot,
+							env,
+							stdio: 'ignore',
+							windowsHide: true,
+						});
+						child.on('error', reject);
+						child.on('exit', code => resolve(code));
+					});
+
+				try {
+					await fs.access(mcpScriptPath);
+					const exitCode = await spawnAndWait(process.execPath, [
+						mcpScriptPath,
+					]);
+					addOutput(
+						'system',
+						`MCP test exception process exited (code ${exitCode ?? 'unknown'}).`,
+					);
+				} catch {
+					try {
+						const exitCode = await spawnAndWait('npx', ['viberag-mcp']);
+						addOutput(
+							'system',
+							`MCP test exception process exited (code ${exitCode ?? 'unknown'}).`,
+						);
+					} catch (error) {
+						const message =
+							error instanceof Error ? error.message : String(error);
+						addOutput(
+							'system',
+							`Failed to run MCP test exception process: ${message}\n\nTry manually:\n  VIBERAG_TEST_EXCEPTION=1 npx viberag-mcp`,
+						);
+					}
+				}
+
+				addOutput(
+					'system',
+					`Done. Check Sentry for events tagged test_exception=true (test_id=${testId}).`,
+				);
+			})().catch(err => {
+				const message = err instanceof Error ? err.message : String(err);
+				addOutput('system', `Test exception command failed: ${message}`);
+			});
+		},
+		[addOutput, isInitialized, projectRoot],
+	);
+
 	const handleUnknown = useCallback(
 		(command: string) => {
 			addOutput(
@@ -219,6 +429,16 @@ Manual MCP Setup:
 				handleCancel(target || undefined);
 				return;
 			}
+			if (command.startsWith('/telemetry')) {
+				const arg = trimmed.slice('/telemetry'.length).trim();
+				handleTelemetry(arg || undefined);
+				return;
+			}
+			if (command.startsWith('/test-exception')) {
+				const arg = trimmed.slice('/test-exception'.length).trim();
+				handleTestException(arg || undefined);
+				return;
+			}
 
 			switch (command) {
 				case '/help':
@@ -248,6 +468,9 @@ Manual MCP Setup:
 				case '/mcp-setup':
 					handleMcpSetup();
 					break;
+				case '/privacy-policy':
+					handlePrivacyPolicy();
+					break;
 				case '/clean':
 				case '/uninstall':
 					handleClean();
@@ -255,7 +478,9 @@ Manual MCP Setup:
 				case '/quit':
 				case '/exit':
 				case '/q':
-					exit();
+					void shutdownTelemetry()
+						.catch(() => {})
+						.finally(() => exit());
 					break;
 				default:
 					handleUnknown(command);
@@ -274,6 +499,10 @@ Manual MCP Setup:
 			handleEval,
 			handleCancel,
 			handleMcpSetup,
+			handleTelemetry,
+			handlePrivacyPolicy,
+			handleTestException,
+			shutdownTelemetry,
 			handleClean,
 			handleUnknown,
 		],

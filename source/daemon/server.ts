@@ -19,6 +19,7 @@ import {
 	JsonRpcParseError,
 } from './protocol.js';
 import type {DaemonOwner} from './owner.js';
+import type {TelemetryClient} from './lib/telemetry/client.js';
 
 // ============================================================================
 // Types
@@ -52,12 +53,52 @@ export type HandlerRegistry = Record<string, Handler>;
 // ============================================================================
 
 /**
+ * High-frequency daemon methods (polling/health checks) that are not
+ * meaningful for product analytics when successful.
+ *
+ * We still capture failures for these methods.
+ */
+const NOISY_SUCCESS_METHODS = new Set([
+	'status',
+	'watchStatus',
+	'ping',
+	'health',
+]);
+
+type DaemonClientSource = 'cli' | 'mcp' | 'unknown';
+
+function getClientSourceFromParams(
+	params?: Record<string, unknown>,
+): DaemonClientSource {
+	const meta = params?.['__client'];
+	if (typeof meta !== 'object' || meta === null || Array.isArray(meta)) {
+		return 'unknown';
+	}
+	const source = (meta as Record<string, unknown>)['source'];
+	if (source === 'cli' || source === 'mcp' || source === 'unknown') {
+		return source;
+	}
+	return 'unknown';
+}
+
+function stripClientMetaFromParams(
+	params?: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+	if (!params) return undefined;
+	if (!('__client' in params)) return params;
+	const next: Record<string, unknown> = {...params};
+	delete next['__client'];
+	return next;
+}
+
+/**
  * IPC server for daemon communication.
  */
 export class DaemonServer {
 	private readonly socketPath: string;
 	private readonly pidPath: string;
 	private readonly owner: DaemonOwner;
+	private telemetry: TelemetryClient | null = null;
 	private handlers: HandlerRegistry = {};
 
 	private server: net.Server | null = null;
@@ -75,6 +116,10 @@ export class DaemonServer {
 		this.owner = owner;
 		this.socketPath = owner.getSocketPath();
 		this.pidPath = owner.getPidPath();
+	}
+
+	setTelemetry(telemetry: TelemetryClient): void {
+		this.telemetry = telemetry;
 	}
 
 	/**
@@ -252,6 +297,7 @@ export class DaemonServer {
 		socket: net.Socket,
 		message: string,
 	): Promise<void> {
+		const startedAt = Date.now();
 		// Record activity for timeout management
 		this.onActivity?.();
 
@@ -294,6 +340,27 @@ export class DaemonServer {
 
 			const result = await handler(request.params, ctx);
 			socket.write(formatResponse(request.id, result));
+
+			if (this.telemetry) {
+				const clientSource = getClientSourceFromParams(request.params);
+				// MCP already captures tool-level telemetry, so avoid double-counting.
+				if (clientSource === 'mcp') return;
+
+				// Avoid spamming PostHog with high-frequency polling methods.
+				// Still capture failures in the catch() below.
+				if (NOISY_SUCCESS_METHODS.has(request.method)) return;
+
+				void this.telemetry
+					.captureOperation({
+						operation_kind: 'daemon_method',
+						name: request.method,
+						input: stripClientMetaFromParams(request.params) ?? null,
+						output: result,
+						success: true,
+						duration_ms: Date.now() - startedAt,
+					})
+					.catch(() => {});
+			}
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
 			const code = ((error as {code?: number}).code ??
@@ -312,6 +379,27 @@ export class DaemonServer {
 			}
 
 			socket.write(formatError(request.id, code, message));
+
+			if (this.telemetry) {
+				const clientSource = getClientSourceFromParams(request.params);
+				// MCP already captures tool-level telemetry, so avoid double-counting.
+				if (clientSource === 'mcp') return;
+
+				void this.telemetry
+					.captureOperation({
+						operation_kind: 'daemon_method',
+						name: request.method,
+						input: stripClientMetaFromParams(request.params) ?? null,
+						output: null,
+						success: false,
+						duration_ms: Date.now() - startedAt,
+						error:
+							error instanceof Error
+								? {name: error.name, message: error.message, stack: error.stack}
+								: {message},
+					})
+					.catch(() => {});
+			}
 		}
 	}
 

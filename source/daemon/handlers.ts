@@ -14,6 +14,7 @@ import {PROTOCOL_VERSION} from './protocol.js';
 import type {Handler, HandlerRegistry} from './server.js';
 import {daemonState} from './state.js';
 import {isAbortError} from './lib/abort.js';
+import {captureException, flushSentry} from './lib/telemetry/sentry.js';
 
 // ============================================================================
 // Parameter Schemas
@@ -270,6 +271,30 @@ const healthHandler: Handler = async (_params, ctx) => {
 	};
 };
 
+/**
+ * Test exception handler (undocumented).
+ *
+ * Used to validate Sentry error reporting across services.
+ */
+const testExceptionHandler: Handler = async (params, _ctx) => {
+	const messageValue = params?.['message'];
+	const message = typeof messageValue === 'string' ? messageValue : undefined;
+
+	const error = new Error(
+		`VibeRAG test exception (daemon)${message ? `: ${message}` : ''}`,
+	);
+
+	captureException(error, {
+		tags: {service: 'daemon', test_exception: 'true'},
+		extra: {message: message ?? null},
+	});
+
+	// Best-effort flush so it shows up quickly.
+	await flushSentry(2000);
+
+	throw error;
+};
+
 // ============================================================================
 // Handler Registry
 // ============================================================================
@@ -292,5 +317,6 @@ export function createHandlers(): HandlerRegistry {
 		shutdown: shutdownHandler,
 		ping: pingHandler,
 		health: healthHandler,
+		testException: testExceptionHandler,
 	};
 }

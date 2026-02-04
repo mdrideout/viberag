@@ -32,6 +32,7 @@ local_cache/
 # Environment files
 *.env
 .env.*
+!.env.telemetry.local.example
 
 # Cache files
 .eslintcache

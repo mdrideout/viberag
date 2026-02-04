@@ -185,6 +185,15 @@ export function getDaemonLockPath(projectRoot: string): string {
 // ============================================================================
 
 /**
+ * Get the global user settings file path.
+ *
+ * Path: {VIBERAG_HOME}/settings.json
+ */
+export function getUserSettingsPath(): string {
+	return path.join(getViberagHomeDir(), 'settings.json');
+}
+
+/**
  * Get the global secrets directory.
  */
 export function getSecretsDir(): string {

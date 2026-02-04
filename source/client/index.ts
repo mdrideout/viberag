@@ -46,6 +46,7 @@ export class DaemonClient {
 	private readonly socketPath: string;
 	private readonly autoStart: boolean;
 	private readonly connectTimeout: number;
+	private readonly clientSource: 'cli' | 'mcp' | 'unknown';
 
 	private connection: DaemonConnection | null = null;
 	private connectPromise: Promise<void> | null = null;
@@ -56,10 +57,12 @@ export class DaemonClient {
 			this.projectRoot = options;
 			this.autoStart = true;
 			this.connectTimeout = 5000;
+			this.clientSource = 'cli';
 		} else {
 			this.projectRoot = options.projectRoot;
 			this.autoStart = options.autoStart ?? true;
 			this.connectTimeout = options.connectTimeout ?? 5000;
+			this.clientSource = options.clientSource ?? 'cli';
 		}
 
 		this.socketPath = getSocketPath(this.projectRoot);
@@ -151,6 +154,17 @@ export class DaemonClient {
 		}
 	}
 
+	private async request(
+		method: string,
+		params?: Record<string, unknown>,
+	): Promise<unknown> {
+		await this.ensureConnected();
+		const withMeta: Record<string, unknown> | undefined = params
+			? {...params, __client: {source: this.clientSource}}
+			: {__client: {source: this.clientSource}};
+		return this.connection!.request(method, withMeta);
+	}
+
 	/**
 	 * Search the codebase.
 	 */
@@ -158,8 +172,7 @@ export class DaemonClient {
 		query: string,
 		options?: ClientSearchOptions,
 	): Promise<SearchResults> {
-		await this.ensureConnected();
-		return this.connection!.request('search', {
+		return this.request('search', {
 			query,
 			...options,
 		}) as Promise<SearchResults>;
@@ -169,8 +182,7 @@ export class DaemonClient {
 	 * Fetch a symbol definition row by symbol_id.
 	 */
 	async getSymbol(symbol_id: string): Promise<Record<string, unknown> | null> {
-		await this.ensureConnected();
-		return this.connection!.request('getSymbol', {symbol_id}) as Promise<Record<
+		return this.request('getSymbol', {symbol_id}) as Promise<Record<
 			string,
 			unknown
 		> | null>;
@@ -182,8 +194,7 @@ export class DaemonClient {
 	async findUsages(
 		options: ClientFindUsagesOptions,
 	): Promise<FindUsagesResults> {
-		await this.ensureConnected();
-		return this.connection!.request(
+		return this.request(
 			'findUsages',
 			options as unknown as Record<string, unknown>,
 		) as Promise<FindUsagesResults>;
@@ -193,8 +204,7 @@ export class DaemonClient {
 	 * Run the v2 eval harness (quality + latency).
 	 */
 	async eval(options?: ClientEvalOptions): Promise<EvalReport> {
-		await this.ensureConnected();
-		return this.connection!.request(
+		return this.request(
 			'eval',
 			options as unknown as Record<string, unknown> | undefined,
 		) as Promise<EvalReport>;
@@ -208,8 +218,7 @@ export class DaemonClient {
 		id: string;
 		limit?: number;
 	}): Promise<Record<string, unknown>> {
-		await this.ensureConnected();
-		return this.connection!.request(
+		return this.request(
 			'expandContext',
 			args as unknown as Record<string, unknown>,
 		) as Promise<Record<string, unknown>>;
@@ -219,8 +228,7 @@ export class DaemonClient {
 	 * Index the codebase.
 	 */
 	async index(options?: ClientIndexOptions): Promise<IndexStats> {
-		await this.ensureConnected();
-		return this.connection!.request(
+		return this.request(
 			'index',
 			options as unknown as Record<string, unknown>,
 		) as Promise<IndexStats>;
@@ -230,8 +238,7 @@ export class DaemonClient {
 	 * Start indexing asynchronously.
 	 */
 	async indexAsync(options?: ClientIndexOptions): Promise<IndexStartResponse> {
-		await this.ensureConnected();
-		return this.connection!.request(
+		return this.request(
 			'indexAsync',
 			options as unknown as Record<string, unknown>,
 		) as Promise<IndexStartResponse>;
@@ -242,24 +249,21 @@ export class DaemonClient {
 	 * Clients should poll this endpoint for state updates.
 	 */
 	async status(): Promise<DaemonStatusResponse> {
-		await this.ensureConnected();
-		return this.connection!.request('status') as Promise<DaemonStatusResponse>;
+		return this.request('status') as Promise<DaemonStatusResponse>;
 	}
 
 	/**
 	 * Get watcher status.
 	 */
 	async watchStatus(): Promise<WatcherStatus> {
-		await this.ensureConnected();
-		return this.connection!.request('watchStatus') as Promise<WatcherStatus>;
+		return this.request('watchStatus') as Promise<WatcherStatus>;
 	}
 
 	/**
 	 * Request daemon shutdown.
 	 */
 	async shutdown(reason?: string): Promise<void> {
-		await this.ensureConnected();
-		await this.connection!.request('shutdown', {reason});
+		await this.request('shutdown', {reason});
 	}
 
 	/**
@@ -269,8 +273,7 @@ export class DaemonClient {
 		target?: 'indexing' | 'warmup' | 'all';
 		reason?: string;
 	}): Promise<CancelResponse> {
-		await this.ensureConnected();
-		return this.connection!.request(
+		return this.request(
 			'cancel',
 			options as Record<string, unknown> | undefined,
 		) as Promise<CancelResponse>;
@@ -280,8 +283,7 @@ export class DaemonClient {
 	 * Ping the daemon.
 	 */
 	async ping(): Promise<PingResponse> {
-		await this.ensureConnected();
-		return this.connection!.request('ping') as Promise<PingResponse>;
+		return this.request('ping') as Promise<PingResponse>;
 	}
 
 	/**
@@ -295,8 +297,7 @@ export class DaemonClient {
 		indexStatus: string;
 		protocolVersion: number;
 	}> {
-		await this.ensureConnected();
-		return this.connection!.request('health') as Promise<{
+		return this.request('health') as Promise<{
 			healthy: boolean;
 			uptime: number;
 			memoryUsage: NodeJS.MemoryUsage;
@@ -304,6 +305,15 @@ export class DaemonClient {
 			indexStatus: string;
 			protocolVersion: number;
 		}>;
+	}
+
+	/**
+	 * Trigger a test exception in the daemon (undocumented).
+	 *
+	 * Useful for validating Sentry error reporting.
+	 */
+	async testException(message?: string): Promise<void> {
+		await this.request('testException', {message});
 	}
 }
 

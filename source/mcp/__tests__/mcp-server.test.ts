@@ -496,6 +496,7 @@ describe('MCP Server', () => {
 			expect(toolNames).toContain('get_status');
 			expect(toolNames).toContain('cancel_operation');
 			expect(toolNames).toContain('get_watcher_status');
+			expect(toolNames).toContain('feedback_survey');
 		});
 
 		it('help tool returns a tool guide', async ({skip}) => {
