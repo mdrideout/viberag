@@ -343,19 +343,23 @@ export class DaemonServer {
 
 			if (this.telemetry) {
 				const clientSource = getClientSourceFromParams(request.params);
-				// MCP already captures tool-level telemetry, so avoid double-counting.
-				if (clientSource === 'mcp') return;
 
 				// Avoid spamming PostHog with high-frequency polling methods.
 				// Still capture failures in the catch() below.
 				if (NOISY_SUCCESS_METHODS.has(request.method)) return;
 
+				const inputForTelemetry = {
+					__client_source: clientSource,
+					...(stripClientMetaFromParams(request.params) ?? {}),
+				};
+				const outputForTelemetry = clientSource === 'mcp' ? null : result;
+
 				void this.telemetry
 					.captureOperation({
 						operation_kind: 'daemon_method',
 						name: request.method,
-						input: stripClientMetaFromParams(request.params) ?? null,
-						output: result,
+						input: inputForTelemetry,
+						output: outputForTelemetry,
 						success: true,
 						duration_ms: Date.now() - startedAt,
 					})
@@ -382,14 +386,16 @@ export class DaemonServer {
 
 			if (this.telemetry) {
 				const clientSource = getClientSourceFromParams(request.params);
-				// MCP already captures tool-level telemetry, so avoid double-counting.
-				if (clientSource === 'mcp') return;
+				const inputForTelemetry = {
+					__client_source: clientSource,
+					...(stripClientMetaFromParams(request.params) ?? {}),
+				};
 
 				void this.telemetry
 					.captureOperation({
 						operation_kind: 'daemon_method',
 						name: request.method,
-						input: stripClientMetaFromParams(request.params) ?? null,
+						input: inputForTelemetry,
 						output: null,
 						success: false,
 						duration_ms: Date.now() - startedAt,
