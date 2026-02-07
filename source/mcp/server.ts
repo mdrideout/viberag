@@ -869,7 +869,7 @@ NOTE: Usually automatic via file watcher. Only call manually if needed.`,
 		}),
 		execute: async args => {
 			await ensureInitialized(projectRoot);
-			const stats = await client.index({force: args.force});
+			const stats = await client.index({force: args.force}, 180_000);
 			return JSON.stringify(stats);
 		},
 	});

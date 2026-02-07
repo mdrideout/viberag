@@ -46,6 +46,44 @@ interface TempHomeContext {
 	cleanup: () => Promise<void>;
 }
 
+function normalizePathForAssertion(filePath: string): string {
+	return filePath.replace(/\\/g, '/').toLowerCase();
+}
+
+function expectedZedPathSuffix(): string {
+	return process.platform === 'win32'
+		? '/appdata/roaming/zed/settings.json'
+		: '/.config/zed/settings.json';
+}
+
+function expectedOpenCodePathSuffix(): string {
+	return process.platform === 'win32'
+		? '/appdata/roaming/opencode/opencode.json'
+		: '/.config/opencode/opencode.json';
+}
+
+function resolveGlobalPath(editorId: EditorId): string {
+	const editor = getEditor(editorId);
+	if (!editor) {
+		throw new Error(`Unknown editor: ${editorId}`);
+	}
+	const configPath = getConfigPath(editor, 'global');
+	if (!configPath) {
+		throw new Error(`Editor ${editorId} has no global config path`);
+	}
+	return configPath;
+}
+
+async function writeGlobalConfigAtPath(
+	configPath: string,
+	content: object | string,
+): Promise<void> {
+	await fs.mkdir(path.dirname(configPath), {recursive: true});
+	const data =
+		typeof content === 'string' ? content : JSON.stringify(content, null, 2);
+	await fs.writeFile(configPath, data, 'utf-8');
+}
+
 /**
  * Create a temporary home directory and mock os.homedir().
  */
@@ -487,13 +525,8 @@ describe('Zed Global Config (JSONC)', () => {
 	});
 
 	it('reads existing Zed config with comments', async () => {
-		await writeGlobalConfig(
-			ctx.tempHome,
-			'.config/zed/settings.json',
-			ZED_DEFAULT_CONFIG,
-		);
-
-		const configPath = path.join(ctx.tempHome, '.config/zed/settings.json');
+		const configPath = resolveGlobalPath('zed');
+		await writeGlobalConfigAtPath(configPath, ZED_DEFAULT_CONFIG);
 		const config = await readJsonConfig(configPath);
 
 		expect(config).not.toBeNull();
@@ -516,11 +549,8 @@ describe('Zed Global Config (JSONC)', () => {
     }
   }
 }`;
-		await writeGlobalConfig(
-			ctx.tempHome,
-			'.config/zed/settings.json',
-			zedConfigWithViberag,
-		);
+		const configPath = resolveGlobalPath('zed');
+		await writeGlobalConfigAtPath(configPath, zedConfigWithViberag);
 
 		const editor = getEditor('zed')!;
 		const result = await isAlreadyConfigured(editor, 'global', '/unused');
@@ -531,18 +561,21 @@ describe('Zed Global Config (JSONC)', () => {
 	it('creates Zed config with source:custom when not exists', async () => {
 		const editor = getEditor('zed')!;
 		const result = await writeMcpConfig(editor, 'global', '/unused');
+		const configPath = resolveGlobalPath('zed');
+		const normalizedResultPath = normalizePathForAssertion(
+			result.configPath ?? '',
+		);
 
 		expect(result.success).toBe(true);
+		expect(normalizedResultPath.endsWith(expectedZedPathSuffix())).toBe(true);
 
-		const config = (await readGlobalConfig(
-			ctx.tempHome,
-			'.config/zed/settings.json',
-		)) as {
+		const config = (await readJsonConfig(configPath)) as {
 			context_servers: Record<string, {source: string}>;
-		};
+		} | null;
 
-		expect(config.context_servers['viberag']).toBeDefined();
-		expect(config.context_servers['viberag']!.source).toBe('custom');
+		expect(config).not.toBeNull();
+		expect(config!.context_servers['viberag']).toBeDefined();
+		expect(config!.context_servers['viberag']!.source).toBe('custom');
 	});
 });
 
@@ -655,52 +688,52 @@ describe('OpenCode Global Config', () => {
 	it('creates ~/.config/opencode/opencode.json when it does not exist', async () => {
 		const editor = getEditor('opencode')!;
 		const result = await writeMcpConfig(editor, 'global', '/unused');
+		const configPath = resolveGlobalPath('opencode');
+		const normalizedResultPath = normalizePathForAssertion(
+			result.configPath ?? '',
+		);
 
 		expect(result.success).toBe(true);
 		expect(result.method).toBe('file-created');
+		expect(normalizedResultPath.endsWith(expectedOpenCodePathSuffix())).toBe(
+			true,
+		);
 
-		const config = (await readGlobalConfig(
-			ctx.tempHome,
-			'.config/opencode/opencode.json',
-		)) as {
+		const config = (await readJsonConfig(configPath)) as {
 			mcp: Record<string, {type: string; command: string[]}>;
-		};
+		} | null;
 
-		expect(config.mcp['viberag']).toBeDefined();
-		expect(config.mcp['viberag']!.type).toBe('local');
-		expect(Array.isArray(config.mcp['viberag']!.command)).toBe(true);
+		expect(config).not.toBeNull();
+		expect(config!.mcp['viberag']).toBeDefined();
+		expect(config!.mcp['viberag']!.type).toBe('local');
+		expect(Array.isArray(config!.mcp['viberag']!.command)).toBe(true);
 	});
 
 	it('merges into existing OpenCode config preserving $schema and settings', async () => {
-		await writeGlobalConfig(
-			ctx.tempHome,
-			'.config/opencode/opencode.json',
-			OPENCODE_DEFAULT_CONFIG,
-		);
+		const configPath = resolveGlobalPath('opencode');
+		await writeGlobalConfigAtPath(configPath, OPENCODE_DEFAULT_CONFIG);
 
 		const editor = getEditor('opencode')!;
 		const result = await writeMcpConfig(editor, 'global', '/unused');
 
 		expect(result.success).toBe(true);
 
-		const config = (await readGlobalConfig(
-			ctx.tempHome,
-			'.config/opencode/opencode.json',
-		)) as {
+		const config = (await readJsonConfig(configPath)) as {
 			$schema: string;
 			provider: string;
 			model: string;
 			mcp: Record<string, unknown>;
-		};
+		} | null;
 
 		// Verify settings preserved
-		expect(config.$schema).toBe('https://opencode.ai/config.json');
-		expect(config.provider).toBe('anthropic');
-		expect(config.model).toBe('claude-sonnet-4-20250514');
+		expect(config).not.toBeNull();
+		expect(config!.$schema).toBe('https://opencode.ai/config.json');
+		expect(config!.provider).toBe('anthropic');
+		expect(config!.model).toBe('claude-sonnet-4-20250514');
 		// Verify existing server preserved
-		expect(config.mcp['puppeteer']).toBeDefined();
+		expect(config!.mcp['puppeteer']).toBeDefined();
 		// Verify viberag added
-		expect(config.mcp['viberag']).toBeDefined();
+		expect(config!.mcp['viberag']).toBeDefined();
 	});
 
 	it('removes viberag from OpenCode config', async () => {
@@ -711,25 +744,20 @@ describe('OpenCode Global Config', () => {
 				viberag: {type: 'local', command: ['npx', '-y', 'viberag-mcp']},
 			},
 		};
-		await writeGlobalConfig(
-			ctx.tempHome,
-			'.config/opencode/opencode.json',
-			configWithViberag,
-		);
+		const configPath = resolveGlobalPath('opencode');
+		await writeGlobalConfigAtPath(configPath, configWithViberag);
 
 		const editor = getEditor('opencode')!;
 		const result = await removeViberagConfig(editor, 'global', '/unused');
 
 		expect(result.success).toBe(true);
 
-		const config = (await readGlobalConfig(
-			ctx.tempHome,
-			'.config/opencode/opencode.json',
-		)) as {
+		const config = (await readJsonConfig(configPath)) as {
 			mcp: Record<string, unknown>;
-		};
-		expect(config.mcp['viberag']).toBeUndefined();
-		expect(config.mcp['puppeteer']).toBeDefined();
+		} | null;
+		expect(config).not.toBeNull();
+		expect(config!.mcp['viberag']).toBeUndefined();
+		expect(config!.mcp['puppeteer']).toBeDefined();
 	});
 });
 
@@ -878,18 +906,16 @@ describe('Global Config Path Resolution', () => {
 	it('resolves Zed config path correctly', () => {
 		const editor = getEditor('zed')!;
 		const configPath = getConfigPath(editor, 'global');
+		const normalized = normalizePathForAssertion(configPath ?? '');
 
-		// Should be .config/zed/settings.json on macOS/Linux
-		expect(configPath).toContain('zed');
-		expect(configPath).toContain('settings.json');
+		expect(normalized.endsWith(expectedZedPathSuffix())).toBe(true);
 	});
 
 	it('resolves OpenCode config path correctly', () => {
 		const editor = getEditor('opencode')!;
 		const configPath = getConfigPath(editor, 'global');
+		const normalized = normalizePathForAssertion(configPath ?? '');
 
-		// Should be .config/opencode/opencode.json on macOS/Linux
-		expect(configPath).toContain('opencode');
-		expect(configPath?.endsWith('opencode.json')).toBe(true);
+		expect(normalized.endsWith(expectedOpenCodePathSuffix())).toBe(true);
 	});
 });
