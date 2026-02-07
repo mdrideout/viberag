@@ -1,151 +1,54 @@
-name: Release
+name: Publish NPM
 
 on:
   push:
     tags: ['v*']
 
 permissions:
-  contents: write
+  contents: read
+  id-token: write
 
 jobs:
-  build:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # Linux x64
-          - os: ubuntu-latest
-            target: node22-linux-x64
-            artifact: viberag-linux-x64
-            archive: tar.gz
-
-          # Linux arm64
-          - os: ubuntu-24.04-arm64
-            target: node22-linux-arm64
-            artifact: viberag-linux-arm64
-            archive: tar.gz
-
-          # macOS Intel
-          - os: macos-13
-            target: node22-macos-x64
-            artifact: viberag-darwin-x64
-            archive: tar.gz
-
-          # macOS Apple Silicon
-          - os: macos-14
-            target: node22-macos-arm64
-            artifact: viberag-darwin-arm64
-            archive: tar.gz
-
-          # Windows x64
-          - os: windows-latest
-            target: node22-win-x64
-            artifact: viberag-win-x64.exe
-            archive: zip
-
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+  verify:
+    runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
-          cache: 'npm'
 
-      # Windows needs MSVC for tree-sitter-kotlin
-      - name: Setup MSVC (Windows)
-        if: runner.os == 'Windows'
-        uses: ilammy/msvc-dev-cmd@v1
-
-      - name: Install dependencies
-        run: npm ci --legacy-peer-deps
-
-      - name: Build TypeScript
-        run: npm run build
-
-      # Build standalone executable with @yao-pkg/pkg
-      - name: Build standalone executable
-        run: npx @yao-pkg/pkg dist/cli/index.js --target ${{ matrix.target }} --output ${{ matrix.artifact }} --compress GZip
-
-      # Package Unix builds
-      - name: Package (Unix)
-        if: matrix.archive == 'tar.gz'
+      - name: Verify tag matches package version
+        shell: bash
         run: |
-          chmod +x ${{ matrix.artifact }}
-          tar -czvf ${{ matrix.artifact }}.tar.gz ${{ matrix.artifact }}
-
-      # Package Windows builds
-      - name: Package (Windows)
-        if: matrix.archive == 'zip'
-        shell: pwsh
-        run: Compress-Archive -Path ${{ matrix.artifact }} -DestinationPath ${{ matrix.artifact }}.zip
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.artifact }}
-          path: |
-            *.tar.gz
-            *.zip
-          if-no-files-found: error
-
-  release:
-    needs: build
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts/
-          merge-multiple: true
-
-      - name: List artifacts
-        run: |
-          echo "Downloaded artifacts:"
-          ls -la artifacts/
-
-      - name: Create checksums
-        working-directory: artifacts
-        run: |
-          sha256sum *.tar.gz *.zip > checksums.sha256
-          echo "Checksums:"
-          cat checksums.sha256
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            artifacts/*.tar.gz
-            artifacts/*.zip
-            artifacts/checksums.sha256
-          generate_release_notes: true
-          draft: false
+          VERSION="$(node -p "require('./package.json').version")"
+          if [ "v${VERSION}" != "${GITHUB_REF_NAME}" ]; then
+            echo "Tag ${GITHUB_REF_NAME} does not match package.json version v${VERSION}"
+            exit 1
+          fi
 
   publish-npm:
-    needs: release
+    needs: verify
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
           registry-url: 'https://registry.npmjs.org'
           cache: 'npm'
 
+      - name: Ensure npm supports trusted publishing
+        run: npm install -g npm@^11.5.1
+
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
 
-      - name: Build
-        run: npm run build
-
       - name: Publish to npm
-        run: npm publish
+        run: npm publish --provenance
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          VIBERAG_BAKE_POSTHOG_KEY: ${{ secrets.VIBERAG_BAKE_POSTHOG_KEY }}
+          VIBERAG_BAKE_SENTRY_DSN: ${{ secrets.VIBERAG_BAKE_SENTRY_DSN }}
