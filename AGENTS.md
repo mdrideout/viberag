@@ -111,3 +111,7 @@ We don't test that tree-sitter parses Python or that LanceDB stores vectors. We 
 ## Storage
 
 All persisted data lives under `~/.local/share/viberag/` (override via `VIBERAG_HOME`).
+
+## Version bumping
+
+Bumping versions should bump the `package.json`, update `package-lock.json`, and update `docs/src/pages/index.astro`.
