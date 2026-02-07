@@ -1,8 +1,8 @@
 name: Publish NPM
 
 on:
-  push:
-    tags: ['v*']
+  release:
+    types: [published]
 
 permissions:
   contents: read
@@ -21,10 +21,12 @@ jobs:
 
       - name: Verify tag matches package version
         shell: bash
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
           VERSION="$(node -p "require('./package.json').version")"
-          if [ "v${VERSION}" != "${GITHUB_REF_NAME}" ]; then
-            echo "Tag ${GITHUB_REF_NAME} does not match package.json version v${VERSION}"
+          if [ "v${VERSION}" != "${RELEASE_TAG}" ]; then
+            echo "Release tag ${RELEASE_TAG} does not match package.json version v${VERSION}"
             exit 1
           fi
 
