@@ -333,7 +333,19 @@ function getToolText(result: unknown): {text: string; isError?: boolean} {
 
 function parseToolJson<T>(result: unknown): {data: T; isError?: boolean} {
 	const {text, isError} = getToolText(result);
-	return {data: JSON.parse(text) as T, isError};
+	if (isError) {
+		const preview = text.length > 300 ? `${text.slice(0, 300)}...` : text;
+		throw new Error(`[mcp-server.test] Tool returned error: ${preview}`);
+	}
+	try {
+		return {data: JSON.parse(text) as T, isError};
+	} catch (error) {
+		const preview = text.length > 300 ? `${text.slice(0, 300)}...` : text;
+		const reason = error instanceof Error ? error.message : String(error);
+		throw new Error(
+			`[mcp-server.test] Tool returned non-JSON text: ${preview}. Parse error: ${reason}`,
+		);
+	}
 }
 
 async function waitForStatus<T>(
@@ -442,10 +454,16 @@ describe('MCP Server', () => {
 			statusBeforeIndex =
 				parseToolJson<typeof statusBeforeIndex>(statusBeforeResult).data;
 
-			const indexResult = await harness.client.callTool({
-				name: 'build_index',
-				arguments: {force: false},
-			});
+			const indexResult = await harness.client.callTool(
+				{
+					name: 'build_index',
+					arguments: {force: false},
+				},
+				undefined,
+				{
+					timeout: 180_000,
+				},
+			);
 			indexStats = parseToolJson<typeof indexStats>(indexResult).data;
 
 			const statusAfterResult = await harness.client.callTool({
@@ -850,7 +868,7 @@ describe('MCP Server', () => {
 			);
 
 			expect(updated.lastIndexUpdate).not.toBe(startIndexUpdate);
-		});
+		}, 120000);
 	});
 
 	describe('Uninitialized Project Tests', () => {

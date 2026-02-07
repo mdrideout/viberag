@@ -37,6 +37,10 @@ interface TempContext {
 	cleanup: () => Promise<void>;
 }
 
+function normalizePathForAssertion(filePath: string): string {
+	return filePath.replace(/\\/g, '/');
+}
+
 /**
  * Create a temporary directory for test isolation.
  */
@@ -283,7 +287,9 @@ describe('Project-Level Config Creation', () => {
 		const result = await writeMcpConfig(editor, 'project', ctx.dir);
 
 		expect(result.success).toBe(true);
-		expect(result.configPath).toContain('.cursor/mcp.json');
+		expect(normalizePathForAssertion(result.configPath!)).toContain(
+			'.cursor/mcp.json',
+		);
 
 		const config = await readTestConfig(ctx.dir, '.cursor/mcp.json');
 		expect(
@@ -296,7 +302,9 @@ describe('Project-Level Config Creation', () => {
 		const result = await writeMcpConfig(editor, 'project', ctx.dir);
 
 		expect(result.success).toBe(true);
-		expect(result.configPath).toContain('.roo/mcp.json');
+		expect(normalizePathForAssertion(result.configPath!)).toContain(
+			'.roo/mcp.json',
+		);
 
 		const config = await readTestConfig(ctx.dir, '.roo/mcp.json');
 		expect(

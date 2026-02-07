@@ -157,12 +157,13 @@ export class DaemonClient {
 	private async request(
 		method: string,
 		params?: Record<string, unknown>,
+		timeoutMs?: number,
 	): Promise<unknown> {
 		await this.ensureConnected();
 		const withMeta: Record<string, unknown> | undefined = params
 			? {...params, __client: {source: this.clientSource}}
 			: {__client: {source: this.clientSource}};
-		return this.connection!.request(method, withMeta);
+		return this.connection!.request(method, withMeta, timeoutMs);
 	}
 
 	/**
@@ -227,10 +228,14 @@ export class DaemonClient {
 	/**
 	 * Index the codebase.
 	 */
-	async index(options?: ClientIndexOptions): Promise<IndexStats> {
+	async index(
+		options?: ClientIndexOptions,
+		timeoutMs?: number,
+	): Promise<IndexStats> {
 		return this.request(
 			'index',
 			options as unknown as Record<string, unknown>,
+			timeoutMs,
 		) as Promise<IndexStats>;
 	}
 
