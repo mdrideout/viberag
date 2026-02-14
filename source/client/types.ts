@@ -122,6 +122,12 @@ export interface DaemonStatusResponse {
 	totalRefs?: number;
 	embeddingProvider?: string;
 	embeddingModel?: string;
+	memory: {
+		rssMB: number;
+		heapUsedMB: number;
+		externalMB: number;
+		arrayBuffersMB: number;
+	};
 	warmupStatus: string;
 	warmupElapsedMs?: number;
 	warmupCancelRequestedAt?: string | null;

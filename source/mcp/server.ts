@@ -948,7 +948,7 @@ RETURNS:
 - Initialization status and setup instructions (if not initialized)
 - Index compatibility (may indicate reindex needed)
 - Index stats: file/symbol/chunk counts
-- Daemon status: running, warmup progress, indexing state
+- Daemon status: memory snapshot, warmup progress, indexing state
 
 CALL THIS FIRST if unsure whether VibeRAG is ready to use.`,
 		parameters: z.object({}),
@@ -1132,6 +1132,7 @@ function formatDaemonStatusSummary(
 	status: DaemonStatusResponse,
 ): Record<string, unknown> {
 	return {
+		memory: status.memory,
 		warmup: {
 			status: status.warmupStatus,
 			elapsedMs: status.warmupElapsedMs,

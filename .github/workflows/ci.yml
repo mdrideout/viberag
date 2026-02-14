@@ -130,3 +130,31 @@ jobs:
 
       - name: Run daemon tests
         run: npm run test:daemon
+
+  test-memory:
+    needs: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Build
+        run: npm run build
+
+      - name: Run memory regression tests
+        run: npm run test:memory
+
+      - name: Run memory profile smoke
+        env:
+          VIBERAG_MEM_RUNS: 1
+          VIBERAG_MEM_ITERATIONS: 40
+        run: npm run memory:profile

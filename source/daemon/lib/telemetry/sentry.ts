@@ -12,6 +12,21 @@ import {
 } from '../user-settings.js';
 
 export type SentryServiceName = 'cli' | 'daemon' | 'mcp';
+export type SentryEventLevel =
+	| 'fatal'
+	| 'error'
+	| 'warning'
+	| 'log'
+	| 'info'
+	| 'debug';
+
+export interface SentryCaptureContext {
+	tags?: Record<string, string>;
+	extra?: Record<string, unknown>;
+	contexts?: Record<string, Record<string, unknown>>;
+	fingerprint?: string[];
+	level?: SentryEventLevel;
+}
 
 function isPlaceholder(value: string): boolean {
 	return value.startsWith('__VIBERAG_') && value.endsWith('__');
@@ -27,6 +42,48 @@ function scrubSensitiveText(value: string): string {
 	v = v.replace(/[A-Za-z0-9+/]{80,}={0,2}/g, '[REDACTED_SECRET]');
 	v = v.replace(/[a-f0-9]{64,}/gi, '[REDACTED_SECRET]');
 	return v;
+}
+
+function applyContextToScope(
+	scope: Sentry.Scope,
+	context?: SentryCaptureContext,
+): void {
+	if (!context) return;
+	if (context.tags) {
+		for (const [key, value] of Object.entries(context.tags)) {
+			scope.setTag(key, value);
+		}
+	}
+	if (context.extra) {
+		for (const [key, value] of Object.entries(context.extra)) {
+			scope.setExtra(key, value);
+		}
+	}
+	if (context.contexts) {
+		for (const [key, value] of Object.entries(context.contexts)) {
+			scope.setContext(key, value);
+		}
+	}
+	if (context.fingerprint && context.fingerprint.length > 0) {
+		scope.setFingerprint(context.fingerprint);
+	}
+	if (context.level) {
+		scope.setLevel(context.level);
+	}
+}
+
+function withScopedContext(
+	context: SentryCaptureContext | undefined,
+	fn: () => void,
+): void {
+	if (!context) {
+		fn();
+		return;
+	}
+	Sentry.withScope(scope => {
+		applyContextToScope(scope, context);
+		fn();
+	});
 }
 
 export function initSentry(args: {
@@ -68,6 +125,12 @@ export function initSentry(args: {
 					if (entry.value) entry.value = scrubSensitiveText(entry.value);
 				}
 			}
+			if (event.message) {
+				event.message = scrubSensitiveText(event.message);
+			}
+			if (event.logentry?.message) {
+				event.logentry.message = scrubSensitiveText(event.logentry.message);
+			}
 
 			return event;
 		},
@@ -87,12 +150,24 @@ export function initSentry(args: {
 
 export function captureException(
 	error: unknown,
-	context?: {tags?: Record<string, string>; extra?: Record<string, unknown>},
+	context?: SentryCaptureContext,
 ): void {
 	try {
-		Sentry.captureException(error, {
-			tags: context?.tags,
-			extra: context?.extra,
+		withScopedContext(context, () => {
+			Sentry.captureException(error);
+		});
+	} catch {
+		// Ignore
+	}
+}
+
+export function captureMessage(
+	message: string,
+	context?: SentryCaptureContext,
+): void {
+	try {
+		withScopedContext(context, () => {
+			Sentry.captureMessage(message, context?.level ?? 'error');
 		});
 	} catch {
 		// Ignore

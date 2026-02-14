@@ -73,6 +73,7 @@ export type V2IndexOptions = {
 };
 
 type V2IndexingServiceEvents = IndexingEvents & SlotEvents;
+const PERSIST_BATCH_SIZE = 500;
 
 export type IndexingServiceV2Options = {
 	logger?: Logger;
@@ -158,6 +159,9 @@ export class IndexingServiceV2 extends TypedEmitter<V2IndexingServiceEvents> {
 		const {force = false} = options;
 		this.suppressEvents = false;
 		const startTimeMs = Date.now();
+		const extracted: V2ExtractedArtifacts[] = [];
+		const uniqueByHash = new Map<string, {text: string; meta: ChunkMetadata}>();
+		const cached = new Map<string, number[]>();
 
 		const stats: V2IndexStats = {
 			filesScanned: 0,
@@ -364,7 +368,6 @@ export class IndexingServiceV2 extends TypedEmitter<V2IndexingServiceEvents> {
 				filesToProcess.length,
 				'files',
 			);
-			const extracted: V2ExtractedArtifacts[] = [];
 			let extractedFiles = 0;
 
 			for (const filePath of filesToProcess) {
@@ -401,57 +404,39 @@ export class IndexingServiceV2 extends TypedEmitter<V2IndexingServiceEvents> {
 
 			throwIfAborted(this.abortSignal, 'Indexing cancelled');
 
-			// Embed all surfaces (cached by embed_hash)
-			const embedItems: Array<{
-				hash: string;
-				text: string;
-				meta: ChunkMetadata;
-			}> = [];
+			// Dedupe embedding surfaces by hash (cache key)
+			const addEmbedInput = (
+				hash: string,
+				text: string,
+				meta: ChunkMetadata,
+			): void => {
+				if (!uniqueByHash.has(hash)) {
+					uniqueByHash.set(hash, {text, meta});
+				}
+			};
+
 			for (const item of extracted) {
-				embedItems.push({
-					hash: item.file.embed_hash,
-					text: item.file.embed_input,
-					meta: {
-						filepath: item.file.file_path,
-						startLine: 1,
-						endLine: 1,
-						size: item.file.embed_input.length,
-					},
+				addEmbedInput(item.file.embed_hash, item.file.embed_input, {
+					filepath: item.file.file_path,
+					startLine: 1,
+					endLine: 1,
+					size: item.file.embed_input.length,
 				});
 				for (const s of item.symbols) {
-					embedItems.push({
-						hash: s.embed_hash,
-						text: s.embed_input,
-						meta: {
-							filepath: s.file_path,
-							startLine: s.start_line,
-							endLine: s.end_line,
-							size: s.embed_input.length,
-						},
+					addEmbedInput(s.embed_hash, s.embed_input, {
+						filepath: s.file_path,
+						startLine: s.start_line,
+						endLine: s.end_line,
+						size: s.embed_input.length,
 					});
 				}
 				for (const c of item.chunks) {
-					embedItems.push({
-						hash: c.embed_hash,
-						text: c.embed_input,
-						meta: {
-							filepath: c.file_path,
-							startLine: c.start_line,
-							endLine: c.end_line,
-							size: c.embed_input.length,
-						},
+					addEmbedInput(c.embed_hash, c.embed_input, {
+						filepath: c.file_path,
+						startLine: c.start_line,
+						endLine: c.end_line,
+						size: c.embed_input.length,
 					});
-				}
-			}
-
-			// Dedupe by hash (cache key)
-			const uniqueByHash = new Map<
-				string,
-				{text: string; meta: ChunkMetadata}
-			>();
-			for (const item of embedItems) {
-				if (!uniqueByHash.has(item.hash)) {
-					uniqueByHash.set(item.hash, {text: item.text, meta: item.meta});
 				}
 			}
 
@@ -465,12 +450,14 @@ export class IndexingServiceV2 extends TypedEmitter<V2IndexingServiceEvents> {
 				'chunks',
 			);
 
-			const cached = await storage.getCachedEmbeddings(uniqueHashes);
+			const cachedEmbeddings = await storage.getCachedEmbeddings(uniqueHashes);
+			for (const [hash, vector] of cachedEmbeddings) {
+				cached.set(hash, vector);
+			}
 			const cacheHits = uniqueHashes.filter(h => cached.has(h));
 			stats.embeddingsCached += cacheHits.length;
 
 			const misses = uniqueHashes.filter(h => !cached.has(h));
-
 			let embeddedSoFar = cacheHits.length;
 			this.emit('chunk-progress', {chunksProcessed: embeddedSoFar});
 
@@ -538,6 +525,9 @@ export class IndexingServiceV2 extends TypedEmitter<V2IndexingServiceEvents> {
 				await Promise.all(batchTasks.map(task => batchLimit(task)));
 			}
 
+			// Release raw embedding inputs once vectors are available.
+			uniqueByHash.clear();
+
 			throwIfAborted(this.abortSignal, 'Indexing cancelled');
 
 			// Persist (upsert) rows
@@ -547,6 +537,81 @@ export class IndexingServiceV2 extends TypedEmitter<V2IndexingServiceEvents> {
 			const symbolRows: Record<string, unknown>[] = [];
 			const chunkRows: Record<string, unknown>[] = [];
 			const refRows: Record<string, unknown>[] = [];
+			const clearPersistBatch = (): void => {
+				fileRows.length = 0;
+				symbolRows.length = 0;
+				chunkRows.length = 0;
+				refRows.length = 0;
+			};
+			const collectPersistBatchFilePaths = (): string[] => {
+				const paths = new Set<string>();
+				const collect = (rows: Record<string, unknown>[]): void => {
+					for (const row of rows) {
+						const filePath = row['file_path'];
+						if (typeof filePath === 'string') {
+							paths.add(filePath);
+						}
+					}
+				};
+				collect(fileRows);
+				collect(symbolRows);
+				collect(chunkRows);
+				collect(refRows);
+				return [...paths];
+			};
+			const rollbackPersistBatch = async (
+				filePaths: string[],
+			): Promise<void> => {
+				if (filePaths.length === 0) {
+					return;
+				}
+				this.log(
+					'warn',
+					`Persist batch failed; rolling back ${filePaths.length} file(s).`,
+				);
+				for (const filePath of filePaths) {
+					try {
+						await storage.deleteAllRowsForFile(filePath);
+					} catch (error) {
+						const message =
+							error instanceof Error ? error.message : String(error);
+						this.log('warn', `Rollback failed for ${filePath}: ${message}`);
+					}
+				}
+			};
+			const flushPersistBatch = async (force = false): Promise<void> => {
+				// Keep persisted row buffers bounded so large repositories do not
+				// retain all rows in memory until the very end of indexing.
+				const shouldFlush =
+					force ||
+					fileRows.length >= PERSIST_BATCH_SIZE ||
+					symbolRows.length >= PERSIST_BATCH_SIZE ||
+					chunkRows.length >= PERSIST_BATCH_SIZE ||
+					refRows.length >= PERSIST_BATCH_SIZE;
+				if (!shouldFlush) return;
+				const fileCount = fileRows.length;
+				const symbolCount = symbolRows.length;
+				const chunkCount = chunkRows.length;
+				const refCount = refRows.length;
+				const batchFilePaths = collectPersistBatchFilePaths();
+				try {
+					await storage.upsertFiles(fileRows);
+					await storage.upsertSymbols(symbolRows);
+					await storage.upsertChunks(chunkRows);
+					await storage.upsertRefs(refRows);
+
+					stats.fileRowsUpserted += fileCount;
+					stats.symbolRowsUpserted += symbolCount;
+					stats.chunkRowsUpserted += chunkCount;
+					stats.refRowsUpserted += refCount;
+				} catch (error) {
+					await rollbackPersistBatch(batchFilePaths);
+					throw error;
+				} finally {
+					// Always release row buffers, even if persist fails mid-batch.
+					clearPersistBatch();
+				}
+			};
 
 			for (const item of extracted) {
 				const vecFile = cached.get(item.file.embed_hash);
@@ -652,17 +717,14 @@ export class IndexingServiceV2 extends TypedEmitter<V2IndexingServiceEvents> {
 						imported_name: r.imported_name,
 					});
 				}
+
+				await flushPersistBatch();
 			}
 
-			await storage.upsertFiles(fileRows);
-			await storage.upsertSymbols(symbolRows);
-			await storage.upsertChunks(chunkRows);
-			await storage.upsertRefs(refRows);
-
-			stats.fileRowsUpserted += fileRows.length;
-			stats.symbolRowsUpserted += symbolRows.length;
-			stats.chunkRowsUpserted += chunkRows.length;
-			stats.refRowsUpserted += refRows.length;
+			await flushPersistBatch(true);
+			// Explicitly release large temporary structures before finalize phase.
+			cached.clear();
+			extracted.length = 0;
 
 			const totalSymbols = await storage.getSymbolsTable().countRows();
 			const totalChunks = await storage.getChunksTable().countRows();
@@ -713,6 +775,11 @@ export class IndexingServiceV2 extends TypedEmitter<V2IndexingServiceEvents> {
 				error: error instanceof Error ? error : new Error(String(error)),
 			});
 			throw error;
+		} finally {
+			// Best-effort cleanup of large temporary structures for both success and failure paths.
+			uniqueByHash.clear();
+			cached.clear();
+			extracted.length = 0;
 		}
 	}
 

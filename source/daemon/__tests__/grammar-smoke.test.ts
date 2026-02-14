@@ -123,13 +123,17 @@ describe('Grammar Smoke Tests', () => {
 			parser.setLanguage(language);
 			const tree = parser.parse(code);
 
-			// Verify parsing succeeded
-			expect(tree).toBeDefined();
-			expect(tree.rootNode).toBeDefined();
-			expect(tree.rootNode.type).toBeDefined();
+			try {
+				// Verify parsing succeeded
+				expect(tree).toBeDefined();
+				expect(tree.rootNode).toBeDefined();
+				expect(tree.rootNode.type).toBeDefined();
 
-			// Verify no parse errors (syntax errors in the test code)
-			expect(tree.rootNode.hasError).toBe(false);
+				// Verify no parse errors (syntax errors in the test code)
+				expect(tree.rootNode.hasError).toBe(false);
+			} finally {
+				tree.delete();
+			}
 		},
 	);
 
@@ -143,7 +147,11 @@ describe('Grammar Smoke Tests', () => {
 			parser.setLanguage(language);
 			const tree = parser.parse(code);
 
-			expect(tree.rootNode.type).toBe(expectedRootType);
+			try {
+				expect(tree.rootNode.type).toBe(expectedRootType);
+			} finally {
+				tree.delete();
+			}
 		},
 	);
 

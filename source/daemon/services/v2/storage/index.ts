@@ -135,12 +135,30 @@ export class StorageV2 {
 	}
 
 	close(): void {
+		// LanceDB tables/connection own native resources; close explicitly instead
+		// of relying on GC finalizers during long-lived daemon lifecycles.
+		this.safeClose(this.cacheTable);
+		this.safeClose(this.refsTable);
+		this.safeClose(this.filesTable);
+		this.safeClose(this.chunksTable);
+		this.safeClose(this.symbolsTable);
+		this.safeClose(this.db);
+
 		this.db = null;
 		this.symbolsTable = null;
 		this.chunksTable = null;
 		this.filesTable = null;
 		this.refsTable = null;
 		this.cacheTable = null;
+	}
+
+	private safeClose(target: {close: () => void} | null): void {
+		if (!target) return;
+		try {
+			target.close();
+		} catch {
+			// Ignore close-time errors to avoid masking shutdown paths.
+		}
 	}
 
 	private getDb(): Connection {
