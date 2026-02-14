@@ -10,7 +10,9 @@ const REPO_ROOT = path.resolve(SCRIPT_DIR, '..', '..');
 const RUNS = Number(process.env['VIBERAG_MEM_RUNS'] ?? '3');
 const ITERATIONS = Number(process.env['VIBERAG_MEM_ITERATIONS'] ?? '200');
 
-const {Chunker} = await import(path.join(REPO_ROOT, 'dist/daemon/lib/chunker/index.js'));
+const {Chunker} = await import(
+	path.join(REPO_ROOT, 'dist/daemon/lib/chunker/index.js')
+);
 const {IndexingServiceV2} = await import(
 	path.join(REPO_ROOT, 'dist/daemon/services/v2/indexing.js')
 );
@@ -77,16 +79,22 @@ function forceGc() {
 }
 
 async function createSyntheticProject() {
-	const root = await fs.mkdtemp(path.join(os.tmpdir(), 'viberag-memory-profile-'));
+	const root = await fs.mkdtemp(
+		path.join(os.tmpdir(), 'viberag-memory-profile-'),
+	);
 	const projectRoot = path.join(root, 'project');
 	const homeRoot = path.join(root, 'home');
 	process.env['VIBERAG_HOME'] = homeRoot;
 
 	await fs.mkdir(projectRoot, {recursive: true});
 	await fs.mkdir(homeRoot, {recursive: true});
-	await fs.cp(path.join(REPO_ROOT, 'source'), path.join(projectRoot, 'source'), {
-		recursive: true,
-	});
+	await fs.cp(
+		path.join(REPO_ROOT, 'source'),
+		path.join(projectRoot, 'source'),
+		{
+			recursive: true,
+		},
+	);
 
 	const config = createConfigForProvider('gemini');
 	config.watch = {...config.watch, enabled: false};
@@ -152,7 +160,7 @@ async function runIndexScenario(projectRoot, dimensions) {
 				symbolRowsUpserted: stats.symbolRowsUpserted,
 				chunkRowsUpserted: stats.chunkRowsUpserted,
 				embeddingsComputed: stats.embeddingsComputed,
-			})
+			}),
 		);
 	}
 }
@@ -164,7 +172,14 @@ if (typeof global.gc !== 'function') {
 }
 
 const setup = await createSyntheticProject();
-console.log(JSON.stringify({label: 'setup', ...setup, runs: RUNS, iterations: ITERATIONS}));
+console.log(
+	JSON.stringify({
+		label: 'setup',
+		...setup,
+		runs: RUNS,
+		iterations: ITERATIONS,
+	}),
+);
 
 await runChunkerScenario(setup.projectRoot);
 await runIndexScenario(setup.projectRoot, setup.dimensions);

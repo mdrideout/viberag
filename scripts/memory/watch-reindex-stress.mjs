@@ -22,8 +22,12 @@ const FILE_COUNT = Number(process.env['VIBERAG_WATCH_STRESS_FILES'] ?? '96');
 const WRITE_INTERVAL_MS = Number(
 	process.env['VIBERAG_WATCH_STRESS_WRITE_INTERVAL_MS'] ?? '0',
 );
-const SAMPLE_MS = Number(process.env['VIBERAG_WATCH_STRESS_SAMPLE_MS'] ?? '500');
-const CONTENT_KB = Number(process.env['VIBERAG_WATCH_STRESS_CONTENT_KB'] ?? '2');
+const SAMPLE_MS = Number(
+	process.env['VIBERAG_WATCH_STRESS_SAMPLE_MS'] ?? '500',
+);
+const CONTENT_KB = Number(
+	process.env['VIBERAG_WATCH_STRESS_CONTENT_KB'] ?? '2',
+);
 const COOLDOWN_SECONDS = Number(
 	process.env['VIBERAG_WATCH_STRESS_COOLDOWN_SECONDS'] ?? '10',
 );
@@ -69,9 +73,7 @@ if (!Number.isFinite(COOLDOWN_SECONDS) || COOLDOWN_SECONDS < 0) {
 	throw new Error('VIBERAG_WATCH_STRESS_COOLDOWN_SECONDS must be >= 0');
 }
 if (!Number.isFinite(CLEANUP_SETTLE_SECONDS) || CLEANUP_SETTLE_SECONDS < 0) {
-	throw new Error(
-		'VIBERAG_WATCH_STRESS_CLEANUP_SETTLE_SECONDS must be >= 0',
-	);
+	throw new Error('VIBERAG_WATCH_STRESS_CLEANUP_SETTLE_SECONDS must be >= 0');
 }
 if (!Number.isFinite(MAX_RSS_MB) || MAX_RSS_MB <= 0) {
 	throw new Error('VIBERAG_WATCH_STRESS_MAX_RSS_MB must be > 0');
@@ -236,7 +238,9 @@ function summarizeSamples(samples) {
 	};
 }
 
-const {DaemonClient} = await import(path.join(REPO_ROOT, 'dist/client/index.js'));
+const {DaemonClient} = await import(
+	path.join(REPO_ROOT, 'dist/client/index.js')
+);
 const client = new DaemonClient({
 	projectRoot: REPO_ROOT,
 	autoStart: true,
@@ -459,7 +463,10 @@ function buildFileContent(fileIndex, writerId, iteration) {
 async function runWriter(writerId, filePaths, deadlineMs) {
 	let iteration = 0;
 	state.activeWriters += 1;
-	state.maxActiveWriters = Math.max(state.maxActiveWriters, state.activeWriters);
+	state.maxActiveWriters = Math.max(
+		state.maxActiveWriters,
+		state.activeWriters,
+	);
 	try {
 		while (!state.stop && Date.now() < deadlineMs) {
 			const fileIndex = (writerId + iteration) % filePaths.length;
@@ -528,7 +535,11 @@ try {
 	);
 
 	await withTimeout(client.connect(), 30_000, 'connect');
-	const readyStatus = await withTimeout(waitForWatcherReady(), 30_000, 'watcher');
+	const readyStatus = await withTimeout(
+		waitForWatcherReady(),
+		30_000,
+		'watcher',
+	);
 	state.lastIndexUpdate = readyStatus?.watcherStatus?.lastIndexUpdate ?? null;
 
 	const startedAt = Date.now();
