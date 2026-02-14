@@ -293,7 +293,7 @@ Manual MCP Setup:
 				if (effective.mode === 'disabled') {
 					addOutput(
 						'system',
-						`Telemetry is disabled, so error reporting is also disabled.\n\nSet with:\n  /telemetry default\n\nThen re-run:\n  /test-exception`,
+						`Telemetry is disabled, so error reporting is also disabled.\n\nSet with:\n  /telemetry stripped\n\nThen re-run:\n  /test-exception`,
 					);
 					return;
 				}

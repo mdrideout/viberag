@@ -14,7 +14,7 @@ We want:
 
 - Product telemetry (usage + performance + “helpfulness” surveys) → PostHog
 - Exception tracking → Sentry
-- Telemetry enabled by default, with a global opt-out control
+- Telemetry enabled by default in `stripped` mode, with a global opt-out control
 - Collect operation inputs/outputs, but **never** send raw file contents / code text
 
 ## Decision
@@ -28,8 +28,8 @@ We want:
 
 - Settings live under `VIBERAG_HOME/settings.json` so they apply to CLI + daemon + MCP.
 - Telemetry mode is one of:
-  - `default` (includes query text with best-effort redaction)
   - `stripped` (privacy-preserving; query/notes hashed)
+  - `default` (includes query text with best-effort redaction)
   - `disabled` (no telemetry **and** no error reporting)
 
 ### Data minimization

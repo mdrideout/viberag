@@ -917,22 +917,33 @@ export class SearchEngineV2 {
 			this.getChunksTable(),
 			this.getSymbolsTable(),
 		]);
-		await ensureFtsIndex(chunksTable, 'string_literals', {
-			baseTokenizer: 'simple',
-			lowercase: true,
-			stem: false,
-			removeStopWords: false,
-			maxTokenLength: 256,
-			withPosition: true,
-		});
-		await ensureFtsIndex(symbolsTable, 'string_literals', {
-			baseTokenizer: 'simple',
-			lowercase: true,
-			stem: false,
-			removeStopWords: false,
-			maxTokenLength: 256,
-			withPosition: true,
-		});
+		const stringLiteralQuery = toStringLiteralExactTextQuery(query);
+		if (stringLiteralQuery) {
+			await ensureFtsIndex(chunksTable, 'string_literals', {
+				baseTokenizer: 'simple',
+				lowercase: true,
+				stem: false,
+				removeStopWords: false,
+				maxTokenLength: 256,
+				withPosition: true,
+			});
+			await ensureFtsIndex(symbolsTable, 'string_literals', {
+				baseTokenizer: 'simple',
+				lowercase: true,
+				stem: false,
+				removeStopWords: false,
+				maxTokenLength: 256,
+				withPosition: true,
+			});
+		} else {
+			// LanceDB string_literals FTS can exhibit pathological native-memory
+			// growth for broad multi-token queries at high limits. Fall back to
+			// code_text channels for these queries.
+			this.log(
+				'warn',
+				'Exact-text query has multiple tokens; skipping string_literals channel to avoid high-memory path.',
+			);
+		}
 		await ensureFtsIndex(chunksTable, 'code_text', {
 			baseTokenizer: 'simple',
 			lowercase: true,
@@ -953,22 +964,26 @@ export class SearchEngineV2 {
 		const oversample = Math.min(200, Math.max(k * 8, 40));
 		const [chunkStringHits, symbolStringHits, chunkHits, symbolHits] =
 			await Promise.all([
-				this.ftsCandidatesChunks(
-					chunksTable,
-					query,
-					'string_literals',
-					oversample,
-					filterClause,
-					'chunks.string_literals',
-				),
-				this.ftsCandidatesSymbols(
-					symbolsTable,
-					query,
-					'string_literals',
-					oversample,
-					filterClause,
-					'symbols.string_literals',
-				),
+				stringLiteralQuery
+					? this.ftsCandidatesChunks(
+							chunksTable,
+							stringLiteralQuery,
+							'string_literals',
+							oversample,
+							filterClause,
+							'chunks.string_literals',
+						)
+					: Promise.resolve([]),
+				stringLiteralQuery
+					? this.ftsCandidatesSymbols(
+							symbolsTable,
+							stringLiteralQuery,
+							'string_literals',
+							oversample,
+							filterClause,
+							'symbols.string_literals',
+						)
+					: Promise.resolve([]),
 				this.ftsCandidatesChunks(
 					chunksTable,
 					query,
@@ -1157,7 +1172,21 @@ export class SearchEngineV2 {
 		filterClause: string | undefined,
 		source: string,
 	): Promise<Candidate[]> {
-		let q = table.search(query, 'fts', column).limit(limit);
+		let q = table
+			.search(query, 'fts', column)
+			.limit(limit)
+			.select([
+				'symbol_id',
+				'file_path',
+				'start_line',
+				'end_line',
+				'qualname',
+				'symbol_name',
+				'signature',
+				'code_text',
+				'is_exported',
+				'_score',
+			]);
 		if (filterClause) q = q.where(filterClause);
 		const rows = await q.toArray();
 		return rows.map((row, index) => {
@@ -1192,7 +1221,21 @@ export class SearchEngineV2 {
 		filterClause: string | undefined,
 		source: string,
 	): Promise<Candidate[]> {
-		let q = table.search(query, 'fts').limit(limit);
+		let q = table
+			.search(query, 'fts')
+			.limit(limit)
+			.select([
+				'symbol_id',
+				'file_path',
+				'start_line',
+				'end_line',
+				'qualname',
+				'symbol_name',
+				'signature',
+				'code_text',
+				'is_exported',
+				'_score',
+			]);
 		if (filterClause) q = q.where(filterClause);
 		const rows = await q.toArray();
 		return rows.map((row, index) => {
@@ -1228,7 +1271,18 @@ export class SearchEngineV2 {
 		filterClause: string | undefined,
 		source: string,
 	): Promise<Candidate[]> {
-		let q = table.search(query, 'fts', column).limit(limit);
+		let q = table
+			.search(query, 'fts', column)
+			.limit(limit)
+			.select([
+				'chunk_id',
+				'file_path',
+				'start_line',
+				'end_line',
+				'chunk_kind',
+				'code_text',
+				'_score',
+			]);
 		if (filterClause) q = q.where(filterClause);
 		const rows = await q.toArray();
 		return rows.map((row, index) => {
@@ -1261,7 +1315,10 @@ export class SearchEngineV2 {
 		filterClause: string | undefined,
 		source: string,
 	): Promise<Candidate[]> {
-		let q = table.search(query, 'fts', column).limit(limit);
+		let q = table
+			.search(query, 'fts', column)
+			.limit(limit)
+			.select(['file_id', 'file_path', 'file_summary_text', '_score']);
 		if (filterClause) q = q.where(filterClause);
 		const rows = await q.toArray();
 		return rows.map((row, index) => {
@@ -1295,7 +1352,23 @@ export class SearchEngineV2 {
 		filterClause: string | undefined,
 		source: string,
 	): Promise<Candidate[]> {
-		let q = table.search(query, 'fts', column).limit(limit);
+		let q = table
+			.search(query, 'fts', column)
+			.limit(limit)
+			.select([
+				'ref_id',
+				'file_path',
+				'start_line',
+				'end_line',
+				'start_byte',
+				'end_byte',
+				'ref_kind',
+				'token_texts',
+				'context_snippet',
+				'module_name',
+				'imported_name',
+				'_score',
+			]);
 		if (filterClause) q = q.where(filterClause);
 		const rows = await q.toArray();
 		return rows.map((row, index) => {
@@ -1345,7 +1418,22 @@ export class SearchEngineV2 {
 		filterClause: string | undefined,
 		source: string,
 	): Promise<Candidate[]> {
-		let q = table.vectorSearch(queryVector).column('vec_summary').limit(limit);
+		let q = table
+			.vectorSearch(queryVector)
+			.column('vec_summary')
+			.limit(limit)
+			.select([
+				'symbol_id',
+				'file_path',
+				'start_line',
+				'end_line',
+				'qualname',
+				'symbol_name',
+				'signature',
+				'code_text',
+				'is_exported',
+				'_distance',
+			]);
 		if (filterClause) q = q.where(filterClause);
 		const rows = await q.toArray();
 		return rows.map((row: unknown, index: number) => {
@@ -1375,7 +1463,19 @@ export class SearchEngineV2 {
 		filterClause: string | undefined,
 		source: string,
 	): Promise<Candidate[]> {
-		let q = table.vectorSearch(queryVector).column('vec_code').limit(limit);
+		let q = table
+			.vectorSearch(queryVector)
+			.column('vec_code')
+			.limit(limit)
+			.select([
+				'chunk_id',
+				'file_path',
+				'start_line',
+				'end_line',
+				'chunk_kind',
+				'code_text',
+				'_distance',
+			]);
 		if (filterClause) q = q.where(filterClause);
 		const rows = await q.toArray();
 		return rows.map((row: unknown, index: number) => {
@@ -1402,7 +1502,11 @@ export class SearchEngineV2 {
 		filterClause: string | undefined,
 		source: string,
 	): Promise<Candidate[]> {
-		let q = table.vectorSearch(queryVector).column('vec_file').limit(limit);
+		let q = table
+			.vectorSearch(queryVector)
+			.column('vec_file')
+			.limit(limit)
+			.select(['file_id', 'file_path', 'file_summary_text', '_distance']);
 		if (filterClause) q = q.where(filterClause);
 		const rows = await q.toArray();
 		return rows.map((row: unknown, index: number) => {
@@ -1674,6 +1778,17 @@ function routeIntent(query: string): Exclude<V2SearchIntent, 'auto'> {
 	}
 
 	return 'concept';
+}
+
+function toStringLiteralExactTextQuery(query: string): string | null {
+	const trimmed = query.trim();
+	if (!trimmed) return null;
+
+	// Multi-token exact-text queries at high limits can trigger pathological
+	// native-memory growth in LanceDB string_literals FTS. Use string literal
+	// channels only for focused single-token probes.
+	const tokens = trimmed.split(/\s+/g).filter(Boolean);
+	return tokens.length === 1 ? trimmed : null;
 }
 
 type DefinitionFuzzyPlan = {

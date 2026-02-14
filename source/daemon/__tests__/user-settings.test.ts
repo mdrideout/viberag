@@ -51,7 +51,7 @@ describe('user settings (global)', () => {
 
 		expect(settings.installationId).toBeTruthy();
 		expect(onDisk.installationId).toBe(settings.installationId);
-		expect(settings.telemetry.mode).toBe('default');
+		expect(settings.telemetry.mode).toBe('stripped');
 	});
 
 	it('updates telemetry mode without changing installationId', async () => {

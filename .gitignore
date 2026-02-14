@@ -41,3 +41,7 @@ local_cache/
 # Test artifacts
 test-results/
 test-fixtures/codebase/.viberag/
+
+# Memory diagnostics artifacts
+scripts/memory/out/*
+!scripts/memory/out/.gitkeep

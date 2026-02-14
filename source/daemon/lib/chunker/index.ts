@@ -289,7 +289,8 @@ export class Chunker {
 		const language = this.languages.get(lang)!;
 		this.parser.setLanguage(language);
 
-		// Parse the content
+		// Parse the content. Tree-sitter trees own native/WASM allocations and
+		// must be explicitly deleted once extraction is complete.
 		const tree = this.parser.parse(content);
 
 		// If parsing failed, fall back to module chunk (with size enforcement + overlap)
@@ -305,38 +306,42 @@ export class Chunker {
 			);
 		}
 
-		// Extract chunks based on language with context tracking
-		const chunks = this.extractChunks(
-			tree.rootNode,
-			content,
-			lang,
-			filepath,
-			maxChunkSize,
-		);
+		try {
+			// Extract chunks based on language with context tracking
+			const chunks = this.extractChunks(
+				tree.rootNode,
+				content,
+				lang,
+				filepath,
+				maxChunkSize,
+			);
 
-		// If no chunks found, fall back to module chunk (with size enforcement + overlap)
-		if (chunks.length === 0) {
-			const moduleChunk = this.createModuleChunk(filepath, content);
-			return this.enforceSizeLimits(
-				[moduleChunk],
+			// If no chunks found, fall back to module chunk (with size enforcement + overlap)
+			if (chunks.length === 0) {
+				const moduleChunk = this.createModuleChunk(filepath, content);
+				return this.enforceSizeLimits(
+					[moduleChunk],
+					maxChunkSize,
+					content,
+					lang,
+					filepath,
+					DEFAULT_OVERLAP_LINES, // Add overlap for context continuity
+				);
+			}
+
+			// Split oversized chunks and merge tiny ones
+			const sizedChunks = this.enforceSizeLimits(
+				chunks,
 				maxChunkSize,
 				content,
 				lang,
 				filepath,
-				DEFAULT_OVERLAP_LINES, // Add overlap for context continuity
 			);
+
+			return sizedChunks;
+		} finally {
+			tree.delete();
 		}
-
-		// Split oversized chunks and merge tiny ones
-		const sizedChunks = this.enforceSizeLimits(
-			chunks,
-			maxChunkSize,
-			content,
-			lang,
-			filepath,
-		);
-
-		return sizedChunks;
 	}
 
 	/**
@@ -401,6 +406,7 @@ export class Chunker {
 		const language = this.languages.get(lang)!;
 		this.parser.setLanguage(language);
 
+		// Parse once and guarantee tree cleanup via finally.
 		const tree = this.parser.parse(content);
 		if (!tree) {
 			const moduleChunk = this.createModuleChunk(filepath, content);
@@ -420,31 +426,41 @@ export class Chunker {
 			};
 		}
 
-		const definition_chunks = this.extractChunks(
-			tree.rootNode,
-			content,
-			lang,
-			filepath,
-			definitionMaxChunkSize,
-		);
+		try {
+			const definition_chunks = this.extractChunks(
+				tree.rootNode,
+				content,
+				lang,
+				filepath,
+				definitionMaxChunkSize,
+			);
 
-		const chunks = this.enforceSizeLimits(
-			this.extractChunks(tree.rootNode, content, lang, filepath, chunkMaxSize),
-			chunkMaxSize,
-			content,
-			lang,
-			filepath,
-		);
+			const chunks = this.enforceSizeLimits(
+				this.extractChunks(
+					tree.rootNode,
+					content,
+					lang,
+					filepath,
+					chunkMaxSize,
+				),
+				chunkMaxSize,
+				content,
+				lang,
+				filepath,
+			);
 
-		const refs = this.extractRefsFromTree(tree.rootNode, lang, refsOptions);
+			const refs = this.extractRefsFromTree(tree.rootNode, lang, refsOptions);
 
-		return {
-			language: lang,
-			parse_status: 'parsed',
-			definition_chunks,
-			chunks,
-			refs,
-		};
+			return {
+				language: lang,
+				parse_status: 'parsed',
+				definition_chunks,
+				chunks,
+				refs,
+			};
+		} finally {
+			tree.delete();
+		}
 	}
 
 	/**

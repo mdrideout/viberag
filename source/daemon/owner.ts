@@ -15,8 +15,17 @@ import * as crypto from 'node:crypto';
 import {loadConfig, configExists, type ViberagConfig} from './lib/config.js';
 import {getDaemonPidPath, getDaemonSocketPath} from './lib/constants.js';
 import {createServiceLogger, type Logger} from './lib/logger.js';
+import {captureMessage, flushSentry} from './lib/telemetry/sentry.js';
 import {isAbortError, throwIfAborted} from './lib/abort.js';
 import {daemonState, type IndexingStatus} from './state.js';
+import {
+	DaemonMemoryMonitor,
+	type MemoryMonitorReport,
+} from './services/memory-monitor.js';
+import {
+	buildMemoryMonitorSentryEvent,
+	toSentryCaptureContext,
+} from './services/memory-monitor-sentry.js';
 import {SearchEngineV2} from './services/v2/search/engine.js';
 import type {
 	V2FindUsagesOptions,
@@ -43,6 +52,38 @@ import type {
 // ============================================================================
 
 const AUTO_INDEX_CANCEL_PAUSE_MS = 30_000;
+const MAX_FAILURE_HISTORY = 100;
+const BYTES_PER_MB = 1024 * 1024;
+
+function toMB(bytes: number): number {
+	return Number((bytes / BYTES_PER_MB).toFixed(1));
+}
+
+function sha256Hex(value: string): string {
+	return crypto.createHash('sha256').update(value).digest('hex');
+}
+
+function parsePositiveEnvNumber(name: string): number | undefined {
+	const raw = process.env[name]?.trim();
+	if (!raw) return undefined;
+	const value = Number(raw);
+	if (!Number.isFinite(value) || value <= 0) {
+		return undefined;
+	}
+	return value;
+}
+
+function parseEnvMbToBytes(name: string): number | undefined {
+	const mb = parsePositiveEnvNumber(name);
+	if (mb === undefined) return undefined;
+	return Math.floor(mb * BYTES_PER_MB);
+}
+
+function parseEnvPositiveInteger(name: string): number | undefined {
+	const value = parsePositiveEnvNumber(name);
+	if (value === undefined) return undefined;
+	return Math.floor(value);
+}
 
 /**
  * Search options passed from client.
@@ -101,6 +142,16 @@ export interface FailedChunk {
 }
 
 /**
+ * Lightweight memory snapshot for status polling/observability.
+ */
+export interface DaemonMemorySnapshot {
+	rssMB: number;
+	heapUsedMB: number;
+	externalMB: number;
+	arrayBuffersMB: number;
+}
+
+/**
  * Status response for clients.
  * Enhanced to support polling-based state synchronization.
  */
@@ -116,6 +167,7 @@ export interface DaemonStatus {
 	totalRefs?: number;
 	embeddingProvider?: string;
 	embeddingModel?: string;
+	memory: DaemonMemorySnapshot;
 	warmupStatus: string;
 	warmupElapsedMs?: number;
 	warmupCancelRequestedAt?: string | null;
@@ -185,6 +237,7 @@ export class DaemonOwner {
 	private warmupStartTime: number | null = null;
 	private warmupAbortController: AbortController | null = null;
 	private indexingAbortController: AbortController | null = null;
+	private memoryMonitor: DaemonMemoryMonitor | null = null;
 
 	constructor(projectRoot: string) {
 		this.projectRoot = projectRoot;
@@ -246,6 +299,7 @@ export class DaemonOwner {
 		);
 		await this.storage.connect();
 		this.log('info', 'Storage connected');
+		await this.startMemoryMonitor();
 
 		// Start watcher (if enabled)
 		if (this.config.watch?.enabled !== false) {
@@ -285,6 +339,7 @@ export class DaemonOwner {
 	 */
 	async shutdown(): Promise<void> {
 		this.log('info', 'Daemon shutting down');
+		await this.stopMemoryMonitor();
 
 		// Stop watcher
 		if (this.watcher) {
@@ -523,7 +578,7 @@ export class DaemonOwner {
 		indexer.on('slot-failure', ({batchInfo, error, files, chunkCount}) => {
 			daemonState.update(state => ({
 				failures: [
-					...state.failures,
+					...state.failures.slice(-(MAX_FAILURE_HISTORY - 1)),
 					{
 						batchInfo,
 						error,
@@ -549,6 +604,85 @@ export class DaemonOwner {
 	// ==========================================================================
 	// SearchEngine Management (WarmupManager pattern)
 	// ==========================================================================
+
+	/**
+	 * Start memory monitoring for production diagnostics.
+	 */
+	private async startMemoryMonitor(): Promise<void> {
+		if (this.memoryMonitor) return;
+
+		const thresholdBytes = parseEnvMbToBytes(
+			'VIBERAG_MEMORY_MONITOR_THRESHOLD_MB',
+		);
+		let recoveryBytes = parseEnvMbToBytes('VIBERAG_MEMORY_MONITOR_RECOVERY_MB');
+		if (
+			thresholdBytes !== undefined &&
+			recoveryBytes !== undefined &&
+			recoveryBytes >= thresholdBytes
+		) {
+			this.log(
+				'warn',
+				'Ignoring VIBERAG_MEMORY_MONITOR_RECOVERY_MB because it must be lower than VIBERAG_MEMORY_MONITOR_THRESHOLD_MB.',
+			);
+			recoveryBytes = undefined;
+		}
+
+		this.memoryMonitor = new DaemonMemoryMonitor({
+			projectRoot: this.projectRoot,
+			logger: (level, message) => this.log(level, message),
+			onReport: report => {
+				this.captureMemoryMonitorEvent(report);
+			},
+			pollIntervalMs: parseEnvPositiveInteger(
+				'VIBERAG_MEMORY_MONITOR_POLL_INTERVAL_MS',
+			),
+			thresholdBytes,
+			recoveryBytes,
+			growthThresholdBytes: parseEnvMbToBytes(
+				'VIBERAG_MEMORY_MONITOR_GROWTH_THRESHOLD_MB',
+			),
+			growthWindowMs: parseEnvPositiveInteger(
+				'VIBERAG_MEMORY_MONITOR_GROWTH_WINDOW_MS',
+			),
+			minReportIntervalMs: parseEnvPositiveInteger(
+				'VIBERAG_MEMORY_MONITOR_MIN_REPORT_INTERVAL_MS',
+			),
+			maxReportsPerDay: parseEnvPositiveInteger(
+				'VIBERAG_MEMORY_MONITOR_MAX_REPORTS_PER_DAY',
+			),
+		});
+		await this.memoryMonitor.start();
+	}
+
+	/**
+	 * Stop memory monitoring.
+	 */
+	private async stopMemoryMonitor(): Promise<void> {
+		if (!this.memoryMonitor) return;
+		await this.memoryMonitor.stop();
+		this.memoryMonitor = null;
+	}
+
+	/**
+	 * Report a memory monitor diagnostic event to Sentry with daemon context.
+	 */
+	private captureMemoryMonitorEvent(report: MemoryMonitorReport): void {
+		const state = daemonState.getSnapshot();
+		const watcherStatus = this.getWatcherStatus();
+		const event = buildMemoryMonitorSentryEvent({
+			report,
+			state,
+			watcherStatus,
+			projectRoot: this.projectRoot,
+		});
+		captureMessage(event.message, toSentryCaptureContext(event));
+		void flushSentry(2_000);
+
+		this.log(
+			'warn',
+			`Memory monitor triggered Sentry report (${event.triggerSummary}) at rss=${event.rssMB}MB`,
+		);
+	}
 
 	/**
 	 * Start warmup in background.
@@ -908,11 +1042,19 @@ export class DaemonOwner {
 		const elapsedMs = state.indexing.startedAt
 			? Math.max(0, now - new Date(state.indexing.startedAt).getTime())
 			: null;
+		const usage = process.memoryUsage();
+		const memory: DaemonMemorySnapshot = {
+			rssMB: toMB(usage.rss),
+			heapUsedMB: toMB(usage.heapUsed),
+			externalMB: toMB(usage.external),
+			arrayBuffersMB: toMB(usage.arrayBuffers),
+		};
 
 		const status: DaemonStatus = {
 			initialized: await configExists(this.projectRoot),
 			indexed: await v2ManifestExists(this.projectRoot),
 			warmupStatus: state.warmup.status,
+			memory,
 			warmupElapsedMs,
 			warmupCancelRequestedAt: state.warmup.cancelRequestedAt,
 			warmupCancelledAt: state.warmup.cancelledAt,
@@ -1069,5 +1211,5 @@ export class DaemonOwner {
 }
 
 function computeRepoId(projectRoot: string): string {
-	return crypto.createHash('sha256').update(projectRoot).digest('hex');
+	return sha256Hex(projectRoot);
 }

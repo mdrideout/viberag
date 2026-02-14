@@ -1,7 +1,7 @@
 /**
  * PostHog telemetry client wrapper for VibeRAG.
  *
- * - Telemetry is enabled by default (opt-out).
+ * - Telemetry is enabled by default in stripped mode (opt-out).
  * - Settings are global under VIBERAG_HOME and shared by CLI/daemon/MCP.
  * - Captures inputs/outputs but strips file contents / code text.
  */
