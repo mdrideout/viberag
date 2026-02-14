@@ -23,7 +23,7 @@ export type UserSettings = {
 	};
 };
 
-const DEFAULT_TELEMETRY_MODE: TelemetryMode = 'default';
+const DEFAULT_TELEMETRY_MODE: TelemetryMode = 'stripped';
 
 function createDefaultUserSettings(now: string): UserSettings {
 	return {

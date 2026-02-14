@@ -19,7 +19,7 @@ VibeRAG supports three telemetry modes:
 - stripped: privacy-preserving telemetry (no query text; minimal metadata).
 - default: includes query text (with best-effort redaction) and richer structured metadata.
 
-Telemetry is enabled by default. You can change this at any time:
+Telemetry defaults to stripped mode. You can change this at any time:
 
 - Run /telemetry disabled|stripped|default in the VibeRAG CLI.
 - Or set VIBERAG_TELEMETRY=disabled|stripped|default as an environment variable.
