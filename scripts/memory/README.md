@@ -93,6 +93,44 @@ Key env:
 - `VIBERAG_STRESS_INDEX_CHURN_SECONDS`
 - `VIBERAG_STRESS_INDEX_FORCE`
 
+### `watch-reindex-stress.mjs`
+
+Purpose:
+
+- Sustained watcher-driven reindex stress via parallel continuous file edits.
+- Simulates real file-change churn with high write rates over many probe files.
+- Tracks daemon RSS/external memory, watcher pending queue pressure, and index update cadence.
+- Includes hard/soft RSS guards to avoid host OOM during investigation.
+
+Run:
+
+```bash
+npm run memory:watch-stress
+```
+
+Key env:
+
+- `VIBERAG_WATCH_STRESS_SECONDS` (default `60`)
+- `VIBERAG_WATCH_STRESS_WRITERS` (default `48`)
+- `VIBERAG_WATCH_STRESS_FILES` (default `96`)
+- `VIBERAG_WATCH_STRESS_WRITE_INTERVAL_MS` (default `0`)
+- `VIBERAG_WATCH_STRESS_CONTENT_KB` (default `2`)
+- `VIBERAG_WATCH_STRESS_SAMPLE_MS` (default `500`)
+- `VIBERAG_WATCH_STRESS_MAX_RSS_MB` (default `10240`)
+- `VIBERAG_WATCH_STRESS_SOFT_RSS_MB` (default `80%` of max)
+- `VIBERAG_WATCH_STRESS_CLEAN_START` (`1` by default, kills existing daemon first)
+- `VIBERAG_WATCH_STRESS_TARGET_DIR` (default `source/daemon/__watch_stress_probe`)
+
+Example:
+
+```bash
+VIBERAG_WATCH_STRESS_SECONDS=60 \
+VIBERAG_WATCH_STRESS_WRITERS=64 \
+VIBERAG_WATCH_STRESS_FILES=128 \
+VIBERAG_WATCH_STRESS_MAX_RSS_MB=10240 \
+npm run memory:watch-stress
+```
+
 ## Testing Daemon Memory Alerts
 
 You can force local alerting by lowering daemon monitor thresholds via env vars.
@@ -129,5 +167,6 @@ Generated run logs are written to `scripts/memory/out/` as JSONL.
 
 - `isolate-intent-growth-*.jsonl`
 - `stress-search-growth-*.jsonl`
+- `watch-reindex-stress-*.jsonl`
 
 These generated files are intentionally gitignored. Keep `scripts/memory/out/.gitkeep` tracked so the folder exists by default.
